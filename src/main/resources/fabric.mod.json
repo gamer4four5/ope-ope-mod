@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "opeope",
+  "version": "${version}",
+  "name": "Ope Ope no Mi",
+  "description": "La fruta de Law en Minecraft: ROOM, Shambles, Amputate, Takt, cortes de verdad en los bloques y las técnicas del cirujano de la muerte.",
+  "authors": ["gamer"],
+  "license": "All-Rights-Reserved",
+  "icon": "assets/opeope/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.opeope.OpeOpeMod"],
+    "client": ["dev.opeope.client.OpeOpeClient"]
+  },
+  "mixins": [
+    {
+      "config": "opeope.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
