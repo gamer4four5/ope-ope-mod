@@ -19,6 +19,17 @@ jobs:
         with:
           name: ope-ope-no-mi-mod
           path: build/libs/*.jar
+      - name: Guardar el jar en la rama "jar"
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          JAR=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
+          mkdir -p /tmp/jar && cp "$JAR" /tmp/jar/OpeOpeNoMi-1.21.1.jar
+          cd /tmp/jar
+          git init -q -b jar
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add . && git commit -q -m "jar del commit ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" jar
       - name: Prueba servidor (arranca y genera un mundo)
         run: |
           mkdir -p run && echo "eula=true" > run/eula.txt
@@ -67,14 +78,3 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -q -m "registros de la ejecución ${{ github.run_id }}" || exit 0
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
-      - name: Guardar el jar en la rama "jar"
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          JAR=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
-          mkdir -p /tmp/jar && cp "$JAR" /tmp/jar/OpeOpeNoMi-1.21.1.jar
-          cd /tmp/jar
-          git init -q -b jar
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add . && git commit -q -m "jar del commit ${{ github.sha }}"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" jar
