@@ -11,6 +11,16 @@ base {
 
 loom {
 	splitEnvironmentSourceSets()
+	runs {
+		// Arranque de prueba usado por GitHub Actions: entra directo al mundo "Prueba".
+		smokeClient {
+			client()
+			name "Smoke Client"
+			programArgs "--quickPlaySingleplayer", "Prueba"
+			vmArgs "-Xmx3G"
+			runDir "run"
+		}
+	}
 	mods {
 		"opeope" {
 			sourceSet sourceSets.main

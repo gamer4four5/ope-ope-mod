@@ -16,6 +16,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.render.entity.FlyingItemEntityRenderer;
+import dev.opeope.OpeOpeMod;
 
 public class OpeOpeClient implements ClientModInitializer {
 	@Override
@@ -39,5 +40,6 @@ public class OpeOpeClient implements ClientModInitializer {
 		});
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		HudRenderCallback.EVENT.register(Hud::render);
+		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");
 	}
 }
