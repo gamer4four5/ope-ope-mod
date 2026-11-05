@@ -43,7 +43,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");
 		if (Boolean.getBoolean("opeope.autotest")) {
 			ProcessHandle.current().info().arguments().ifPresent(args -> OpeOpeMod.LOG.info("Autotest, argumentos del juego: {}",
-				java.util.Arrays.stream(args).filter(a -> !a.startsWith("-") && !a.contains("/") && !a.contains(".")).toList()));
+				java.util.Arrays.stream(args).filter(a -> !a.contains("/") && !a.contains(";")).toList()));
 		}
 	}
 }
