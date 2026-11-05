@@ -16,8 +16,8 @@ loom {
 		smokeClient {
 			client()
 			name "Smoke Client"
-			programArgs "--quickPlaySingleplayer", "Prueba"
-			vmArgs "-Xmx3G"
+			programArgs "--quickPlaySingleplayer=Prueba"
+			vmArgs "-Xmx3G", "-Dopeope.autotest=true"
 			runDir "run"
 		}
 	}

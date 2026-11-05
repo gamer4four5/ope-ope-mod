@@ -41,5 +41,9 @@ public class OpeOpeClient implements ClientModInitializer {
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		HudRenderCallback.EVENT.register(Hud::render);
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");
+		if (Boolean.getBoolean("opeope.autotest")) {
+			ProcessHandle.current().info().arguments().ifPresent(args -> OpeOpeMod.LOG.info("Autotest, argumentos del juego: {}",
+				java.util.Arrays.stream(args).filter(a -> !a.startsWith("-") && !a.contains("/") && !a.contains(".")).toList()));
+		}
 	}
 }
