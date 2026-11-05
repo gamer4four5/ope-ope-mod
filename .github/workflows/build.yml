@@ -66,7 +66,7 @@ jobs:
           grep -vE "Downloading|Download " cliente.log | tail -60
           grep -q 'cliente listo' cliente.log
           if grep -qiE 'Mixin apply|MixinApplyError|Reported exception thrown' cliente.log; then exit 1; fi
-          grep -q 'joined the game' cliente.log
+          grep -qE 'joined the game|se ha unido a la partida' cliente.log
           [ "$rc" = "124" ]
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
