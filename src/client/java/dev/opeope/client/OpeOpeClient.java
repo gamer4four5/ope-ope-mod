@@ -2,6 +2,7 @@ package dev.opeope.client;
 
 import dev.opeope.client.input.InputHandler;
 import dev.opeope.client.input.Keys;
+import dev.opeope.client.render.CutFx;
 import dev.opeope.client.render.Hud;
 import dev.opeope.client.render.PieceRenderer;
 import dev.opeope.client.render.RoomRenderer;
@@ -32,14 +33,22 @@ public class OpeOpeClient implements ClientModInitializer {
 			if (payload.planes().length == 0) ClientState.CUTS.remove(payload.entityId());
 			else ClientState.CUTS.put(payload.entityId(), payload.planes());
 		});
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientState.clear());
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.CutFx.ID, (payload, ctx) -> CutFx.receive(payload.data()));
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			ClientState.clear();
+			CutFx.clear();
+		});
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			ClientState.tick();
 			InputHandler.tick(client);
+			CutFx.tick();
+			AutoTest.tick(client);
 		});
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
+		WorldRenderEvents.AFTER_TRANSLUCENT.register(CutFx::render);
 		HudRenderCallback.EVENT.register(Hud::render);
+		HudRenderCallback.EVENT.register(CutFx::renderHud);
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");
 		if (Boolean.getBoolean("opeope.autotest")) {
 			ProcessHandle.current().info().arguments().ifPresent(args -> OpeOpeMod.LOG.info("Autotest, argumentos del juego: {}",

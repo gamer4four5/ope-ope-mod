@@ -4,6 +4,9 @@ import dev.opeope.OpeConfig;
 import dev.opeope.entity.BlockSet;
 import dev.opeope.entity.PieceEntity;
 import dev.opeope.entity.SterbenEntity;
+import dev.opeope.net.Payloads;
+import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
@@ -18,6 +21,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -170,6 +174,7 @@ public final class CutEngine {
 		ServerWorld w = player.getServerWorld();
 		UUID owner = player.getUuid();
 		if (planes.isEmpty()) return new Result(0, 0);
+		sendFx(w, player, planes, region);
 
 		// 1. Semillas: los bloques pegados a cada plano dentro de la región (y de qué lado del plano quedan).
 		LongOpenHashSet seen = new LongOpenHashSet();
@@ -177,6 +182,7 @@ public final class CutEngine {
 		IntArrayList seedPlane = new IntArrayList();
 		IntArrayList seedSide = new IntArrayList();
 		List<Vec3d> fx = new ArrayList<>();
+		List<BlockState> fxState = new ArrayList<>();
 		Vec3d scC = region.sampleC();
 		double sr = region.sampleR();
 		BlockPos.Mutable m = new BlockPos.Mutable();
@@ -207,7 +213,10 @@ public final class CutEngine {
 							seedPlane.add(pi);
 							// el lado real del bloque (por su centro), no el de la muestra
 							seedSide.add(pl.dist(m.getX() + 0.5, m.getY() + 0.5, m.getZ() + 0.5) >= 0 ? 1 : -1);
-							if (s == 1 && fx.size() < 240 && w.random.nextInt(3) == 0) fx.add(new Vec3d(px, py, pz));
+							if (s == 1 && fx.size() < 240 && w.random.nextInt(3) == 0) {
+								fx.add(new Vec3d(px, py, pz));
+								fxState.add(st);
+							}
 						}
 					}
 				}
@@ -301,12 +310,16 @@ public final class CutEngine {
 				pe.setFlag(PieceEntity.F_SUSPENDED, true);
 				power.suspended.add(pe.getId());
 			} else if (nSide.y >= OpeConfig.CUT_SLIDE_MIN_UP) {
-				// Encima del corte: resbala por el plano, cuesta abajo y hacia donde va el tajo.
-				Vec3d push = look.subtract(nSide.multiply(look.dotProduct(nSide)));
+				// Encima del corte: resbala por el plano, cuesta abajo y hacia donde fue el tajo (el filo se lo lleva).
+				Vec3d swipe = swipeOf(pl0, look);
+				Vec3d dir = swipe.add(look.multiply(0.35));
+				Vec3d push = dir.subtract(nSide.multiply(dir.dotProduct(nSide)));
 				push = push.lengthSquared() < 1e-4 ? Vec3d.ZERO : push.normalize().multiply(OpeConfig.CUT_SLIDE_PUSH);
 				pe.startSlide(nSide, pl0.p(), push);
+				pe.hold(OpeConfig.CUT_HOLD_TICKS);
 			} else {
 				pe.setVelocity(nSide.multiply(0.08));
+				pe.hold(OpeConfig.CUT_HOLD_TICKS);
 			}
 			pieces++;
 		}
@@ -333,15 +346,70 @@ public final class CutEngine {
 		}
 
 		// 5. La línea del corte y el sonido.
-		for (Vec3d p : fx) {
+		Vec3d mid = Vec3d.ZERO;
+		BlockState mainMat = null;
+		Map<BlockState, Integer> matCount = new HashMap<>();
+		for (int i = 0; i < fx.size(); i++) {
+			Vec3d p = fx.get(i);
+			BlockState st = fxState.get(i);
+			mid = mid.add(p);
+			int c = matCount.merge(st, 1, Integer::sum);
+			if (mainMat == null || c > matCount.getOrDefault(mainMat, 0)) mainMat = st;
 			w.spawnParticles(ROOM_DUST, p.x, p.y, p.z, 1, 0.05, 0.05, 0.05, 0);
+			// el material del corte: polvo, astillas o chispas de lo que se cortó
+			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st), p.x, p.y, p.z, 2, 0.1, 0.1, 0.1, 0.08);
 			if (w.random.nextInt(4) == 0) w.spawnParticles(ParticleTypes.END_ROD, p.x, p.y, p.z, 1, 0, 0, 0, 0.005);
 		}
+		if (!fx.isEmpty() && mainMat != null) {
+			mid = mid.multiply(1.0 / fx.size());
+			var group = mainMat.getSoundGroup();
+			w.playSound(null, mid.x, mid.y, mid.z, group.getBreakSound(), SoundCategory.BLOCKS, 1.0f, group.getPitch() * 0.8f);
+			if (pieces > 0) w.playSound(null, mid.x, mid.y, mid.z, group.getHitSound(), SoundCategory.BLOCKS, 1.0f, 0.6f);
+		}
+		if (AUTOTEST) dev.opeope.OpeOpeMod.LOG.info("Corte: {} planos, {} piezas, {} seres, {} semillas", planes.size(), pieces, living, seeds.size());
 		Vec3d at = player.getEyePos();
 		w.playSound(null, at.x, at.y, at.z, SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.PLAYERS, 1.0f, 1.5f);
 		w.playSound(null, at.x, at.y, at.z, SoundEvents.BLOCK_AMETHYST_BLOCK_BREAK, SoundCategory.PLAYERS, 0.8f, 1.8f);
 		if (pieces > 0 || living > 0) w.playSound(null, at.x, at.y, at.z, SoundEvents.BLOCK_AMETHYST_CLUSTER_BREAK, SoundCategory.PLAYERS, 1.0f, 0.6f);
 		return new Result(pieces, living);
+	}
+
+	static final boolean AUTOTEST = Boolean.getBoolean("opeope.autotest");
+
+	/** La dirección del tajo dentro del plano: el plano contiene la mirada y el trazo (n = mirada × trazo). */
+	static Vec3d swipeOf(Plane pl, Vec3d look) {
+		Vec3d s = pl.n().crossProduct(look);
+		if (s.lengthSquared() < 1e-6) {
+			s = pl.n().crossProduct(new Vec3d(0, 1, 0));
+			if (s.lengthSquared() < 1e-6) s = new Vec3d(1, 0, 0);
+		}
+		return s.normalize();
+	}
+
+	/** Avisa a los que miran: la hoja de luz y la costura se dibujan en el cliente sobre el mundo aún entero. */
+	private static void sendFx(ServerWorld w, ServerPlayerEntity player, List<Plane> planes, Region region) {
+		Vec3d look = region.look != null ? region.look : player.getRotationVector();
+		int np = Math.min(planes.size(), 16);
+		float[] d = new float[14 + np * 9];
+		Vec3d c = region.c, e = region.eye;
+		d[0] = (float) c.x; d[1] = (float) c.y; d[2] = (float) c.z; d[3] = (float) region.r;
+		if (region.lc != null) {
+			d[4] = (float) region.lc.x; d[5] = (float) region.lc.y; d[6] = (float) region.lc.z; d[7] = (float) region.lr;
+		}
+		if (e != null && region.look != null) {
+			d[8] = (float) e.x; d[9] = (float) e.y; d[10] = (float) e.z;
+			d[11] = (float) look.x; d[12] = (float) look.y; d[13] = (float) look.z;
+		}
+		for (int i = 0; i < np; i++) {
+			Plane pl = planes.get(i);
+			Vec3d s = swipeOf(pl, look);
+			int o = 14 + i * 9;
+			d[o] = (float) pl.n().x; d[o + 1] = (float) pl.n().y; d[o + 2] = (float) pl.n().z;
+			d[o + 3] = (float) pl.p().x; d[o + 4] = (float) pl.p().y; d[o + 5] = (float) pl.p().z;
+			d[o + 6] = (float) s.x; d[o + 7] = (float) s.y; d[o + 8] = (float) s.z;
+		}
+		Payloads.CutFx payload = new Payloads.CutFx(d);
+		for (ServerPlayerEntity sp : PlayerLookup.around(w, c, 128)) ServerPlayNetworking.send(sp, payload);
 	}
 
 	/**

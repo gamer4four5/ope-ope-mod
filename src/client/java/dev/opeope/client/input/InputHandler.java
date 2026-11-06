@@ -1,6 +1,7 @@
 package dev.opeope.client.input;
 
 import dev.opeope.client.ClientState;
+import dev.opeope.client.render.CutFx;
 import dev.opeope.client.screen.GuideScreen;
 import dev.opeope.power.Actions;
 import dev.opeope.registry.ModItems;
@@ -51,7 +52,10 @@ public final class InputHandler {
 	private static boolean leftHeld;
 	private static int leftHeldTicks;
 	private static boolean dragging;
-	private static float dragYaw, dragPitch;
+	private static Vec3d dragLook = new Vec3d(0, 0, 1);
+	private static double dragDX, dragDY;               // lo que se movió el ratón con la cámara quieta
+	private static double lastSX = 1, lastSY = 0;       // el último tajo en pantalla (x a la derecha, y hacia arriba)
+	private static final double DRAG_MIN = 10;           // menos que esto (≈1,5°) es un clic: repite el último tajo
 	private static boolean unionCHeld;
 	private static long unionCAt;
 	private static boolean surgeryOn;
@@ -350,10 +354,8 @@ public final class InputHandler {
 			return true;
 		}
 		if (empty && ClientState.ownRoom() != null) {
-			dragging = true;
-			dragYaw = p.getYaw();
-			dragPitch = p.getPitch();
-			mark(code, InputHandler::finishAmputate);
+			beginDrag();
+			mark(code, InputHandler::endDrag);
 			return true;
 		}
 		if (kikoku && ClientState.ownRoom() != null && ClientState.inOwnRoom(p.getEyePos())) {
@@ -409,26 +411,92 @@ public final class InputHandler {
 		return false;
 	}
 
-	/** Amputate: el arco del tajo (cómo mueves el ratón con el clic pulsado) es el plano del corte. */
-	private static void finishAmputate() {
-		if (!dragging) return;
-		dragging = false;
+	// ------------------------------------------------------------------ Amputate: trazar el tajo
+
+	/**
+	 * Como en el juego: al pulsar, la cámara se queda quieta y el ratón traza el tajo en la pantalla. El plano del
+	 * corte pasa por tus ojos y contiene la dirección a la que miras y la del trazo. Un clic sin trazo repite el último.
+	 */
+	public static void beginDrag() {
 		ClientPlayerEntity p = mc().player;
 		if (p == null) return;
-		float dyaw = MathHelper.wrapDegrees(p.getYaw() - dragYaw);
-		float dpitch = p.getPitch() - dragPitch;
-		Vec3d look = Vec3d.fromPolar(dragPitch, dragYaw);
+		dragging = true;
+		dragLook = p.getRotationVector();
+		dragDX = dragDY = 0;
+	}
+
+	/** El ratón mientras trazas: no gira la cámara, dibuja el tajo. */
+	public static boolean captureLook(double dx, double dy) {
+		if (!dragging) return false;
+		dragDX += dx;
+		dragDY += dy;
+		return true;
+	}
+
+	public static boolean isDragging() {
+		return dragging;
+	}
+
+	/** El trazo en pantalla en unidades del ratón (x a la derecha, y hacia arriba). */
+	public static double dragX() {
+		return dragDX;
+	}
+
+	public static double dragY() {
+		return -dragDY;
+	}
+
+	/** La dirección del tajo en pantalla (unitaria): la del trazo, o la del último tajo si apenas se movió. */
+	public static double[] swipeScreen() {
+		double len = Math.sqrt(dragDX * dragDX + dragDY * dragDY);
+		if (len < DRAG_MIN) return new double[]{lastSX, lastSY};
+		return new double[]{dragDX / len, -dragDY / len};
+	}
+
+	/** El plano del tajo que se está trazando: {nx, ny, nz, px, py, pz} (pasa por los ojos). */
+	public static double[] dragPlane() {
+		ClientPlayerEntity p = mc().player;
+		if (p == null || !dragging) return null;
+		double[] s = swipeScreen();
+		Vec3d n = slashNormal(dragLook, s[0], s[1]);
+		Vec3d eye = p.getEyePos();
+		return new double[]{n.x, n.y, n.z, eye.x, eye.y, eye.z};
+	}
+
+	private static Vec3d[] screenAxes(Vec3d look) {
 		Vec3d right = look.crossProduct(new Vec3d(0, 1, 0));
 		if (right.lengthSquared() < 1e-4) right = new Vec3d(1, 0, 0);
 		right = right.normalize();
 		Vec3d up = right.crossProduct(look).normalize();
-		Vec3d swipe;
-		if (dyaw * dyaw + dpitch * dpitch < 4) swipe = right;
-		else swipe = right.multiply(dyaw).add(up.multiply(-dpitch)).normalize();
-		Vec3d n = look.crossProduct(swipe).normalize();
+		return new Vec3d[]{right, up};
+	}
+
+	/** Normal del plano que contiene la mirada y el trazo (sx a la derecha, sy hacia arriba). */
+	public static Vec3d slashNormal(Vec3d look, double sx, double sy) {
+		Vec3d[] ax = screenAxes(look);
+		Vec3d swipe = ax[0].multiply(sx).add(ax[1].multiply(sy)).normalize();
+		return look.crossProduct(swipe).normalize();
+	}
+
+	public static void endDrag() {
+		if (!dragging) return;
+		ClientPlayerEntity p = mc().player;
+		double[] s = swipeScreen();
+		dragging = false;
+		dragDX = dragDY = 0;
+		if (p == null) return;
+		lastSX = s[0];
+		lastSY = s[1];
+		Vec3d n = slashNormal(dragLook, s[0], s[1]);
 		Vec3d eye = p.getEyePos();
 		Send.cut(0, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) eye.x, (float) eye.y, (float) eye.z});
+		CutFx.slashFlash(s[0], s[1]);
 		p.swingHand(Hand.MAIN_HAND);
+	}
+
+	public static void cancelDrag() {
+		dragging = false;
+		dragDX = dragDY = 0;
 	}
 
 	/** Con la Kikoku dentro del ROOM, cada tajo corta de verdad lo que alcanza (alternando diagonales). */
@@ -452,6 +520,7 @@ public final class InputHandler {
 			openGuide = false;
 			mc.setScreen(new GuideScreen());
 		}
+		if (dragging && (mc.currentScreen != null || ClientState.ownRoom() == null)) cancelDrag();
 		if (mc.player == null || !ClientState.hasFruit()) {
 			row2Down = rDown = roomDown = leftHeld = dragging = false;
 			if (Bisturi.active) Bisturi.cancel();

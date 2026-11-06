@@ -54,9 +54,9 @@ jobs:
           sleep 2
           export DISPLAY=:99
           set +e
-          timeout 360 ./gradlew runSmokeClient --console=plain > cliente.log 2>&1 &
+          timeout 420 ./gradlew runSmokeClient --console=plain > cliente.log 2>&1 &
           GPID=$!
-          for i in $(seq 1 12); do
+          for i in $(seq 1 14); do
             sleep 30
             import -window root "capturas/pantalla-$((i*30))s.png" 2>/dev/null || xwd -root -silent 2>/dev/null | convert xwd:- "capturas/pantalla-$((i*30))s.png" || true
             if ! kill -0 $GPID 2>/dev/null; then break; fi
@@ -64,6 +64,9 @@ jobs:
           wait $GPID; rc=$?
           set -e
           echo "exit=$rc"
+          cp -f run/screenshots/autotest-*.png capturas/ 2>/dev/null || true
+          echo "----- prueba de cortes -----"
+          grep -E "AUTOTEST|Corte:" cliente.log || true
           echo "----- últimas líneas de cliente.log -----"
           grep -vE "Downloading|Download " cliente.log | tail -60
           grep -q 'cliente listo' cliente.log

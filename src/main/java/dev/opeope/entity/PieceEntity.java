@@ -95,6 +95,7 @@ public class PieceEntity extends Entity {
 	private int slideTicks;
 	private double slid;
 	private int hoverTicks;
+	private int holdTicks;   // recién cortada: quieta un instante antes de moverse
 
 	public PieceEntity(EntityType<? extends PieceEntity> type, World world) {
 		super(type, world);
@@ -238,6 +239,10 @@ public class PieceEntity extends Entity {
 			weaponTick();
 			return;
 		}
+		if (holdTicks > 0 && (mode == Mode.FREE || mode == Mode.SLIDING)) {
+			holdTicks--;
+			return;
+		}
 		switch (mode) {
 			case CONTROLLED -> controlledTick();
 			case RETURNING -> returningTick();
@@ -256,6 +261,11 @@ public class PieceEntity extends Entity {
 	 * Mientras resbala no choca con la "piel" del corte (los bloques escalonados justo al otro lado del plano),
 	 * así el plano se comporta como una superficie lisa y no como una escalera de bloques.
 	 */
+	/** Quieta unos ticks (el instante del corte), luego sigue con lo suyo. */
+	public void hold(int ticks) {
+		holdTicks = ticks;
+	}
+
 	public void startSlide(Vec3d n, Vec3d planePoint, Vec3d push) {
 		mode = Mode.SLIDING;
 		slideN = n.normalize();

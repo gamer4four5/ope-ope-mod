@@ -25,6 +25,7 @@ public final class OpeConfig {
 	public static final double CUT_SLIDE_MIN_UP = 0.3;    // lo que queda encima de un corte con al menos esta inclinación resbala
 	public static final double CUT_SLIDE_PUSH = 0.16;     // empujón inicial en la dirección del tajo (bloques/tick)
 	public static final int CUT_HOVER_TICKS = 20 * 8;     // si no puede resbalar, queda separada flotando este rato
+	public static final int CUT_HOLD_TICKS = 3;           // lo cortado se queda quieto un instante con la costura encendida (0,15 s)
 	public static final int CUT_MAX_PIECES = 48;
 	public static final int CUT_MAX_SAMPLES = 420_000;
 	public static final int CUT_LIVING_TICKS = 20 * 30;   // lo cortado de un ser vivo se recompone solo a los 30 s

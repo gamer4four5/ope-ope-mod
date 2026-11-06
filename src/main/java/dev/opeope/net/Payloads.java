@@ -107,6 +107,29 @@ public final class Payloads {
 		}
 	}
 
+	/** Servidor → cliente: el momento de un corte (zona y planos) para la hoja de luz y la costura. Ver CutFx en el cliente. */
+	public record CutFx(float[] data) implements CustomPayload {
+		public static final Id<CutFx> ID = new Id<>(OpeOpeMod.id("cut_fx"));
+		public static final PacketCodec<RegistryByteBuf, CutFx> CODEC = PacketCodec.of(CutFx::write, CutFx::read);
+
+		static CutFx read(RegistryByteBuf buf) {
+			int n = Math.min(buf.readVarInt(), 14 + 16 * 9);
+			float[] p = new float[n];
+			for (int i = 0; i < n; i++) p[i] = buf.readFloat();
+			return new CutFx(p);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(data.length);
+			for (float f : data) buf.writeFloat(f);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
 	/** Servidor → cliente: el estado de los poderes del jugador, para el HUD y para saber qué hace cada clic. */
 	public record State(int flags, int pattern, int taktCount, int taktMode, int weapon, int scanTicks, int[] cooldowns) implements CustomPayload {
 		public static final int HAS_FRUIT = 1, AWAKEN_UNLOCKED = 2, AWAKENED = 4, REACH_TARGET = 8, SUSPEND = 16,
