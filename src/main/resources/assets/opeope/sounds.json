@@ -1,0 +1,117 @@
+{
+  "room.seed": {
+    "subtitle": "subtitles.opeope.room.seed",
+    "sounds": [{"name": "minecraft:block.amethyst_block.chime", "type": "event", "volume": 2.5}]
+  },
+  "room.seed_charge": {
+    "sounds": [{"name": "minecraft:block.respawn_anchor.charge", "type": "event"}]
+  },
+  "room.glint": {
+    "sounds": [{"name": "minecraft:block.note_block.chime", "type": "event"}]
+  },
+  "room.bloom": {
+    "subtitle": "subtitles.opeope.room.bloom",
+    "sounds": [{"name": "minecraft:block.conduit.activate", "type": "event"}]
+  },
+  "room.bloom_whoom": {
+    "sounds": [{"name": "minecraft:block.respawn_anchor.set_spawn", "type": "event"}]
+  },
+  "room.bloom_wind": {
+    "sounds": [{"name": "minecraft:entity.wind_charge.wind_burst", "type": "event"}]
+  },
+  "room.bloom_low": {
+    "sounds": [{"name": "minecraft:block.beacon.activate", "type": "event"}]
+  },
+  "room.grow": {
+    "subtitle": "subtitles.opeope.room.grow",
+    "sounds": [{"name": "minecraft:item.elytra.flying", "type": "event"}]
+  },
+  "room.grow_tone": {
+    "sounds": [{"name": "minecraft:block.beacon.ambient", "type": "event"}]
+  },
+  "room.lock": {
+    "subtitle": "subtitles.opeope.room.lock",
+    "sounds": [{"name": "minecraft:block.iron_trapdoor.close", "type": "event"}]
+  },
+  "room.bell": {
+    "sounds": [{"name": "minecraft:block.note_block.bell", "type": "event"}]
+  },
+  "room.lock_low": {
+    "sounds": [{"name": "minecraft:block.beacon.power_select", "type": "event"}]
+  },
+  "room.notch": {
+    "subtitle": "subtitles.opeope.room.resize",
+    "sounds": [{"name": "minecraft:block.note_block.chime", "type": "event"}]
+  },
+  "room.click": {
+    "sounds": [{"name": "minecraft:block.comparator.click", "type": "event"}]
+  },
+  "room.stretch_up": {
+    "sounds": [{"name": "minecraft:block.beacon.activate", "type": "event"}]
+  },
+  "room.stretch_down": {
+    "sounds": [{"name": "minecraft:block.beacon.deactivate", "type": "event"}]
+  },
+  "room.limit": {
+    "subtitle": "subtitles.opeope.room.limit",
+    "sounds": [{"name": "minecraft:block.note_block.basedrum", "type": "event"}]
+  },
+  "room.limit_ring": {
+    "sounds": [{"name": "minecraft:block.note_block.iron_xylophone", "type": "event"}]
+  },
+  "room.throw": {
+    "subtitle": "subtitles.opeope.room.throw",
+    "sounds": [{"name": "minecraft:item.trident.throw", "type": "event"}]
+  },
+  "room.fly": {
+    "subtitle": "subtitles.opeope.room.fly",
+    "sounds": [{"name": "minecraft:entity.firework_rocket.launch", "type": "event"}]
+  },
+  "room.land": {
+    "subtitle": "subtitles.opeope.room.land",
+    "sounds": [{"name": "minecraft:item.mace.smash_ground_heavy", "type": "event"}]
+  },
+  "room.land_glass": {
+    "sounds": [{"name": "minecraft:block.glass.break", "type": "event"}]
+  },
+  "room.land_crystal": {
+    "sounds": [{"name": "minecraft:block.amethyst_cluster.break", "type": "event"}]
+  },
+  "room.recall": {
+    "subtitle": "subtitles.opeope.room.recall",
+    "sounds": [{"name": "minecraft:entity.breeze.inhale", "type": "event"}]
+  },
+  "room.arrive": {
+    "subtitle": "subtitles.opeope.room.arrive",
+    "sounds": [{"name": "minecraft:entity.wind_charge.wind_burst", "type": "event"}]
+  },
+  "room.close": {
+    "subtitle": "subtitles.opeope.room.close",
+    "sounds": [{"name": "minecraft:block.beacon.deactivate", "type": "event"}]
+  },
+  "room.close_deplete": {
+    "sounds": [{"name": "minecraft:block.respawn_anchor.deplete", "type": "event"}]
+  },
+  "room.close_pop": {
+    "sounds": [{"name": "minecraft:block.amethyst_cluster.break", "type": "event"}]
+  },
+  "room.enter": {
+    "subtitle": "subtitles.opeope.room.enter",
+    "sounds": [{"name": "minecraft:block.amethyst_block.resonate", "type": "event"}]
+  },
+  "room.exit": {
+    "subtitle": "subtitles.opeope.room.exit",
+    "sounds": [{"name": "minecraft:block.amethyst_block.resonate", "type": "event"}]
+  },
+  "room.hum": {
+    "sounds": [{"name": "minecraft:block.beacon.ambient", "type": "event"}]
+  },
+  "ui.paso": {
+    "subtitle": "subtitles.opeope.ui.paso",
+    "sounds": [{"name": "minecraft:block.note_block.pling", "type": "event"}]
+  },
+  "ui.denegado": {
+    "subtitle": "subtitles.opeope.ui.denegado",
+    "sounds": [{"name": "minecraft:block.note_block.basedrum", "type": "event"}]
+  }
+}

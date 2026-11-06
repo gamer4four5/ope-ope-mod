@@ -46,6 +46,8 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 21
 	it.options.encoding = 'UTF-8'
+	// en CI se ven todos los errores de una vez, no solo los 100 primeros
+	it.options.compilerArgs += ['-Xmaxerrs', '2000']
 }
 
 java {

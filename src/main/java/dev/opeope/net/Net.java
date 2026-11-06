@@ -15,6 +15,7 @@ public final class Net {
 		PayloadTypeRegistry.playS2C().register(Payloads.CutSync.ID, Payloads.CutSync.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.CutFx.ID, Payloads.CutFx.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.State.ID, Payloads.State.CODEC);
+		PayloadTypeRegistry.playS2C().register(Payloads.RoomFx.ID, Payloads.RoomFx.CODEC);
 
 		ServerPlayNetworking.registerGlobalReceiver(Payloads.Action.ID, (payload, ctx) ->
 			ctx.server().execute(() -> Actions.handle(ctx.player(), payload.action(), payload.arg())));

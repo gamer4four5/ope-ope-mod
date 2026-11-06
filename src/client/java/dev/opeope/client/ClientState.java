@@ -1,5 +1,7 @@
 package dev.opeope.client;
 
+import dev.opeope.client.room.RoomFxClient;
+import dev.opeope.client.room.RoomVisuals;
 import dev.opeope.net.Payloads;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.client.MinecraftClient;
@@ -51,11 +53,13 @@ public final class ClientState {
 		String key = r.owner() + ":" + r.slot();
 		if (r.radius() <= 0) {
 			ROOMS.remove(key);
-			return;
+		} else {
+			RoomInfo old = ROOMS.get(key);
+			float prev = old != null ? old.radius() : r.radius();
+			ROOMS.put(key, new RoomInfo(r.owner(), r.slot(), r.dim(), new Vec3d(r.x(), r.y(), r.z()), r.radius(), prev, r.state()));
 		}
-		RoomInfo old = ROOMS.get(key);
-		float prev = old != null ? old.radius() : r.radius();
-		ROOMS.put(key, new RoomInfo(r.owner(), r.slot(), r.dim(), new Vec3d(r.x(), r.y(), r.z()), r.radius(), prev, r.state()));
+		// lo que se dibuja (centro y radio suavizados por tick, efectos) vive aparte
+		RoomVisuals.onRoomPacket(r);
 	}
 
 	public static RoomInfo ownRoom() {
@@ -72,6 +76,8 @@ public final class ClientState {
 	}
 
 	public static void tick() {
+		// con el juego en pausa el servidor tampoco avanza: los tiempos de espera no deben bajar
+		if (MinecraftClient.getInstance().isPaused()) return;
 		for (int i = 0; i < cooldowns.length; i++) if (cooldowns[i] > 0) cooldowns[i]--;
 		if (scanTicks > 0) scanTicks--;
 	}
@@ -85,5 +91,6 @@ public final class ClientState {
 		cooldowns = new int[0];
 		ROOMS.clear();
 		CUTS.clear();
+		RoomFxClient.clear();
 	}
 }

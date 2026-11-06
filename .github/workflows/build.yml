@@ -49,14 +49,14 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri > /dev/null
           mkdir -p run/saves capturas && cp -r run/world run/saves/Prueba && rm -f run/saves/Prueba/session.lock
           ls -la run/saves/Prueba
-          printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\n' > run/options.txt
+          printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\ntutorialStep:none\n' > run/options.txt
           Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
           sleep 2
           export DISPLAY=:99
           set +e
-          timeout 420 ./gradlew runSmokeClient --console=plain > cliente.log 2>&1 &
+          timeout 600 ./gradlew runSmokeClient --console=plain > cliente.log 2>&1 &
           GPID=$!
-          for i in $(seq 1 14); do
+          for i in $(seq 1 20); do
             sleep 30
             import -window root "capturas/pantalla-$((i*30))s.png" 2>/dev/null || xwd -root -silent 2>/dev/null | convert xwd:- "capturas/pantalla-$((i*30))s.png" || true
             if ! kill -0 $GPID 2>/dev/null; then break; fi
@@ -65,14 +65,18 @@ jobs:
           set -e
           echo "exit=$rc"
           cp -f run/screenshots/autotest-*.png capturas/ 2>/dev/null || true
-          echo "----- prueba de cortes -----"
+          echo "----- prueba automática (cortes, HUD, controles y ROOM) -----"
           grep -E "AUTOTEST|Corte:" cliente.log || true
+          echo "----- avisos de sonidos y texturas (solo información) -----"
+          grep -iE 'Unable to play unknown soundEvent|Missing sprite|missing texture|Couldn.t load' cliente.log | head -40 || true
           echo "----- últimas líneas de cliente.log -----"
           grep -vE "Downloading|Download " cliente.log | tail -60
           grep -q 'cliente listo' cliente.log
           if grep -qiE 'Mixin apply|MixinApplyError|Reported exception thrown' cliente.log; then exit 1; fi
           grep -qE 'joined the game|se ha unido a la partida' cliente.log
-          [ "$rc" = "124" ]
+          grep -q 'AUTOTEST terminado' cliente.log
+          if grep -q 'AUTOTEST FALLO' cliente.log; then grep 'AUTOTEST FALLO' cliente.log; exit 1; fi
+          [ "$rc" = "0" ] || [ "$rc" = "124" ]
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
         run: |

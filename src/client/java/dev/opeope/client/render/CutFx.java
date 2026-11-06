@@ -3,6 +3,7 @@ package dev.opeope.client.render;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.opeope.client.ClientState;
+import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.input.InputHandler;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.block.BlockState;
@@ -345,7 +346,11 @@ public final class CutFx {
 
 	// ------------------------------------------------------------------ en pantalla
 
-	/** El trazo mientras arrastras y la franja de luz del tajo propio. */
+	/**
+	 * El trazo mientras arrastras y la franja de luz del tajo propio. La franja obedece a «Destellos» (spec §5.11): entera,
+	 * suave (su pico baja a 0,05) o ninguna.
+	 */
+	@SuppressWarnings("deprecation")
 	public static void renderHud(DrawContext ctx, RenderTickCounter tc) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.player == null || mc.options.hudHidden) return;
@@ -360,7 +365,10 @@ public final class CutFx {
 			ctx.getMatrices().translate(cx, cy, 0);
 			ctx.getMatrices().multiply(RotationAxis.POSITIVE_Z.rotation(ang));
 			int half = (int) (diag / 2);
-			for (int x = -half; x < half; x += 10) ctx.fill(x, 0, x + 5, 1, 0x668FD8FF);
+			// los ~50 trazos en una sola tanda
+			ctx.draw(() -> {
+				for (int x = -half; x < half; x += 10) ctx.fill(x, 0, x + 5, 1, 0x668FD8FF);
+			});
 			// el trazo: lo que llevas arrastrado
 			double scale = mc.getWindow().getScaleFactor();
 			double len = Math.sqrt(InputHandler.dragX() * InputHandler.dragX() + InputHandler.dragY() * InputHandler.dragY()) / scale * 0.9;
@@ -370,12 +378,15 @@ public final class CutFx {
 			ctx.getMatrices().pop();
 		}
 		long age = System.currentTimeMillis() - flashAt;
-		if (age >= 0 && age < FLASH_MS) {
+		int level = OpeSettings.flashLevel();
+		if (level > 0 && age >= 0 && age < FLASH_MS) {
 			double k = age / (double) FLASH_MS;
+			// destellos suaves: alfa × min(1, 0,05 / pico); el pico es la línea blanca (1)
+			double soft = level >= 2 ? 1.0 : Math.min(1.0, 0.05 / 1.0);
 			float ang = (float) Math.atan2(-flashY, flashX);
 			int half = (int) (diag / 2 * Math.min(1, age / 90.0 + 0.25));
-			int a = (int) (255 * (1 - k));
-			int glow = (int) (90 * (1 - k));
+			int a = (int) (255 * (1 - k) * soft);
+			int glow = (int) (90 * (1 - k) * soft);
 			ctx.getMatrices().push();
 			ctx.getMatrices().translate(cx, cy, 0);
 			ctx.getMatrices().multiply(RotationAxis.POSITIVE_Z.rotation(ang));

@@ -21,6 +21,7 @@ public class PlayerPower {
 	public boolean roomCreatedThisPress;
 	public boolean roomUsedDuringHold;
 	public int roomPressTick;
+	public double lastRoomRadius;   // el último tamaño que dejó fijo: un ROOM lanzado recién creado aterriza con él
 
 	// Takt
 	public final List<Integer> takt = new ArrayList<>();

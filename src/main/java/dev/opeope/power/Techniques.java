@@ -84,7 +84,7 @@ public final class Techniques {
 
 	public static void scan(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.onCooldown(Tech.SCAN)) return;
-		pw.scanTicks = 160;
+		pw.scanTicks = OpeConfig.SCAN_TICKS;
 		pw.cooldown(Tech.SCAN);
 		sound(p, p.getPos(), SoundEvents.BLOCK_BEACON_POWER_SELECT, 1f, 2f);
 		p.sendMessage(Text.translatable("opeope.msg.scan"), true);
@@ -195,8 +195,8 @@ public final class Techniques {
 	/** Curtain: un velo delante que reduce el daño (60 %, como Resistencia III). */
 	public static void curtain(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.onCooldown(Tech.CURTAIN)) return;
-		pw.curtainTicks = 120;
-		p.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 120, 2, false, false, true));
+		pw.curtainTicks = OpeConfig.CURTAIN_TICKS;
+		p.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, OpeConfig.CURTAIN_TICKS, 2, false, false, true));
 		sound(p, p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 0.8f);
 		pw.cooldown(Tech.CURTAIN);
 	}
@@ -539,8 +539,8 @@ public final class Techniques {
 	/** Silent: nadie cerca te oye ni te sigue un rato. */
 	public static void silent(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.onCooldown(Tech.SILENT)) return;
-		pw.silentTicks = 200;
-		p.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, 200, 0, false, false, true));
+		pw.silentTicks = OpeConfig.SILENT_TICKS;
+		p.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, OpeConfig.SILENT_TICKS, 0, false, false, true));
 		sound(p, p.getPos(), SoundEvents.BLOCK_SCULK_SENSOR_CLICKING_STOP, 1f, 0.5f);
 		pw.cooldown(Tech.SILENT);
 		pw.dirty = true;

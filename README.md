@@ -7,11 +7,12 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 1. Instala Fabric Loader para 1.21.1 (https://fabricmc.net/use/installer/).
 2. Copia `ope-ope-no-mi-1.0.0.jar` y Fabric API (https://modrinth.com/mod/fabric-api, versión para 1.21.1) en la carpeta `mods`.
 3. En el juego: pestaña creativa **Ope Ope no Mi**, o `/opeope fruta` con trucos. En supervivencia la suelta a veces el
-   Guardián Anciano o el Warden. Cómetela y pulsa **H** para el libro con todos los poderes.
+   Guardián Anciano o el Warden. Cómetela: la tarjeta **Primeros pasos** te enseña lo básico y **H** abre el libro con
+   todos los poderes, los ajustes y las teclas.
 
 ## Qué hay
 - **ROOM** (Q): esfera azul con borde brillante. Mantener crece desde ti hasta 160 bloques; Q + rueda agranda o encoge;
-  Q + clic la lanza a la mira; Q + clic derecho la trae; un toque la quita.
+  Q + clic la lanza a la mira; Q + clic derecho la trae; un toque la quita (o un doble toque, si lo eliges en Ajustes).
 - **Cortes reales en bloques**: Amputate (clic con la mano vacía: la cámara se queda quieta y el ratón traza el tajo; una
   línea brillante marca lo que se va a cortar; al soltar, una hoja de luz barre el plano y la costura brilla). Lo que queda sin
   unión con el resto del mundo cae como una pieza entera (casas, torres, árboles). Lo que queda encima de un corte
@@ -37,9 +38,81 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 
 ## Teclas
 Las mismas del juego, salvo **Shambles en Alt izquierdo** (la E es el inventario de Minecraft). Las teclas solo se las
-queda la fruta si la has comido; para cambiarlas edita `config/opeope-teclas.json` (nombres como `key.keyboard.q` o
-`key.mouse.4`). Con la fruta, la Q ya no tira objetos y la F no cambia de mano: si las necesitas, cámbialas allí.
-Agachado, los clics vuelven a ser los normales de Minecraft. Los botones laterales del ratón hacen de Tab.
+queda la fruta si la has comido. Se cambian en la pantalla **Teclas** (en el libro, o en Ajustes → «Teclas…»): clic en
+la tecla y pulsa la nueva; Esc la deja sin tecla. Cada tecla avisa si choca con algo: en rojo si nunca funcionaría, en
+ámbar si Minecraft también la usa y en gris si solo conviene saberlo. «Restablecer todo» vuelve a las de fábrica y
+«Como el juego» pone Shambles en la E (y ofrece pasar el inventario a la I). Se guardan en `config/opeope-teclas.json`
+(nombres como `key.keyboard.q` o `key.mouse.4`), que también se puede editar a mano.
+
+El libro (**H**) y los ajustes son teclas normales de Minecraft: están en los controles de Minecraft (Opciones →
+Controles), en la categoría «Ope Ope no Mi» («Libro de la fruta» y «Ajustes de la fruta», esta sin tecla de fábrica).
+Si habías cambiado la tecla del libro en `opeope-teclas.json`, ese valor ya no se usa: elígela otra vez ahí.
+
+Con la fruta, la Q es del ROOM y la F de Scan: para tirar objetos o cambiar de mano, agáchate (Mayús) y pulsa Q o F.
+F3 y sus combinaciones y Ctrl+B siguen siendo de Minecraft. Agachado, los clics vuelven a ser los normales de
+Minecraft. Los botones laterales del ratón hacen de Tab. Si pulsas una técnica que aún no está lista, su casilla tiembla
+y suena un «no» corto.
+
+## El HUD
+Todo el HUD de la fruta está pensado para leerse de un vistazo sin tapar el de Minecraft (vida, comida, barra de objetos,
+efectos, barras de jefe, chat y subtítulos), a cualquier tamaño de ventana y de GUI. Con F1 no se ve nada; con F3 solo
+lo del centro y los avisos.
+- **Barra de técnicas**, abajo a la derecha junto a la barra de objetos: un icono por técnica con su tecla de verdad
+  debajo. Mientras se enfría, un velo oscuro baja y se ven los segundos; al volver a estar lista, destella. Si algo no se
+  puede usar se ve también por la forma (velo, segundos o candado), no solo por el color. Tras unos segundos sin usar la
+  fruta se atenúa.
+- **Píldora del ROOM**, arriba a la izquierda: «Sin ROOM», «ROOM 12 m · creciendo», «ROOM 24 m · dentro/fuera», «ROOM →
+  37 m» cuando vuela o «ROOM ← contigo» cuando vuelve. Debajo, **chips de estado**: Despertar, Scan con su tiempo,
+  Curtain, Silent, el arma forjada, la Unión, el patrón y el alcance del corte, o si estás en el ROOM de otro jugador.
+- **Medidor del ROOM** mientras crece o le cambias el tamaño: una escala de 4 m a 160 m con el tamaño exacto; tiembla al
+  llegar al máximo o al mínimo.
+- **Tarjeta de pistas**, arriba a la derecha: las teclas que te sirven en ese momento (para empezar, en el ROOM, con
+  Takt, con el corazón o con la Unión), siempre con tus teclas. Se encoge sola cuando ya las conoces.
+- **Primeros pasos**: seis pasos que se marcan solos al hacerlos (abrir el ROOM, cambiarle el tamaño, cortar, Shambles,
+  Takt y la segunda fila). Se pueden saltar o repetir en Ajustes.
+- **Filas de teclas**: al mantener Tab (segunda fila) o R (órdenes de Takt) sale en el centro qué hace cada tecla, cuánto
+  le falta a lo que se enfría y por qué algo no se puede (por ejemplo, «Lluvia necesita un ROOM»).
+- **Avisos**: los mensajes de la fruta salen como avisos pequeños encima de la barra de objetos en vez de pisar la barra
+  de acción; los momentos del ROOM, como un aviso grande en el centro («ROOM», «ROOM · 24 m», «Aterriza · 37 m»,
+  «Contigo», «ROOM cerrado», «Máximo · 160 m»).
+- En el centro, además: la mira cambia cuando apuntas dentro o fuera de tu ROOM, la carga de Amputate, lo que llevas
+  con Takt y el panel del Bisturí (cortes hechos, giro, ladeo y las teclas). La lista de Scan sale a la izquierda.
+
+## Ajustes y accesibilidad
+La pantalla **Ajustes** se abre desde el libro, desde Opciones → Controles → «Ope Ope no Mi…» o con la tecla «Ajustes de
+la fruta» si le pones una. Cada opción explica lo que hace al pasar el ratón por encima.
+- **Interfaz**: Completa, Sencilla o Mínima; **Tamaño** del HUD (Pequeño, Normal o Grande); **Opacidad** de los paneles;
+  **Barra de técnicas** abajo, vertical, solo al usarla u oculta; **Pistas** siempre, solo al empezar o nunca; **Aviso
+  grande del ROOM** sí o no.
+- **Accesibilidad**: **Alto contraste** (sigue al de Minecraft, o sí/no: paneles opacos y bordes blancos), **Menos
+  movimiento** (sin sacudidas, sin cambios del campo de visión ni rayas), **Sacudidas de cámara** de 0 a 100 %,
+  **Destellos** (como Minecraft, sí, suaves o no) y **Narrar el ROOM** con el narrador de Minecraft. Los sonidos del ROOM
+  tienen subtítulos.
+- **Controles**: el ROOM **Mantener** (como siempre) o **Alternar** (un toque entra y sale del modo ROOM); **Quitar el
+  ROOM** con un toque o con doble toque; la **segunda fila** y las **órdenes de Takt** con Mantener, Alternar o «Una
+  tecla» (un toque la abre y se cierra tras la siguiente tecla); el **Bisturí** y la **Cirugía** con Mantener o Alternar;
+  si Tab mantenida enseña la lista de jugadores en multijugador; y los tiempos del toque de R, del doble toque, de la
+  espera de R y de la espera de Cirugía. Lo que se queda fijo se suelta con su tecla, con Esc, al abrir una pantalla, al
+  cambiar de ventana o (el ROOM y las filas) tras 10 s sin usarlo.
+- **Más**: Teclas…, volver a mostrar las pistas, repetir o saltar los primeros pasos y restablecer los ajustes. Se guardan
+  en `config/opeope-ajustes.json`.
+
+## El ROOM se nota
+Crear o mover el ROOM ahora se ve, se oye y se siente:
+- **Crear**: una semilla de luz sale de tu mano, florece con una onda y el ROOM crece con un zumbido que sube de tono; al
+  soltar Q queda fijo con un golpe de campana. Una línea brillante marca dónde toca el suelo y el contorno de la esfera
+  se ve siempre.
+- **Tamaño**: cada paso de la rueda es un «clic» con un eco de la esfera anterior; en el máximo o el mínimo, un golpe
+  seco y el aviso.
+- **Lanzar**: sale como un cometa en arco con estela, aterriza con un destello, un anillo en el suelo y un golpe de cámara
+  que depende de lo lejos que caiga; el ROOM viejo se pliega.
+- **Traer**: un hilo de luz lo arrastra hasta ti y llega con una onda a tus pies.
+- **Quitar**: la esfera se cierra hacia dentro con un último destello.
+- Al entrar o salir de tu ROOM, el borde de la pantalla se tiñe un momento y suena un tono.
+- La cámara da pequeños golpes y sacudidas y el campo de visión se abre al crear y lanzar: todo eso se quita con «Menos
+  movimiento» o «Sacudidas de cámara», y respeta «Efectos de distorsión» y «Efectos de campo de visión» de Minecraft.
+- Los demás jugadores cercanos ven y oyen tu ROOM (sin los efectos de cámara). Con un servidor sin esta versión del mod
+  solo se ve la esfera.
 
 ## Compilar
 `./gradlew build` (Java 21). El .jar queda en `build/libs/`. El flujo de GitHub Actions (`.github/workflows/build.yml`)

@@ -17,6 +17,12 @@ public final class OpeConfig {
 	public static final double ROOM_GROW_ACCEL = 1.1;     // + radio × esto por segundo
 	public static final double ROOM_FLY_SPEED = 6;        // bloques/tick al lanzarlo o traerlo
 	public static final int ROOM_TAP_TICKS = 5;           // un toque de Q más corto que esto quita el ROOM
+	public static final double ROOM_NOTCH = 1.14;         // cada paso de la rueda multiplica (o divide) el radio por esto...
+	public static final double ROOM_NOTCH_MIN_STEP = 1.25; // ...y como mínimo lo cambia en tantos bloques
+	public static final double ROOM_CAST_RANGE = 150;     // lanzarlo: hasta dónde busca dónde caer
+	public static final double ROOM_CAST_MISS = 48;       // si la mira no toca nada, cae a esta distancia
+	public static final double ROOM_CAST_SPEED = 95;      // bloques/s del vuelo (de 4 a 14 ticks)
+	public static final double ROOM_FIRST_RADIUS = 24;    // el tamaño de un ROOM lanzado sin haber fijado ninguno antes
 
 	// Cortes
 	public static final int CUT_MAX_PIECE_BLOCKS = 4000;  // más grande que esto se considera anclado (terreno)
@@ -41,4 +47,9 @@ public final class OpeConfig {
 	// Shambles
 	public static final int SHAMBLES_MARK_TICKS = 20 * 6;
 	public static final int SOUL_MARK_TICKS = 20 * 8;
+
+	// Técnicas con duración (el HUD cuenta los segundos con estos mismos números)
+	public static final int SCAN_TICKS = 160;
+	public static final int CURTAIN_TICKS = 120;
+	public static final int SILENT_TICKS = 200;
 }

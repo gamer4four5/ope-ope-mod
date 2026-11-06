@@ -103,7 +103,7 @@ public final class PowerManager {
 		p.setAttached(ModAttachments.HAS_FRUIT, true);
 		get(p).dirty = true;
 		p.sendMessage(Text.translatable("opeope.msg.ate"), false);
-		p.sendMessage(Text.translatable("opeope.msg.ate_help"), false);
+		p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
 		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, 0.7f);
 	}
 

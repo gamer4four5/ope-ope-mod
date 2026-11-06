@@ -5,6 +5,7 @@ import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.UUID;
 
@@ -74,6 +75,76 @@ public final class Payloads {
 			buf.writeDouble(z);
 			buf.writeFloat(radius);
 			buf.writeVarInt(state);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
+	 * Servidor → cliente: un momento del ROOM (nace, se fija, cambia de tamaño, toca un límite, sale volando, aterriza,
+	 * vuelve, llega, se cierra), para que el cliente lo haga notar con luz, sonido, cámara y HUD. Siempre llega ANTES del
+	 * {@link Room} que lo acompaña. Qué lleva cada campo según {@code kind}:
+	 * <ul>
+	 * <li>CREATE: a = la mano, b = el centro, radius = el radio inicial; flags F_REBUILT si se rehízo manteniendo Q.</li>
+	 * <li>FIX / ARRIVE / CLOSE: a = b = el centro, radius.</li>
+	 * <li>NOTCH: a = b = el centro, radius = el nuevo, radius2 = el anterior; flags F_GROW o F_SHRINK.</li>
+	 * <li>LIMIT: a = b = el centro, radius; flags = LIMIT_MAX, LIMIT_MIN, LIMIT_CENTRED o LIMIT_MAX_GROWING (un valor).</li>
+	 * <li>CAST: a = la mano, b = dónde caerá, radius = con qué radio, radius2 = la altura del arco, ticks = el vuelo;
+	 * flags F_FRESH si el ROOM se creó con esta misma pulsación.</li>
+	 * <li>LAND: a = el centro nuevo, b = el viejo, radius, radius2 = el radio viejo (o 0); flags F_OLD si había uno viejo.</li>
+	 * <li>BRING: a = el centro de partida, b = el jugador + (0, 1, 0), radius, ticks = el viaje.</li>
+	 * </ul>
+	 */
+	public record RoomFx(UUID owner, int slot, int kind, double ax, double ay, double az, double bx, double by, double bz,
+						 float radius, float radius2, int ticks, int flags) implements CustomPayload {
+		public static final int CREATE = 0, FIX = 1, NOTCH = 2, LIMIT = 3, CAST = 4, LAND = 5, BRING = 6, ARRIVE = 7, CLOSE = 8, KINDS = 9;
+		public static final String[] NAMES = {"CREATE", "FIX", "NOTCH", "LIMIT", "CAST", "LAND", "BRING", "ARRIVE", "CLOSE"};
+		public static final int F_REBUILT = 1;                  // CREATE
+		public static final int F_GROW = 1, F_SHRINK = 2;       // NOTCH
+		public static final int F_FRESH = 2;                    // CAST
+		public static final int F_OLD = 1;                      // LAND
+		public static final int LIMIT_MAX = 0, LIMIT_MIN = 1, LIMIT_CENTRED = 2, LIMIT_MAX_GROWING = 3;   // LIMIT: el valor va en flags
+		public static final Id<RoomFx> ID = new Id<>(OpeOpeMod.id("room_fx"));
+		public static final PacketCodec<RegistryByteBuf, RoomFx> CODEC = PacketCodec.of(RoomFx::write, RoomFx::read);
+
+		static RoomFx read(RegistryByteBuf buf) {
+			return new RoomFx(buf.readUuid(), buf.readVarInt(), buf.readVarInt(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(), buf.readDouble(), buf.readDouble(), buf.readDouble(),
+				buf.readFloat(), buf.readFloat(), buf.readVarInt(), buf.readVarInt());
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeUuid(owner);
+			buf.writeVarInt(slot);
+			buf.writeVarInt(kind);
+			buf.writeDouble(ax);
+			buf.writeDouble(ay);
+			buf.writeDouble(az);
+			buf.writeDouble(bx);
+			buf.writeDouble(by);
+			buf.writeDouble(bz);
+			buf.writeFloat(radius);
+			buf.writeFloat(radius2);
+			buf.writeVarInt(ticks);
+			buf.writeVarInt(flags);
+		}
+
+		/** El punto a como vector. */
+		public Vec3d a() {
+			return new Vec3d(ax, ay, az);
+		}
+
+		/** El punto b como vector. */
+		public Vec3d b() {
+			return new Vec3d(bx, by, bz);
+		}
+
+		/** El nombre del tipo, para los registros ("?" si no es uno conocido). */
+		public String name() {
+			return kind >= 0 && kind < NAMES.length ? NAMES[kind] : "?";
 		}
 
 		@Override

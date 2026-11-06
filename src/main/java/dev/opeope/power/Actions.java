@@ -35,7 +35,7 @@ public final class Actions {
 		}
 		switch (action) {
 			case ROOM_PRESS -> RoomOps.press(p, pw);
-			case ROOM_RELEASE -> RoomOps.release(p, pw);
+			case ROOM_RELEASE -> RoomOps.release(p, pw, arg);
 			case ROOM_SCROLL -> RoomOps.scroll(p, pw, arg);
 			case ROOM_LAUNCH -> RoomOps.launch(p, pw);
 			case ROOM_BRING -> RoomOps.bring(p, pw);
