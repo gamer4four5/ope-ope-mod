@@ -103,6 +103,7 @@ public final class CutFx {
 		long now = System.currentTimeMillis();
 		ACTIVE.removeIf(f -> now - f.start > LIFE_MS);
 		double[] pl = InputHandler.dragPlane();
+		if (pl == null && dev.opeope.client.input.Bisturi.active) pl = dev.opeope.client.input.Bisturi.current(1f);
 		ClientState.RoomInfo room = ClientState.ownRoom();
 		if (pl == null || room == null || mc.world == null || mc.player == null) {
 			preview = EMPTY;

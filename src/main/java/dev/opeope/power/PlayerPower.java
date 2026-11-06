@@ -29,6 +29,7 @@ public class PlayerPower {
 	public final Map<Integer, Vec3d> parked = new HashMap<>();
 	public long lastTaktTap;
 	public final List<Integer> suspended = new ArrayList<>();
+	public final List<Integer> bisturiHeld = new ArrayList<>();   // lo cortado con el Bisturí, quieto hasta soltar
 	public final List<Integer> weapons = new ArrayList<>();
 	public int weaponKind = -1;
 

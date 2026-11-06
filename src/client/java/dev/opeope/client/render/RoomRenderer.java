@@ -97,7 +97,7 @@ public final class RoomRenderer {
 		Vec3d p = new Vec3d(pl[3], pl[4], pl[5]);
 		Vec3d s = new Vec3d(pl[6], pl[7], pl[8]);
 		Vec3d f = new Vec3d(pl[9], pl[10], pl[11]);
-		Vec3d c = p.add(f.multiply(9)).subtract(cam);
+		Vec3d c = p.subtract(cam);   // centrado en el punto que señalas
 		double a = 12, b = 8;
 		int al = (argb >>> 24) & 255, red = (argb >> 16) & 255, green = (argb >> 8) & 255, blue = argb & 255;
 		Vec3d[] q = {

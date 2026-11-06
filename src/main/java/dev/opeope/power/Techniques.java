@@ -416,6 +416,11 @@ public final class Techniques {
 		} else if (pw.bisturi) {
 			pw.bisturi = false;
 			if (server.isSingleplayer()) server.getTickManager().setTickRate(20f);
+			// Al soltar, tras una pausa de 0,3 s, cae todo a la vez.
+			for (int id : pw.bisturiHeld) {
+				if (p.getServerWorld().getEntityById(id) instanceof PieceEntity pe && pe.holdTicks() > 0) pe.hold(6);
+			}
+			pw.bisturiHeld.clear();
 		}
 		pw.dirty = true;
 	}

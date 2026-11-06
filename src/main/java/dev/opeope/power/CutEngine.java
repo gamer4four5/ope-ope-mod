@@ -173,6 +173,7 @@ public final class CutEngine {
 	public static Result cut(ServerPlayerEntity player, List<Plane> planes, Region region, boolean suspend, int noReattach, float livingDamage, boolean blocks) {
 		ServerWorld w = player.getServerWorld();
 		UUID owner = player.getUuid();
+		SPAWNED.clear();
 		if (planes.isEmpty()) return new Result(0, 0);
 		sendFx(w, player, planes, region);
 
@@ -302,6 +303,7 @@ public final class CutEngine {
 			removed.addAll(mine);
 			set.normalize();
 			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(minX, minY, minZ), new BlockPos(minX, minY, minZ), owner);
+			SPAWNED.add(pe);
 			int si = detachedSeed.getInt(gi);
 			Plane pl0 = planes.get(seedPlane.getInt(si));
 			Vec3d nSide = pl0.n().multiply(seedSide.getInt(si));   // normal del plano hacia el lado de la pieza
@@ -375,6 +377,9 @@ public final class CutEngine {
 	}
 
 	static final boolean AUTOTEST = Boolean.getBoolean("opeope.autotest");
+
+	/** Las piezas que salieron del último corte (para que el Bisturí las sujete). */
+	public static final List<PieceEntity> SPAWNED = new ArrayList<>();
 
 	/** La dirección del tajo dentro del plano: el plano contiene la mirada y el trazo (n = mirada × trazo). */
 	static Vec3d swipeOf(Plane pl, Vec3d look) {
@@ -494,6 +499,8 @@ public final class CutEngine {
 			} else {
 				np.setVelocity(vel.add(sep));
 			}
+			if (pe.holdTicks() > 0) np.hold(pe.holdTicks());
+			SPAWNED.add(np);
 		}
 		if (wasHeld) {
 			power.takt.remove((Integer) pe.getId());

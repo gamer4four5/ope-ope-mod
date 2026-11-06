@@ -266,6 +266,13 @@ public class PieceEntity extends Entity {
 		holdTicks = ticks;
 	}
 
+	public int holdTicks() {
+		return holdTicks;
+	}
+
+	/** El Bisturí la sujeta en su sitio hasta que sueltas el clic derecho. */
+	public static final int HOLD_BISTURI = 1_000_000;
+
 	public void startSlide(Vec3d n, Vec3d planePoint, Vec3d push) {
 		mode = Mode.SLIDING;
 		slideN = n.normalize();

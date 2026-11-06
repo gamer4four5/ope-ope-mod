@@ -1,5 +1,7 @@
 package dev.opeope.power;
 
+import dev.opeope.entity.PieceEntity;
+
 import dev.opeope.OpeConfig;
 import dev.opeope.net.Payloads;
 import dev.opeope.registry.ModAttachments;
@@ -288,13 +290,14 @@ public final class PowerManager {
 			noRoom(p);
 			return;
 		}
-		if (kind != 1 && pw.onCooldown(Tech.AMPUTATE)) return;
+		if (kind == 3 && !pw.bisturi) return;
+		if ((kind == 0 || kind == 2) && pw.onCooldown(Tech.AMPUTATE)) return;
 		List<CutEngine.Plane> planes = new ArrayList<>();
 		for (int i = 0; i + 5 < raw.length; i += 6) {
 			Vec3d n = new Vec3d(raw[i], raw[i + 1], raw[i + 2]);
 			if (n.lengthSquared() < 1e-6 || !Double.isFinite(n.lengthSquared())) continue;
 			Vec3d point = new Vec3d(raw[i + 3], raw[i + 4], raw[i + 5]);
-			if (point.squaredDistanceTo(p.getEyePos()) > 400) point = p.getEyePos();
+			if (point.squaredDistanceTo(p.getEyePos()) > 400 && !room.contains(point)) point = p.getEyePos();
 			planes.add(new CutEngine.Plane(n.normalize(), point));
 		}
 		if (planes.isEmpty()) return;
@@ -309,8 +312,16 @@ public final class PowerManager {
 			Vec3d at = target != null ? target.getBoundingBox().getCenter() : aimPoint(p, 200);
 			region.withLimit(at, target != null ? Math.max(2.5, target.getBoundingBox().getAverageSideLength() * 1.5) : 4.0);
 		}
-		CutEngine.cut(p, planes, region, pw.suspend, 0, 0f);
-		if (kind != 1) pw.cooldown(Tech.AMPUTATE);
+		CutEngine.cut(p, planes, region, pw.suspend && kind != 3, 0, 0f);
+		if (kind == 3) {
+			// Bisturí: cada clic corta ya, pero lo cortado se queda quieto con la costura encendida hasta que sueltas.
+			for (PieceEntity pe : CutEngine.SPAWNED) {
+				if (pe.isRemoved()) continue;
+				pe.hold(PieceEntity.HOLD_BISTURI);
+				pw.bisturiHeld.add(pe.getId());
+			}
+		}
+		if (kind == 0 || kind == 2) pw.cooldown(Tech.AMPUTATE);
 		pw.roomUsedDuringHold = true;
 	}
 

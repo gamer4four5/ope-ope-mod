@@ -50,9 +50,9 @@ public class GuideScreen extends Screen {
 		row(k(Keys.ROOM) + " toque", "quitarlo");
 		note("Desde fuera también funciona: si miras dentro, Amputate, Shambles, Takt y el suelo actúan dentro.");
 		title("Cortes (mano vacía dentro del ROOM)");
-		row("Clic", "Amputate: arrastra el ratón con el clic pulsado; el arco del tajo es el plano del corte");
-		row("Clic der. mantener", "Bisturí: el tiempo va al 12 % (un jugador) y una superficie marca el plano");
-		row("  rueda / Mayús / Ctrl", "girar, ladear o mover el plano · clic: encadenar hasta 16 planos");
+		row("Clic", "Amputate: con el clic pulsado la cámara se queda quieta; arrastra el ratón y trazas el tajo (una línea marca lo que vas a cortar); al soltar, corta. Un clic sin arrastrar repite el último tajo");
+		row("Clic der. mantener", "Bisturí: el tiempo va al 12 % (un jugador); el plano pasa por donde apuntas");
+		row("  rueda / Mayús / Ctrl", "girar, ladear o mover el plano · clic: corta ya (hasta 16); lo cortado se queda quieto y cae todo al soltar");
 		row(tab + " 1", "patrón: un tajo, rodajas, cruz o dados");
 		row(tab + " 2", "alcance: todo lo que cruza el ROOM o solo el objetivo");
 		row(tab + " 3", "suspender: lo cortado queda flotando hasta que lo pulses otra vez");
