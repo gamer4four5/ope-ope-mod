@@ -3,6 +3,7 @@ package dev.opeope.client.room;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.particle.Particle;
+import net.minecraft.client.render.Camera;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.DustParticleEffect;
@@ -25,7 +26,15 @@ import java.util.Random;
 public final class RoomParticles {
 	private RoomParticles() {}
 
-	static final DustParticleEffect DUST = new DustParticleEffect(new Vector3f(0.56f, 0.85f, 1f), 1.4f);
+	static final DustParticleEffect DUST = new DustParticleEffect(new Vector3f(0.56f, 0.85f, 1f), 1.0f);
+	/**
+	 * Pegada a la cámara una partícula se ve enorme y tapa la vista (en las capturas, manchas blancas y azules delante
+	 * de la mano). No nace a menos de NEAR bloques del ojo, ni si su camino pasa a menos de PASS; el fogonazo, a menos
+	 * de FLASH_NEAR (de cerca ya está el destello de la pantalla).
+	 */
+	private static final double NEAR = 2.6, PASS = 1.8, FLASH_NEAR = 8.0;
+	/** Lo tuyo que el juego original saca de la mano nace a esta distancia, en la dirección del lanzamiento. */
+	private static final double FRONT = 2.9;
 	private static final Random RNG = new Random();
 
 	/** Ráfagas que salen un poco más tarde (el destello del cierre). */
@@ -66,9 +75,31 @@ public final class RoomParticles {
 	private static Particle add(ParticleEffect effect, double x, double y, double z, double vx, double vy, double vz) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.world == null || mc.particleManager == null) return null;
+		if (tooClose(mc, effect, x, y, z, vx, vy, vz)) return null;
 		Particle p = mc.particleManager.addParticle(effect, x, y, z, vx, vy, vz);
 		if (p != null) p.setVelocity(vx, vy, vz);
 		return p;
+	}
+
+	/** Demasiado cerca del ojo al nacer, o su camino pasa rozándolo (la velocidad cae un ~9 % por tick: recorre unas 11 veces su velocidad; el polvo, unas 20). */
+	private static boolean tooClose(MinecraftClient mc, ParticleEffect effect, double x, double y, double z,
+									double vx, double vy, double vz) {
+		Camera cam = mc.gameRenderer == null ? null : mc.gameRenderer.getCamera();
+		if (cam == null || !cam.isReady()) return false;
+		Vec3d c = cam.getPos();
+		double px = x - c.x, py = y - c.y, pz = z - c.z;
+		double d2 = px * px + py * py + pz * pz;
+		if (effect == ParticleTypes.FLASH) return d2 < FLASH_NEAR * FLASH_NEAR;
+		if (d2 < NEAR * NEAR) return true;
+		double life = effect instanceof DustParticleEffect ? 20 : 11;
+		double ex = vx * life, ey = vy * life, ez = vz * life;
+		double ee = ex * ex + ey * ey + ez * ez;
+		if (ee < 1e-6) return false;
+		double t = -(px * ex + py * ey + pz * ez) / ee;
+		if (t <= 0) return false;
+		if (t > 1) t = 1;
+		double qx = px + ex * t, qy = py + ey * t, qz = pz + ez * t;
+		return qx * qx + qy * qy + qz * qz < PASS * PASS;
 	}
 
 	/** Un vector al azar de largo 1. */
@@ -106,10 +137,23 @@ public final class RoomParticles {
 	/** Florece: polvo azul en una cáscara de 1,5 alrededor del centro y destellos desde la mano, todo hacia fuera. */
 	static void bloom(Vec3d hand, Vec3d center, boolean own) {
 		double[] d = new double[3];
+		// el tuyo nace en tu pecho: la cáscara de polvo sale de más lejos para no taparte la vista
+		double shell = own ? 3.2 : 1.5;
 		for (int i = 0, n = count(40, own); i < n; i++) {
 			dir(d);
 			double s = range(0.25, 0.45);
-			add(DUST, center.x + d[0] * 1.5, center.y + d[1] * 1.5, center.z + d[2] * 1.5, d[0] * s, d[1] * s, d[2] * s);
+			add(DUST, center.x + d[0] * shell, center.y + d[1] * shell, center.z + d[2] * shell, d[0] * s, d[1] * s, d[2] * s);
+		}
+		if (own) {
+			// un anillo de destellos a la altura de los ojos que se abre a tu alrededor
+			int n = count(28, true);
+			double y = center.y + 0.35;
+			for (int i = 0; i < n; i++) {
+				double ang = Math.PI * 2 * (i + RNG.nextDouble() * 0.5) / n;
+				double cx = Math.cos(ang), cz = Math.sin(ang), s = range(0.28, 0.42);
+				add(ParticleTypes.END_ROD, center.x + cx * 3.0, y, center.z + cz * 3.0, cx * s, range(-0.02, 0.04), cz * s);
+			}
+			return;
 		}
 		for (int i = 0, n = count(24, own); i < n; i++) {
 			dir(d);
@@ -138,6 +182,13 @@ public final class RoomParticles {
 		double len = f.length();
 		if (len < 1e-3) return;
 		double fx = f.x / len, fy = f.y / len, fz = f.z / len;
+		double start = 0;
+		if (own) {
+			// lo tuyo sale delante de la vista, no de la mano pegada a la cámara
+			if (len < FRONT + 1.0) return;
+			start = FRONT;
+			hand = hand.add(fx * start, fy * start, fz * start);
+		}
 		double[] d = new double[3];
 		for (int i = 0, n = count(22, own); i < n; i++) {
 			dir(d);
@@ -148,7 +199,7 @@ public final class RoomParticles {
 			add(ParticleTypes.END_ROD, hand.x, hand.y, hand.z, x * s, y * s, z * s);
 		}
 		for (int i = 0, n = count(12, own); i < n; i++) {
-			double k = RNG.nextDouble() * Math.min(2.0, len);
+			double k = RNG.nextDouble() * Math.min(2.0, len - start);
 			dir(d);
 			add(DUST, hand.x + fx * k + d[0] * 0.1, hand.y + fy * k + d[1] * 0.1, hand.z + fz * k + d[2] * 0.1,
 				d[0] * 0.03, d[1] * 0.03, d[2] * 0.03);
@@ -212,10 +263,12 @@ public final class RoomParticles {
 	static void arrive(Vec3d center, boolean own) {
 		int n = count(24, own);
 		double y = center.y - 0.9;
+		// el tuyo llega a tus pies: el anillo empieza más abierto para verse sin taparte
+		double r0 = own ? 2.4 : 0.5;
 		for (int i = 0; i < n; i++) {
 			double ang = Math.PI * 2 * i / n;
 			double c = Math.cos(ang), s = Math.sin(ang);
-			add(DUST, center.x + c * 0.5, y, center.z + s * 0.5, c * 0.25, 0.01, s * 0.25);
+			add(DUST, center.x + c * r0, y, center.z + s * r0, c * 0.25, 0.01, s * 0.25);
 		}
 	}
 

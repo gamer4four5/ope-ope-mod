@@ -185,8 +185,10 @@ public final class ChordStrip {
 		if (top < c.M) top = c.M;
 		y = top;
 		// Si arriba cae sobre la píldora o los chips, se aparta a la derecha cuando cabe
-		if (s.leftBottom > y && s.leftRight > x && s.leftRight + 4 + w <= c.W - c.M) {
-			x = s.leftRight + 4;
+		if (s.leftBottom > y && s.leftRight > x) {
+			if (s.leftRight + 4 + w <= c.W - c.M) x = s.leftRight + 4;
+			// no cabe al lado (la de R es muy ancha): la tira manda y la píldora y los chips esperan a que se cierre
+			else s.leftHidden = true;
 		}
 
 		int ly = y + 4 + 12 + 3;

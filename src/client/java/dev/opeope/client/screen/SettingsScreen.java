@@ -89,8 +89,12 @@ public class SettingsScreen extends GameOptionsScreen {
 
 		header("Accesibilidad", SOFT);
 		this.body.addAll(List.<ClickableWidget>of(
-			cycle("Alto contraste", OpeSettings.TriState.values(), s.contraste, v -> s.contraste = v,
-				SettingsScreen::triName,
+			cycle("Contraste", OpeSettings.TriState.values(), s.contraste, v -> s.contraste = v,
+				v -> switch (v) {
+					case MINECRAFT -> "Como Minecraft";
+					case SI -> "Alto";
+					case NO -> "Normal";
+				},
 				v -> switch (v) {
 					case MINECRAFT -> "Sigue la opción «Alto contraste» de Accesibilidad de Minecraft.";
 					case SI -> "Paneles opacos, bordes blancos y texto más claro, sin sombras.";
@@ -265,14 +269,6 @@ public class SettingsScreen extends GameOptionsScreen {
 	private static String k(Keys key) {
 		KeyLabels.Glyph g = KeyLabels.of(key);
 		return g.icon() == null ? g.text() : KeyLabels.text(key.key);
-	}
-
-	private static String triName(OpeSettings.TriState v) {
-		return switch (v) {
-			case MINECRAFT -> "Como Minecraft";
-			case SI -> "Sí";
-			case NO -> "No";
-		};
 	}
 
 	private static String modo2Name(OpeSettings.Modo2 v) {

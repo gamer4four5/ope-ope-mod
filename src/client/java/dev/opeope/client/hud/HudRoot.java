@@ -141,8 +141,10 @@ public final class HudRoot {
 			if (full) {
 				AbilityBar.draw(batch);
 				RoomMeter.draw(batch);
-				RoomPill.draw(batch);
-				StatusChips.draw(batch);
+				if (!s.leftHidden) {
+					RoomPill.draw(batch);
+					StatusChips.draw(batch);
+				}
 				ScanList.draw(batch);
 				if (onboarding) OnboardingCard.draw(batch);
 				else HintCard.draw(batch);

@@ -76,9 +76,9 @@ public final class Hints {
 		if ("inicio".equals(id)) {
 			rows.add(row(key(Keys.ROOM), roomToggle ? "toca: abre el ROOM" : "mantén: abre el ROOM"));
 			rows.add(row(key(Keys.TAKT), "Takt: coge lo que miras"));
-			rows.add(row(key(Keys.SHAMBLES), "Shambles: cambia de sitio"));
-			rows.add(row(key(Keys.ROW2), tabToggle ? "toca: la segunda fila" : "mantén: la segunda fila"));
-			rows.add(row(book(), "el libro, Ajustes y Teclas"));
+			rows.add(row(key(Keys.SHAMBLES), "Shambles: intercambia"));
+			rows.add(row(key(Keys.ROW2), tabToggle ? "toca: segunda fila" : "mantén: segunda fila"));
+			rows.add(row(book(), "libro, ajustes y teclas"));
 			return new Context(id, "PARA EMPEZAR", "fruta", Theme.SOFT, rows, false);
 		}
 		if ("room".equals(id)) {
@@ -91,29 +91,29 @@ public final class Hints {
 				rows.add(new Ui.Line().key(wheel).action("tamaño").text(" · ", Theme.TEXT3)
 					.key(click).action("lanzar").text(" · ", Theme.TEXT3).key(right).action("traer"));
 			} else {
-				rows.add(chord(key(Keys.ROOM), wheel, "más grande o más pequeño"));
+				rows.add(chord(key(Keys.ROOM), wheel, "cambia el tamaño"));
 				rows.add(chord(key(Keys.ROOM), click, "lanzarlo a la mira"));
 				rows.add(chord(key(Keys.ROOM), right, "traerlo hasta ti"));
 			}
-			rows.add(row(sneak(mc), "los clics vuelven a Minecraft"));
+			rows.add(row(sneak(mc), "clics de Minecraft"));
 			return new Context(id, "EN EL ROOM", "room", Theme.ROOM, rows, true);
 		}
 		if ("takt".equals(id)) {
 			rows.add(row(click, ClientState.weapon >= 0 ? "usar el arma" : "lanzar · mantén: ráfaga"));
 			rows.add(row(right, "mantén: todo a la vez"));
-			rows.add(row(key(Keys.TAKT), "toque: otro más · mantén: órdenes"));
-			rows.add(new Ui.Line().key(key(Keys.TAKT)).key(key(Keys.TAKT)).action("la zona de alrededor"));
-			rows.add(chord(key(Keys.TAKT), wheel, "más cerca o más lejos"));
-			rows.add(chord(key(Keys.ROW2), key(Keys.T_UNION), "coserlo a lo que toca"));
+			rows.add(row(key(Keys.TAKT), "otro · mantén: órdenes"));
+			rows.add(new Ui.Line().key(key(Keys.TAKT)).key(key(Keys.TAKT)).action("la zona cercana"));
+			rows.add(chord(key(Keys.TAKT), wheel, "acercar o alejar"));
+			rows.add(chord(key(Keys.ROW2), key(Keys.T_UNION), "coserlo a algo"));
 			return new Context(id, "TAKT", "takt", Theme.TAKT, rows, true);
 		}
 		if ("corazon".equals(id)) {
 			rows.add(row(key(Keys.RADIO_KNIFE), "apretar · mantén: aplastar"));
-			rows.add(chord(key(Keys.ROW2), key(Keys.T_MES), "devolverlo a su dueño o soltarlo"));
+			rows.add(chord(key(Keys.ROW2), key(Keys.T_MES), "devolver o soltar"));
 			return new Context(id, "CORAZÓN", "corazon", Theme.HEART, rows, true);
 		}
 		if ("union".equals(id)) {
-			rows.add(row(click, "una pieza y luego el destino"));
+			rows.add(row(click, "pieza y luego destino"));
 			rows.add(row(right, "reconstruir"));
 			rows.add(chord(key(Keys.ROW2), key(Keys.T_UNION), "salir · mantén: Cirugía"));
 			return new Context(id, "UNIÓN", "union", Theme.UNION, rows, true);

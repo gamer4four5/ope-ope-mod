@@ -84,7 +84,7 @@ la fruta» si le pones una. Cada opción explica lo que hace al pasar el ratón 
 - **Interfaz**: Completa, Sencilla o Mínima; **Tamaño** del HUD (Pequeño, Normal o Grande); **Opacidad** de los paneles;
   **Barra de técnicas** abajo, vertical, solo al usarla u oculta; **Pistas** siempre, solo al empezar o nunca; **Aviso
   grande del ROOM** sí o no.
-- **Accesibilidad**: **Alto contraste** (sigue al de Minecraft, o sí/no: paneles opacos y bordes blancos), **Menos
+- **Accesibilidad**: **Contraste** (como el de Minecraft, alto o normal; el alto pone paneles opacos y bordes blancos), **Menos
   movimiento** (sin sacudidas, sin cambios del campo de visión ni rayas), **Sacudidas de cámara** de 0 a 100 %,
   **Destellos** (como Minecraft, sí, suaves o no) y **Narrar el ROOM** con el narrador de Minecraft. Los sonidos del ROOM
   tienen subtítulos.

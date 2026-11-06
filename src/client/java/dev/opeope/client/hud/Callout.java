@@ -99,6 +99,14 @@ public final class Callout {
 		float tw = c.tr.getWidth(text) * k;
 		float x = c.cx - tw / 2f;
 		float y = c.cy - 52 + (8 * scale - 8 * k) / 2f;
+		// una franja oscura con los bordes difuminados detrás: sobre el cielo o un destello el texto claro se perdía
+		int band = Math.round((Theme.floatShadow() ? 0x78 : 0xC8) * a) << 24;
+		int pad = 3 * scale, fade = 8 * scale;
+		int bx0 = (int) Math.floor(x) - pad, bx1 = (int) Math.ceil(x + tw) + pad;
+		int by0 = c.cy - 52 - pad, by1 = c.cy - 52 + 7 * scale + pad;
+		b.hgradient(Ui.BACK, bx0 - fade, by0, bx0, by1, 0, band, scale * 2);
+		b.fill(Ui.BACK, bx0, by0, bx1, by1, band);
+		b.hgradient(Ui.BACK, bx1, by0, bx1 + fade, by1, band, 0, scale * 2);
 		b.textScaled(text, x, y, Theme.mulAlpha(color, a), Theme.floatShadow(), k);
 	}
 }

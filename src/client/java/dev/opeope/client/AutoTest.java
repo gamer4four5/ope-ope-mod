@@ -561,7 +561,9 @@ public final class AutoTest {
 			key(GLFW.GLFW_KEY_TAB, RELEASE);
 		});
 
-		// (k) Takt: coger el cerdo, el chip, la fila de R y soltar
+		// (k) Takt: dentro de un ROOM (fuera no coge nada), coger el cerdo, el chip, la fila de R y soltar
+		step(10, "takt: ROOM", () -> key(Q, PRESS));
+		step(12, "takt: ROOM suelta", () -> key(Q, RELEASE));
 		step(5, "takt: mira", () -> srv.execute(() -> look(srv, id, 32, 28)));
 		step(12, "takt: toque", () -> key(GLFW.GLFW_KEY_R, PRESS));
 		step(2, "takt: toque suelta", () -> key(GLFW.GLFW_KEY_R, RELEASE));
@@ -577,12 +579,8 @@ public final class AutoTest {
 		step(1, "takt: soltar", () -> key(GLFW.GLFW_KEY_B, RELEASE));
 		step(1, "takt: suelta R", () -> key(GLFW.GLFW_KEY_R, RELEASE));
 
-		// (l) Bisturí: un ROOM nuevo, el panel, un corte y soltar
-		step(10, "bisturí: ROOM", () -> key(Q, PRESS));
-		step(12, "bisturí: ROOM suelta", () -> {
-			key(Q, RELEASE);
-			srv.execute(() -> look(srv, id, 0, 8));
-		});
+		// (l) Bisturí: en el ROOM de Takt, el panel, un corte y soltar
+		step(10, "bisturí: mira", () -> srv.execute(() -> look(srv, id, 0, 8)));
 		step(12, "bisturí", () -> mouse(RIGHT, PRESS));
 		step(4, "15-bisturi-panel-a", () -> {
 			shot(mc, "15-bisturi-panel-a");

@@ -127,23 +127,23 @@ public final class OnboardingCard {
 		String text;
 		if (i == Onboarding.STEP_ROOM) {
 			a = KeyLabels.of(Keys.ROOM);
-			text = roomToggle ? "toca y vuelve a tocar: abre el ROOM" : "mantén y suelta: abre el ROOM";
+			text = roomToggle ? "toca: crece · toca: fija" : "mantén y suelta: ROOM";
 		} else if (i == Onboarding.STEP_RESIZE) {
 			a = KeyLabels.of(Keys.ROOM);
 			b = KeyLabels.wheel();
 			text = "cambia su tamaño";
 		} else if (i == Onboarding.STEP_CUT) {
 			a = KeyLabels.mouseLeft();
-			text = "arrastra dentro: Amputate";
+			text = "arrastra: Amputate";
 		} else if (i == Onboarding.STEP_SHAMBLES) {
 			a = KeyLabels.of(Keys.SHAMBLES);
-			text = "Shambles, cambia de sitio";
+			text = "Shambles: intercambia";
 		} else if (i == Onboarding.STEP_TAKT) {
 			a = KeyLabels.of(Keys.TAKT);
-			text = "sobre algo: Takt lo coge";
+			text = "Takt: coge algo";
 		} else {
 			a = KeyLabels.of(Keys.ROW2);
-			text = tabToggle ? "toca: la segunda fila" : "mantén: la segunda fila";
+			text = tabToggle ? "toca: segunda fila" : "mantén: segunda fila";
 		}
 		Ui.Line line = new Ui.Line();
 		if (state == 0) return line.icon("check", Theme.SOFT).text(text, Theme.TEXT3);

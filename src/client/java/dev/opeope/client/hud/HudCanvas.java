@@ -195,6 +195,8 @@ public final class HudCanvas {
 		public int barTile, barRows, barCandidate;
 		/** Lo más bajo de la columna izquierda (píldora, chips, Scan) y su borde derecho. */
 		public int leftBottom, leftRight;
+		/** Una tira de teclas ancha tapa la píldora y los chips: mientras se ve, esos dos no se dibujan. */
+		public boolean leftHidden;
 		public final List<Placed> placed = new ArrayList<>();
 
 		public void place(String name, boolean persistent, Rect r) {
