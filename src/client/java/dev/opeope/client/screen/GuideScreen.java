@@ -56,7 +56,7 @@ public class GuideScreen extends Screen {
 		row(tab + " 1", "patrón: un tajo, rodajas, cruz o dados");
 		row(tab + " 2", "alcance: todo lo que cruza el ROOM o solo el objetivo");
 		row(tab + " 3", "suspender: lo cortado queda flotando hasta que lo pulses otra vez");
-		note("Lo que queda sin unión con el suelo cae como una pieza. Un mob cortado no pierde vida: queda en piezas vivas.");
+		note("Lo que queda encima del corte resbala por el plano hacia donde fue el tajo; el borde del ROOM también corta. Si está encajado, se separa y flota unos segundos (agárralo con Takt). Un mob cortado no pierde vida: queda en piezas vivas.");
 		note("Con la Kikoku dentro del ROOM, cada tajo de la espada corta de verdad lo que alcanza el filo.");
 		title("Shambles");
 		row(k(Keys.SHAMBLES), "con el aire: apareces donde apuntas dentro del ROOM");

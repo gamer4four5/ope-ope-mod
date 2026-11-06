@@ -37,7 +37,7 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 			double bob = (e.flags() & PieceEntity.F_SUSPENDED) != 0 ? Math.sin((e.age + tickDelta) * 0.12) * 0.025 : 0;
 			ms.translate(-set.sx / 2.0, bob, -set.sz / 2.0);
 		}
-		for (BlockSet.Entry b : set.entries) {
+		for (BlockSet.Entry b : set.visible()) {
 			ms.push();
 			ms.translate(b.x(), b.y(), b.z());
 			brm.renderBlockAsEntity(b.state(), ms, vcp, light, OverlayTexture.DEFAULT_UV);

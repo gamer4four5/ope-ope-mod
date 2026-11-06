@@ -4,6 +4,7 @@ import dev.opeope.OpeConfig;
 import dev.opeope.entity.BlockSet;
 import dev.opeope.entity.PieceEntity;
 import dev.opeope.entity.SterbenEntity;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -170,15 +171,18 @@ public final class CutEngine {
 		UUID owner = player.getUuid();
 		if (planes.isEmpty()) return new Result(0, 0);
 
-		// 1. Semillas: los bloques pegados a cada plano dentro de la región.
+		// 1. Semillas: los bloques pegados a cada plano dentro de la región (y de qué lado del plano quedan).
 		LongOpenHashSet seen = new LongOpenHashSet();
 		LongArrayList seeds = new LongArrayList();
+		IntArrayList seedPlane = new IntArrayList();
+		IntArrayList seedSide = new IntArrayList();
 		List<Vec3d> fx = new ArrayList<>();
 		Vec3d scC = region.sampleC();
 		double sr = region.sampleR();
 		BlockPos.Mutable m = new BlockPos.Mutable();
 		int budget = OpeConfig.CUT_MAX_SAMPLES / planes.size();
-		for (Plane pl : blocks ? planes : List.<Plane>of()) {
+		for (int pi = 0; pi < (blocks ? planes.size() : 0); pi++) {
+			Plane pl = planes.get(pi);
 			double dc = pl.dist(scC);
 			if (Math.abs(dc) >= sr) continue;
 			double rr = Math.sqrt(sr * sr - dc * dc);
@@ -200,6 +204,9 @@ public final class CutEngine {
 						BlockState st = w.getBlockState(m);
 						if (cuttable(st, w, m)) {
 							seeds.add(key);
+							seedPlane.add(pi);
+							// el lado real del bloque (por su centro), no el de la muestra
+							seedSide.add(pl.dist(m.getX() + 0.5, m.getY() + 0.5, m.getZ() + 0.5) >= 0 ? 1 : -1);
 							if (s == 1 && fx.size() < 240 && w.random.nextInt(3) == 0) fx.add(new Vec3d(px, py, pz));
 						}
 					}
@@ -207,79 +214,59 @@ public final class CutEngine {
 			}
 		}
 
-		// 2. Grupos conexos que no cruzan ningún plano dentro de la región.
+		// 2a. Grupos conexos que no cruzan ningún plano: si no tocan el resto del mundo, se sueltan enteros
+		//     (un árbol, una torre, una casa que cabe en el ROOM).
 		Long2IntOpenHashMap comp = new Long2IntOpenHashMap();
 		comp.defaultReturnValue(0);
 		List<LongArrayList> detached = new ArrayList<>();
-		int nextId = 1;
+		IntArrayList detachedSeed = new IntArrayList();
 		LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
-		int bottom = w.getBottomY(), top = w.getTopY();
+		int nextId = 1;
 		for (int si = 0; si < seeds.size(); si++) {
 			long seed = seeds.getLong(si);
 			if (comp.get(seed) != 0) continue;
-			int id = nextId++;
 			LongArrayList members = new LongArrayList();
-			boolean anchored = false;
-			comp.put(seed, id);
-			members.add(seed);
-			queue.clear();
-			queue.enqueue(seed);
-			outer:
-			while (!queue.isEmpty()) {
-				long cur = queue.dequeueLong();
-				int cx = BlockPos.unpackLongX(cur), cy = BlockPos.unpackLongY(cur), cz = BlockPos.unpackLongZ(cur);
-				for (Direction d : DIRS) {
-					int nx = cx + d.getOffsetX(), ny = cy + d.getOffsetY(), nz = cz + d.getOffsetZ();
-					if (ny < bottom) {
-						anchored = true;
-						break outer;
-					}
-					if (ny >= top) continue;
-					long nk = BlockPos.asLong(nx, ny, nz);
-					int c = comp.get(nk);
-					if (c == id) continue;
-					if (separated(planes, region, cx, cy, cz, nx, ny, nz)) continue;
-					m.set(nx, ny, nz);
-					if (c != 0) {
-						BlockState st = w.getBlockState(m);
-						if (cuttable(st, w, m)) {
-							anchored = true;
-							break outer;
-						}
-						continue;
-					}
-					if (!w.isChunkLoaded(m)) {
-						anchored = true;
-						break outer;
-					}
-					BlockState st = w.getBlockState(m);
-					if (st.isAir() || st.getBlock() instanceof FluidBlock) continue;
-					if (st.getHardness(w, m) < 0) {
-						anchored = true;
-						break outer;
-					}
-					comp.put(nk, id);
-					members.add(nk);
-					queue.enqueue(nk);
-					if (members.size() > OpeConfig.CUT_MAX_PIECE_BLOCKS) {
-						anchored = true;
-						break outer;
-					}
-				}
-			}
+			boolean anchored = flood(w, planes, region, seed, nextId++, comp, members, queue, false, OpeConfig.CUT_MAX_PIECE_BLOCKS);
 			if (anchored) {
 				for (int i = 0; i < members.size(); i++) comp.put(members.getLong(i), -1);
 			} else {
 				detached.add(members);
+				detachedSeed.add(si);
 			}
 		}
 
-		// 3. Cada grupo suelto pasa a ser una pieza.
+		// 2b. Lo que sigue pegado al terreno por fuera del ROOM: el borde del ROOM también corta. Lo que queda encima
+		//     de un corte no vertical (la cima de una montaña, la parte de arriba de una pared o de un tejado) se separa
+		//     igual, recortado por la esfera. Lo de debajo del corte es el suelo y se queda.
+		Long2IntOpenHashMap compB = new Long2IntOpenHashMap();
+		compB.defaultReturnValue(0);
+		int nextB = 1;
+		int visitedB = 0;
+		for (int si = 0; si < seeds.size(); si++) {
+			long seed = seeds.getLong(si);
+			if (comp.get(seed) != -1 || compB.get(seed) != 0) continue;
+			Plane sp = planes.get(seedPlane.getInt(si));
+			if (seedSide.getInt(si) * sp.n().y < OpeConfig.CUT_SLIDE_MIN_UP) continue;
+			if (visitedB > OpeConfig.CUT_MAX_SLICE_VISIT) break;
+			LongArrayList members = new LongArrayList();
+			boolean anchored = flood(w, planes, region, seed, nextB++, compB, members, queue, true, OpeConfig.CUT_MAX_SLICE_BLOCKS);
+			visitedB += members.size();
+			if (anchored) {
+				for (int i = 0; i < members.size(); i++) compB.put(members.getLong(i), -1);
+			} else {
+				detached.add(members);
+				detachedSeed.add(si);
+			}
+		}
+
+		// 3. Cada grupo suelto pasa a ser una pieza, que resbala por el plano del corte.
 		PlayerPower power = PowerManager.get(player);
+		Vec3d look = player.getRotationVector();
 		int pieces = 0;
 		List<BlockPos> removed = new ArrayList<>();
-		for (LongArrayList members : detached) {
+		for (int gi = 0; gi < detached.size(); gi++) {
 			if (pieces >= OpeConfig.CUT_MAX_PIECES) break;
+			LongArrayList members = detached.get(gi);
 			int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
 			for (int i = 0; i < members.size(); i++) {
 				long k = members.getLong(i);
@@ -306,16 +293,20 @@ public final class CutEngine {
 			removed.addAll(mine);
 			set.normalize();
 			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(minX, minY, minZ), new BlockPos(minX, minY, minZ), owner);
-			Vec3d cc = pe.center();
-			Plane pl0 = planes.get(0);
-			double side = Math.signum(pl0.dist(cc));
-			if (side == 0) side = 1;
+			int si = detachedSeed.getInt(gi);
+			Plane pl0 = planes.get(seedPlane.getInt(si));
+			Vec3d nSide = pl0.n().multiply(seedSide.getInt(si));   // normal del plano hacia el lado de la pieza
 			if (suspend) {
-				pe.control(cc.add(pl0.n().multiply(side * 0.3)));
+				pe.control(pe.center().add(nSide.multiply(0.3)));
 				pe.setFlag(PieceEntity.F_SUSPENDED, true);
 				power.suspended.add(pe.getId());
+			} else if (nSide.y >= OpeConfig.CUT_SLIDE_MIN_UP) {
+				// Encima del corte: resbala por el plano, cuesta abajo y hacia donde va el tajo.
+				Vec3d push = look.subtract(nSide.multiply(look.dotProduct(nSide)));
+				push = push.lengthSquared() < 1e-4 ? Vec3d.ZERO : push.normalize().multiply(OpeConfig.CUT_SLIDE_PUSH);
+				pe.startSlide(nSide, pl0.p(), push);
 			} else {
-				pe.setVelocity(pl0.n().multiply(side * 0.08));
+				pe.setVelocity(nSide.multiply(0.08));
 			}
 			pieces++;
 		}
@@ -353,6 +344,49 @@ public final class CutEngine {
 		return new Result(pieces, living);
 	}
 
+	/**
+	 * Recorre el grupo de bloques unidos a la semilla sin cruzar ningún plano. Devuelve true si está anclado:
+	 * llega al fondo del mundo, a un bloque irrompible, a un chunk sin cargar, a otro grupo anclado o es demasiado grande.
+	 * @param roomBounded el borde de la región también corta (lo de fuera no cuenta como unión)
+	 */
+	private static boolean flood(ServerWorld w, List<Plane> planes, Region region, long seed, int id, Long2IntOpenHashMap comp,
+			LongArrayList members, LongArrayFIFOQueue queue, boolean roomBounded, int maxBlocks) {
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		int bottom = w.getBottomY(), top = w.getTopY();
+		comp.put(seed, id);
+		members.add(seed);
+		queue.clear();
+		queue.enqueue(seed);
+		while (!queue.isEmpty()) {
+			long cur = queue.dequeueLong();
+			int cx = BlockPos.unpackLongX(cur), cy = BlockPos.unpackLongY(cur), cz = BlockPos.unpackLongZ(cur);
+			for (Direction d : DIRS) {
+				int nx = cx + d.getOffsetX(), ny = cy + d.getOffsetY(), nz = cz + d.getOffsetZ();
+				if (ny < bottom) return true;
+				if (ny >= top) continue;
+				if (roomBounded && !region.contains(nx + 0.5, ny + 0.5, nz + 0.5)) continue;
+				long nk = BlockPos.asLong(nx, ny, nz);
+				int c = comp.get(nk);
+				if (c == id) continue;
+				if (separated(planes, region, cx, cy, cz, nx, ny, nz)) continue;
+				m.set(nx, ny, nz);
+				if (c != 0) {
+					if (cuttable(w.getBlockState(m), w, m)) return true;
+					continue;
+				}
+				if (!w.isChunkLoaded(m)) return true;
+				BlockState st = w.getBlockState(m);
+				if (st.isAir() || st.getBlock() instanceof FluidBlock) continue;
+				if (st.getHardness(w, m) < 0) return true;
+				comp.put(nk, id);
+				members.add(nk);
+				queue.enqueue(nk);
+				if (members.size() > maxBlocks) return true;
+			}
+		}
+		return false;
+	}
+
 	/** Parte una pieza suelta por los planos. */
 	public static void splitPiece(PieceEntity pe, List<Plane> planes, boolean suspend, PlayerPower power) {
 		Vec3d corner = pe.corner();
@@ -370,7 +404,7 @@ public final class CutEngine {
 		ServerWorld w = (ServerWorld) pe.getWorld();
 		Vec3d vel = pe.getVelocity();
 		boolean wasHeld = power.takt.contains(pe.getId());
-		boolean wasSuspended = (pe.flags() & PieceEntity.F_SUSPENDED) != 0;
+		boolean wasSuspended = (pe.flags() & PieceEntity.F_SUSPENDED) != 0 && pe.mode == PieceEntity.Mode.CONTROLLED;
 		List<Integer> newIds = new ArrayList<>();
 		for (Map.Entry<Integer, BlockSet> part : parts.entrySet()) {
 			BlockSet set = part.getValue();

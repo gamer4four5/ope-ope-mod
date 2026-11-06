@@ -14,7 +14,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x gradlew
       - name: Compilar
-        run: ./gradlew build --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace 2>&1 | tee compilar.log
       - uses: actions/upload-artifact@v4
         with:
           name: ope-ope-no-mi-mod
@@ -72,7 +74,7 @@ jobs:
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          cp -f servidor.log cliente.log /tmp/ci-logs/ 2>/dev/null || true
+          cp -f compilar.log servidor.log cliente.log /tmp/ci-logs/ 2>/dev/null || true
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
           cd /tmp/ci-logs && git init -q -b ci-logs
           git config user.name "github-actions[bot]"

@@ -13,7 +13,9 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 - **ROOM** (Q): esfera azul con borde brillante. Mantener crece desde ti hasta 160 bloques; Q + rueda agranda o encoge;
   Q + clic la lanza a la mira; Q + clic derecho la trae; un toque la quita.
 - **Cortes reales en bloques**: Amputate (clic con la mano vacía, arrastrando: el arco es el plano). Lo que queda sin
-  unión con el resto del mundo cae como una pieza entera (casas, torres, árboles, trozos de montaña). Bisturí (clic
+  unión con el resto del mundo cae como una pieza entera (casas, torres, árboles). Lo que queda encima de un corte
+  inclinado u horizontal resbala por el plano aunque siga pegado al terreno fuera del ROOM: el borde del ROOM también corta
+  (la cima de un monte, la parte de arriba de una pared). Bisturí (clic
   derecho mantenido): el tiempo va al 12 % en una partida de un jugador, plano visible, hasta 16 planos encadenados.
   Patrones (Tab 1), alcance (Tab 2), suspender (Tab 3). La Kikoku dentro del ROOM corta con cada tajo.
 - **Seres vivos en piezas**: un mob cortado no pierde vida; se ve partido (cada mitad flota separada) y no se mueve

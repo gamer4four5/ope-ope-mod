@@ -1,5 +1,6 @@
 package dev.opeope.entity;
 
+import dev.opeope.OpeConfig;
 import dev.opeope.power.CutEngine;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.PlayerPower;
@@ -60,7 +61,8 @@ public class PieceEntity extends Entity {
 	public static final int F_SUSPENDED = 2;  // suspendida tras un corte
 	public static final int F_SEAM = 4;       // brilla: elegida para coser o volviendo a su sitio
 
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK }
+	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
 
@@ -86,6 +88,13 @@ public class PieceEntity extends Entity {
 
 	private int restTicks, freeTicks;
 	private final Map<Integer, Integer> hitCooldown = new HashMap<>();
+
+	// El corte: plano (normal hacia la pieza) por el que resbala
+	private Vec3d slideN = new Vec3d(0, 1, 0);
+	private Vec3d slideP = Vec3d.ZERO;
+	private int slideTicks;
+	private double slid;
+	private int hoverTicks;
 
 	public PieceEntity(EntityType<? extends PieceEntity> type, World world) {
 		super(type, world);
@@ -235,6 +244,125 @@ public class PieceEntity extends Entity {
 			case SEWING -> sewingTick();
 			case STUCK -> setVelocity(Vec3d.ZERO);
 			case FREE -> freeTick();
+			case SLIDING -> slideTick();
+			case HOVER -> hoverTick();
+		}
+	}
+
+	// ------------------------------------------------------------------ resbalar por el corte
+
+	/**
+	 * Lo que queda encima de un corte resbala por el plano: cuesta abajo por la gravedad y hacia donde fue el tajo.
+	 * Mientras resbala no choca con la "piel" del corte (los bloques escalonados justo al otro lado del plano),
+	 * así el plano se comporta como una superficie lisa y no como una escalera de bloques.
+	 */
+	public void startSlide(Vec3d n, Vec3d planePoint, Vec3d push) {
+		mode = Mode.SLIDING;
+		slideN = n.normalize();
+		slideP = planePoint;
+		slideTicks = 0;
+		slid = 0;
+		thrown = false;
+		setVelocity(push);
+	}
+
+	private void slideTick() {
+		slideTicks++;
+		Vec3d g = new Vec3d(0, -0.06, 0);
+		Vec3d v = getVelocity().add(g.subtract(slideN.multiply(g.dotProduct(slideN))));
+		v = v.subtract(slideN.multiply(v.dotProduct(slideN))).multiply(0.96);
+		if (v.length() > 1.5) v = v.normalize().multiply(1.5);
+		int steps = Math.max(1, (int) Math.ceil(v.length() / 0.2));
+		Vec3d step = v.multiply(1.0 / steps);
+		boolean blocked = false;
+		for (int i = 0; i < steps; i++) {
+			Vec3d next = getPos().add(step);
+			if (collidesAt(next)) {
+				blocked = true;
+				break;
+			}
+			setPosition(next);
+			slid += step.length();
+		}
+		if (v.length() > 0.5) hitEntities(v, false);
+		if (slideTicks % 3 == 0 && v.length() > 0.05) slideDust();
+		boolean stopped = slideTicks > 15 && v.lengthSquared() < 1e-4;
+		if (blocked || stopped || slideTicks > 120) {
+			if (slid < 0.6) {
+				startHover();
+				return;
+			}
+			mode = Mode.FREE;
+			restTicks = 0;
+			freeTicks = 0;
+			setVelocity(blocked ? Vec3d.ZERO : v);
+			return;
+		}
+		setVelocity(v);
+	}
+
+	/** ¿Chocaría algún bloque de la pieza con el mundo si su posición fuera esta? (sin contar la piel del corte) */
+	private boolean collidesAt(Vec3d pos) {
+		World w = getWorld();
+		double cx = pos.x - blocks.sx / 2.0, cy = pos.y, cz = pos.z - blocks.sz / 2.0;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		final double e = 0.03;
+		for (BlockSet.Entry b : blocks.surface()) {
+			double x0 = cx + b.x() + e, y0 = cy + b.y() + e, z0 = cz + b.z() + e;
+			int ix0 = MathHelper.floor(x0), iy0 = MathHelper.floor(y0), iz0 = MathHelper.floor(z0);
+			int ix1 = MathHelper.floor(x0 + 1 - 2 * e), iy1 = MathHelper.floor(y0 + 1 - 2 * e), iz1 = MathHelper.floor(z0 + 1 - 2 * e);
+			for (int x = ix0; x <= ix1; x++) {
+				for (int y = iy0; y <= iy1; y++) {
+					for (int z = iz0; z <= iz1; z++) {
+						double d = slideN.x * (x + 0.5 - slideP.x) + slideN.y * (y + 0.5 - slideP.y) + slideN.z * (z + 0.5 - slideP.z);
+						if (d > -1.0 && d <= 0.05) continue;   // la piel del corte
+						m.set(x, y, z);
+						if (w.isOutOfHeightLimit(m)) continue;
+						BlockState st = w.getBlockState(m);
+						if (st.isAir() || st.isReplaceable()) continue;
+						if (!st.getCollisionShape(w, m).isEmpty()) return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private void slideDust() {
+		if (!(getWorld() instanceof ServerWorld sw)) return;
+		BlockState mat = blocks.dominant();
+		if (mat == null) return;
+		Box b = getBoundingBox();
+		sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, mat), b.getCenter().x, b.minY + 0.1, b.getCenter().z,
+			Math.min(30, 4 + blocks.size() / 40), b.getLengthX() / 3, 0.1, b.getLengthZ() / 3, 0.05);
+	}
+
+	/** No tiene por dónde resbalar (sigue encajada en el terreno de fuera del ROOM): se separa por el corte y espera. */
+	private void startHover() {
+		mode = Mode.HOVER;
+		hoverTicks = 0;
+		setVelocity(Vec3d.ZERO);
+		setFlag(F_SUSPENDED, true);
+	}
+
+	private Vec3d home() {
+		if (origin == null) return getPos();
+		return new Vec3d(origin.getX() + blocks.sx / 2.0, origin.getY(), origin.getZ() + blocks.sz / 2.0);
+	}
+
+	private void hoverTick() {
+		hoverTicks++;
+		double gap = 0.4 * Math.min(1, hoverTicks / 5.0);
+		setPosition(home().add(slideN.multiply(gap)));
+		setVelocity(Vec3d.ZERO);
+		if (hoverTicks > OpeConfig.CUT_HOVER_TICKS) {
+			setFlag(F_SUSPENDED, false);
+			if (origin != null) {
+				setPosition(home());
+				settleAt(origin, false);
+			} else {
+				settle(false);
+			}
 		}
 	}
 
@@ -376,7 +504,33 @@ public class PieceEntity extends Entity {
 	/** Vuelve a ser bloques donde está (redondeando a la rejilla). */
 	public void settle(boolean sealed) {
 		BlockPos base = BlockPos.ofFloored(getX() - blocks.sx / 2.0 + 0.5, getY() + 0.5, getZ() - blocks.sz / 2.0 + 0.5);
+		if (!sealed) base = bestFit(base);
 		settleAt(base, sealed);
+	}
+
+	/** Al redondear a la rejilla, elige el hueco cercano donde menos bloques de la pieza chocan con el mundo. */
+	private BlockPos bestFit(BlockPos base) {
+		if (!(getWorld() instanceof ServerWorld w)) return base;
+		int[][] tries = {{0, 0, 0}, {0, 1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 2, 0}};
+		BlockPos best = base;
+		int bestHits = Integer.MAX_VALUE;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int[] t : tries) {
+			int hits = 0;
+			for (BlockSet.Entry e : blocks.entries) {
+				m.set(base.getX() + t[0] + e.x(), base.getY() + t[1] + e.y(), base.getZ() + t[2] + e.z());
+				BlockState cur = w.getBlockState(m);
+				if (!cur.isAir() && !cur.isReplaceable()) {
+					if (++hits >= bestHits) break;
+				}
+			}
+			if (hits < bestHits) {
+				bestHits = hits;
+				best = base.add(t[0], t[1], t[2]);
+				if (hits == 0) break;
+			}
+		}
+		return best;
 	}
 
 	public void settleAt(BlockPos base, boolean sealed) {

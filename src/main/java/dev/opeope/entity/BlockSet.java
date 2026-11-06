@@ -8,6 +8,7 @@ import net.minecraft.nbt.NbtHelper;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.EmptyBlockView;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -32,10 +33,12 @@ public class BlockSet {
 
 	public void add(int x, int y, int z, BlockState state, @Nullable NbtCompound be) {
 		entries.add(new Entry(x, y, z, state, be));
+		surfaceCache = visibleCache = null;
 	}
 
 	/** Mueve todo para que el mínimo quede en (0,0,0) y devuelve cuánto se movió. */
 	public BlockPos normalize() {
+		surfaceCache = visibleCache = null;
 		if (entries.isEmpty()) {
 			sx = sy = sz = 1;
 			return BlockPos.ORIGIN;
@@ -58,8 +61,56 @@ public class BlockSet {
 		return new BlockPos(mx, my, mz);
 	}
 
-	/** El estado más repetido (para forjar armas con el material de Takt). */
-	public BlockState dominant() {
+	private List<Entry> surfaceCache, visibleCache;
+
+	private static final int[][] NEIGHBORS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+
+	private Map<Integer, Entry> byPos() {
+		Map<Integer, Entry> map = new HashMap<>(entries.size() * 2);
+		for (Entry e : entries) map.put(pack(e.x, e.y, e.z), e);
+		return map;
+	}
+
+	/** Los bloques con alguna cara al aire (los únicos que pueden chocar al moverse). */
+	public List<Entry> surface() {
+		if (surfaceCache != null) return surfaceCache;
+		Map<Integer, Entry> map = byPos();
+		List<Entry> out = new ArrayList<>();
+		for (Entry e : entries) {
+			for (int[] d : NEIGHBORS) {
+				int x = e.x + d[0], y = e.y + d[1], z = e.z + d[2];
+				if (x < 0 || y < 0 || z < 0 || !map.containsKey(pack(x, y, z))) {
+					out.add(e);
+					break;
+				}
+			}
+		}
+		surfaceCache = out;
+		return out;
+	}
+
+	/** Los bloques que se ven: se salta los tapados por bloques opacos por los seis lados (piezas grandes sin tirones). */
+	public List<Entry> visible() {
+		if (visibleCache != null) return visibleCache;
+		Map<Integer, Entry> map = byPos();
+		List<Entry> out = new ArrayList<>();
+		for (Entry e : entries) {
+			boolean hidden = true;
+			for (int[] d : NEIGHBORS) {
+				int x = e.x + d[0], y = e.y + d[1], z = e.z + d[2];
+				Entry n = (x < 0 || y < 0 || z < 0) ? null : map.get(pack(x, y, z));
+				if (n == null || !n.state.isOpaqueFullCube(EmptyBlockView.INSTANCE, BlockPos.ORIGIN)) {
+					hidden = false;
+					break;
+				}
+			}
+			if (!hidden) out.add(e);
+		}
+		visibleCache = out;
+		return out;
+	}
+
+	/** El estado más repetido (para forjar armas con el material de Takt). */	public BlockState dominant() {
 		Map<BlockState, Integer> count = new HashMap<>();
 		BlockState best = null;
 		int bestN = 0;
