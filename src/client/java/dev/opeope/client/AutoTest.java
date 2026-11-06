@@ -1,6 +1,7 @@
 package dev.opeope.client;
 
 import dev.opeope.OpeOpeMod;
+import dev.opeope.client.input.Bisturi;
 import dev.opeope.client.input.InputHandler;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
@@ -42,7 +43,8 @@ public final class AutoTest {
 		new Slash(880, 25, 4, 0, 16, "4-vertical"),        // vertical
 	};
 	private static final int[] SHOTS_AFTER = {1, 4, 10, 24, 50, 110};
-	private static final int END = 1120;
+	private static final int BISTURI_AT = 1120;
+	private static final int END = 1400;
 
 	public static void tick(MinecraftClient mc) {
 		if (!ON) return;
@@ -63,6 +65,24 @@ public final class AutoTest {
 				if (r == 10 + SHOTS_AFTER[k]) shot(mc, s.name + "-" + (char) ('b' + k) + "-" + SHOTS_AFTER[k] + "t");
 			}
 		}
+		// Bisturí: plano por donde apuntas (el montículo), dos clics que cortan ya y quedan quietos, y al soltar cae todo.
+		int b = t - BISTURI_AT;
+		if (b == -12) srv.execute(() -> look(srv, id, 0, 8));    // la base de la torre
+		if (b == 0) Bisturi.start();
+		if (b == 4) Bisturi.scroll(1, false, false);              // girar 15°
+		if (b == 8) shot(mc, "5-bisturi-a-plano");
+		if (b == 10) Bisturi.addPlane();
+		if (b == 14) for (int i = 0; i < 4; i++) Bisturi.scroll(-1, false, false);   // girar -60°
+		if (b == 18) Bisturi.addPlane();
+		if (b == 22) shot(mc, "5-bisturi-b-sujeto");
+		if (b == 26) shot(mc, "5-bisturi-c-sujeto");
+		if (b == 30) Bisturi.commit();
+		if (b == 34) shot(mc, "5-bisturi-d-soltar-4t");
+		if (b == 44) shot(mc, "5-bisturi-e-soltar-14t");
+		if (b == 70) shot(mc, "5-bisturi-f-soltar-40t");
+		// el cerdo de cerca
+		if (b == 100) srv.execute(() -> look(srv, id, 32, 28));
+		if (b == 120) shot(mc, "6-cerdo");
 		if (t == END) OpeOpeMod.LOG.info("AUTOTEST terminado");
 	}
 

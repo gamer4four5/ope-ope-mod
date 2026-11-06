@@ -306,6 +306,13 @@ public class PieceEntity extends Entity {
 		boolean stopped = slideTicks > 15 && v.lengthSquared() < 1e-4;
 		if (blocked || stopped || slideTicks > 120) {
 			if (slid < 0.6) {
+				// Encajada. Si es pequeña, se separa y flota un rato (para agarrarla con Takt); si es un pedazo de terreno
+				// enorme que no tiene adónde ir (un corte mirando al suelo), vuelve a su sitio sin más.
+				if (blocks.size() > OpeConfig.CUT_HOVER_MAX_BLOCKS && origin != null) {
+					setPosition(home());
+					settleAt(origin, false);
+					return;
+				}
 				startHover();
 				return;
 			}
