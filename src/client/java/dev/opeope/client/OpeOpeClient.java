@@ -45,12 +45,14 @@ public class OpeOpeClient implements ClientModInitializer {
 			else ClientState.CUTS.put(payload.entityId(), payload.planes());
 		});
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.CutFx.ID, (payload, ctx) -> CutFx.receive(payload.data()));
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+		// Fabric puede avisar de la desconexión desde el hilo de red: lo de limpiar va al hilo del juego, que es el
+		// que dibuja y lee todo esto (si no, una ConcurrentModificationException podía cortar el guardado del progreso)
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {
 			ClientState.clear();
 			CutFx.clear();
 			InputHandler.onDisconnect();
 			HudRoot.clear();
-		});
+		}));
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			ClientState.tick();

@@ -681,7 +681,13 @@ public final class RoomVisuals {
 		for (int i = 0; i < VIS.size(); i++) {
 			Vis v = VIS.get(i);
 			v.tick(clientTick);
-			if (dim == null || !dim.equals(v.dim) || !v.shown()) continue;
+			if (dim == null || !dim.equals(v.dim)) {
+				// de otro mundo: suelta la línea del suelo, que guarda el mundo en el que se hizo (si no, ese mundo
+				// entero se queda en memoria al cruzar un portal o reaparecer en otra dimensión)
+				v.ground.reset();
+				continue;
+			}
+			if (!v.shown()) continue;
 			double dx = v.cx - cam.x, dy = v.cy - cam.y, dz = v.cz - cam.z;
 			double far = 256 + v.r;
 			boolean near = dx * dx + dy * dy + dz * dz < far * far;

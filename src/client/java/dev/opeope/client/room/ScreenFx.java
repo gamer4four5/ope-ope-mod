@@ -3,6 +3,7 @@ package dev.opeope.client.room;
 import dev.opeope.client.config.OpeSettings;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.util.math.RotationAxis;
 
@@ -140,29 +141,32 @@ public final class ScreenFx {
 		ctx.draw(() -> {
 			if (fEdge >= 0.004f) edges(ctx, w, h, fEdge);
 			if (fStreaks) streakLines(ctx, w, h, fStreakAge);
-			if (fFlash >= 0.004f) ctx.fill(0, 0, w, h, argb(fFlash, FLASH_RGB));
+			if (fFlash >= 0.004f) ctx.fill(RenderLayer.getGuiOverlay(), 0, 0, w, h, argb(fFlash, FLASH_RGB));
 		});
 	}
 
-	/** El tinte del borde: arriba y abajo con degradados, a los lados en franjas de 1; cae como (1 − i/T)². */
+	/**
+	 * El tinte del borde: arriba y abajo con degradados, a los lados en franjas de 1; cae como (1 − i/T)². Todo con la capa
+	 * GUI_OVERLAY, que no escribe profundidad: con la normal, la mira del catalejo se quedaba con agujeros.
+	 */
 	private static void edges(DrawContext ctx, int w, int h, float e) {
 		int band = Math.max(12, Math.round(Math.min(w, h) * 0.10f));
 		// arriba y abajo: tres tramos lineales que siguen la curva (1 − i/T)²
 		int t1 = band / 3, t2 = 2 * band / 3;
 		int a0 = argb(e, EDGE_RGB), a1 = argb(e * 0.444f, EDGE_RGB), a2 = argb(e * 0.111f, EDGE_RGB), a3 = argb(0f, EDGE_RGB);
-		ctx.fillGradient(0, 0, w, t1, a0, a1);
-		ctx.fillGradient(0, t1, w, t2, a1, a2);
-		ctx.fillGradient(0, t2, w, band, a2, a3);
-		ctx.fillGradient(0, h - band, w, h - t2, a3, a2);
-		ctx.fillGradient(0, h - t2, w, h - t1, a2, a1);
-		ctx.fillGradient(0, h - t1, w, h, a1, a0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, 0, w, t1, a0, a1, 0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, t1, w, t2, a1, a2, 0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, t2, w, band, a2, a3, 0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, h - band, w, h - t2, a3, a2, 0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, h - t2, w, h - t1, a2, a1, 0);
+		ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, h - t1, w, h, a1, a0, 0);
 		// los lados, sin pisar las esquinas ya pintadas
 		for (int i = 0; i < band; i++) {
 			float k = 1f - i / (float) band;
 			int c = argb(e * k * k, EDGE_RGB);
 			if ((c >>> 24) == 0) break;
-			ctx.fill(i, band, i + 1, h - band, c);
-			ctx.fill(w - i - 1, band, w - i, h - band, c);
+			ctx.fill(RenderLayer.getGuiOverlay(), i, band, i + 1, h - band, c);
+			ctx.fill(RenderLayer.getGuiOverlay(), w - i - 1, band, w - i, h - band, c);
 		}
 	}
 
@@ -180,7 +184,7 @@ public final class ScreenFx {
 			try {
 				ctx.getMatrices().translate(cx, cy, 0);
 				ctx.getMatrices().multiply(RotationAxis.POSITIVE_Z.rotation(STREAK_ANGLE[i]));
-				ctx.fill(Math.max(12, x0), 0, Math.max(13, x0 + Math.round(len)), 1, col);
+				ctx.fill(RenderLayer.getGuiOverlay(), Math.max(12, x0), 0, Math.max(13, x0 + Math.round(len)), 1, col);
 			} finally {
 				ctx.getMatrices().pop();
 			}

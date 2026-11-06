@@ -28,6 +28,7 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.scoreboard.ScoreboardDisplaySlot;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
@@ -111,7 +112,7 @@ public final class InputHandler {
 
 	private static boolean active() {
 		MinecraftClient mc = mc();
-		return mc.player != null && mc.currentScreen == null && ClientState.hasFruit();
+		return mc.player != null && mc.currentScreen == null && ClientState.hasFruit() && !mc.player.isSpectator();
 	}
 
 	public static boolean rowR() {
@@ -260,11 +261,18 @@ public final class InputHandler {
 		MinecraftClient mc = mc();
 		if (InputUtil.isKeyPressed(mc.getWindow().getHandle(), GLFW.GLFW_KEY_F3)) return true;
 		if (key == GLFW.GLFW_KEY_B && Screen.hasControlDown()) return true;
+		// una fila abierta se queda sus teclas aunque vayas agachado (Tab+Q Pilar, Tab+F Meseta, R+F Órbita)
+		if ((row2Down && inGroup(Keys.Group.ROW2, key)) || (rowR() && inGroup(Keys.Group.TAKT, key))) return false;
 		GameOptions o = mc.options;
 		boolean sneak = mc.player.isSneaking() || o.sneakKey.isPressed();
 		if (!sneak) return false;
 		InputUtil.Key k = InputUtil.Type.KEYSYM.createFromCode(key);
 		return boundTo(k, o.dropKey) || boundTo(k, o.swapHandsKey);
+	}
+
+	private static boolean inGroup(Keys.Group g, int key) {
+		for (Keys k : Keys.values()) if (k.group() == g && k.matches(InputUtil.Type.KEYSYM, key)) return true;
+		return false;
 	}
 
 	private static boolean boundTo(InputUtil.Key key, KeyBinding kb) {
@@ -521,6 +529,8 @@ public final class InputHandler {
 		if (s.quitarRoom == OpeSettings.Quitar.DOBLE_TOQUE && hadRoom) {
 			// con «Doble toque» una pulsación sola nunca quita el ROOM: solo el segundo toque seguido
 			if (tap && lastRoomTapAt != 0 && before(lastRoomTapAt, lastRoomTapTick, s.dobleToque + 1L)) {
+				// el cliente ya lo ha dado por doble toque: una pulsación nueva hace que el servidor lo cuente como toque
+				Send.action(Actions.ROOM_PRESS);
 				Send.action(Actions.ROOM_RELEASE, 0);
 				lastRoomTapAt = 0;
 			} else {
@@ -661,8 +671,11 @@ public final class InputHandler {
 
 	private static boolean playerListRule() {
 		MinecraftClient mc = mc();
-		return OpeSettings.get().listaJugadoresTab && !mc.isInSingleplayer() && mc.options != null
-			&& boundTo(Keys.ROW2.key, mc.options.playerListKey);
+		if (!OpeSettings.get().listaJugadoresTab || mc.options == null || !boundTo(Keys.ROW2.key, mc.options.playerListKey)) return false;
+		// la misma regla que Minecraft: en un servidor, o en tu mundo abierto a LAN con más gente, o con un marcador en la lista
+		if (!mc.isInSingleplayer()) return true;
+		if (mc.getNetworkHandler() != null && mc.getNetworkHandler().getListedPlayerListEntries().size() > 1) return true;
+		return mc.world != null && mc.world.getScoreboard().getObjectiveForSlot(ScoreboardDisplaySlot.LIST) != null;
 	}
 
 	private static void hidePlayerList() {
@@ -981,7 +994,7 @@ public final class InputHandler {
 		wasFocused = focused;
 		if (mc.currentScreen != null && anyLatch()) clearLatches(mc.player != null);
 		if (dragging && (mc.currentScreen != null || ClientState.ownRoom() == null)) cancelDrag();
-		if (mc.player == null || !ClientState.hasFruit()) {
+		if (mc.player == null || !ClientState.hasFruit() || mc.player.isSpectator()) {
 			clearLatches(mc.player != null);
 			hidePlayerList();
 			row2Down = rDown = roomDown = leftHeld = dragging = false;

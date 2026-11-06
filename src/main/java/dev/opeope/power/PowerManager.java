@@ -14,6 +14,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.EntityTrackingEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.boss.WitherEntity;
@@ -30,9 +31,13 @@ import net.minecraft.text.Text;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.RaycastContext;
+import net.minecraft.world.World;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -203,10 +208,22 @@ public final class PowerManager {
 
 	// ------------------------------------------------------------------ apuntar
 
+	/**
+	 * El primer bloque en la mira hasta range. Un rayo nunca carga ni genera terreno: un trozo de mundo sin cargar cuenta
+	 * como que no toca nada (si no, apuntar al horizonte paraba el servidor mientras cargaba o creaba esos chunks).
+	 */
 	public static BlockHitResult raycastBlock(ServerPlayerEntity p, double range) {
+		World w = p.getWorld();
 		Vec3d eye = p.getEyePos();
 		Vec3d end = eye.add(p.getRotationVector().multiply(range));
-		return p.getWorld().raycast(new RaycastContext(eye, end, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, p));
+		Vec3d back = eye.subtract(end);
+		BlockHitResult miss = BlockHitResult.createMissed(end, Direction.getFacing(back.x, back.y, back.z), BlockPos.ofFloored(end));
+		RaycastContext ctx = new RaycastContext(eye, end, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, p);
+		return BlockView.raycast(eye, end, ctx, (c, pos) -> {
+			if (!w.isChunkLoaded(pos)) return miss;
+			BlockState st = w.getBlockState(pos);
+			return w.raycastBlock(eye, end, pos, c.getBlockShape(st, w, pos), st);
+		}, c -> miss);
 	}
 
 	/** El punto donde mira: lo que toca, o el punto a esa distancia si no toca nada. */

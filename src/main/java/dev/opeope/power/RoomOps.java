@@ -143,7 +143,9 @@ public final class RoomOps {
 		double dist = target.distanceTo(eye);
 		int ticks = MathHelper.clamp((int) Math.round(dist / OpeConfig.ROOM_CAST_SPEED * 20.0), 4, 14);
 		double arc = Math.min(10.0, 0.1 * dist);
+		// solo el primer lanzamiento de un ROOM recién creado con esta pulsación es «nuevo»; los siguientes mueven el que ya está
 		boolean fresh = pw.roomCreatedThisPress;
+		pw.roomCreatedThisPress = false;
 		double size = fresh
 			? Math.max(room.radius, pw.lastRoomRadius > 0 ? pw.lastRoomRadius : OpeConfig.ROOM_FIRST_RADIUS)
 			: room.radius;

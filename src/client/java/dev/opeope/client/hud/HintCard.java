@@ -53,6 +53,10 @@ public final class HintCard {
 	/** Cada tick: cuenta el tiempo que se ve la tarjeta entera (para retirarla con Pistas «Solo al empezar»). */
 	static void tick(long now, boolean paused) {
 		if (paused || fullId == null || now - fullAt > 250) return;
+		// solo cuenta mientras sirve de algo: con «Solo al empezar» y antes de que la tarjeta se retire (si no, el
+		// archivo de progreso se reescribía cada 5 s toda la partida)
+		if (OpeSettings.get().pistas != OpeSettings.Pistas.NUEVO) return;
+		if (OpeProgress.hintSeconds(fullId) >= ("inicio".equals(fullId) ? 150f : 45f)) return;
 		OpeProgress.addHintSeconds(fullId, 0.05f);
 	}
 

@@ -162,7 +162,8 @@ public final class HudRoot {
 		} finally {
 			m.pop();
 		}
-		validate(c, s);
+		// el validador y su informe solo los lee la prueba automática: en una partida normal no se gastan cada frame
+		if (dev.opeope.client.AutoTest.ON) validate(c, s);
 	}
 
 	/** Olvida todo (al desconectar). */

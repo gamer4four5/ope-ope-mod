@@ -39,6 +39,7 @@ public final class RoomFxClient {
 	@Nullable private static RoomVisuals.Vis insideOf;
 	private static boolean wasInside;
 	private static int quietUntil;
+	private static long lastLimitAt;
 	private static float growRate;
 
 	private static final double[] HAND = new double[3];
@@ -141,7 +142,10 @@ public final class RoomFxClient {
 				if (me) RoomSounds.notch((fx.flags() & Payloads.RoomFx.F_SHRINK) == 0);
 			}
 			case Payloads.RoomFx.LIMIT -> {
-				if (me) {
+				// con la rueda girando rápido en el tope llegan muchos seguidos: un golpe y un sonido cada 150 ms como mucho
+				long nowMs = System.currentTimeMillis();
+				if (me && nowMs - lastLimitAt >= 150) {
+					lastLimitAt = nowMs;
 					CameraFx.kick(-0.45f);
 					RoomSounds.limit(fx.flags() == Payloads.RoomFx.LIMIT_CENTRED);
 				}
