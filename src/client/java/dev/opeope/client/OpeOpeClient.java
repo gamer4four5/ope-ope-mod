@@ -10,7 +10,9 @@ import dev.opeope.client.render.CutFx;
 import dev.opeope.client.render.PieceRenderer;
 import dev.opeope.client.render.RoomRenderer;
 import dev.opeope.client.render.SterbenRenderer;
+import dev.opeope.client.render.TerrainFx;
 import dev.opeope.client.room.RoomFxClient;
+import dev.opeope.client.room.TaktFxClient;
 import dev.opeope.net.Payloads;
 import dev.opeope.registry.ModEntities;
 import net.fabricmc.api.ClientModInitializer;
@@ -44,12 +46,17 @@ public class OpeOpeClient implements ClientModInitializer {
 			if (payload.planes().length == 0) ClientState.CUTS.remove(payload.entityId());
 			else ClientState.CUTS.put(payload.entityId(), payload.planes());
 		});
-		ClientPlayNetworking.registerGlobalReceiver(Payloads.CutFx.ID, (payload, ctx) -> CutFx.receive(payload.data()));
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.CutFx.ID, (payload, ctx) -> CutFx.receive(payload));
+		// Takt sobre el suelo: los cortes del suelo que recuerda el servidor y los momentos de Takt
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.GroundCutSync.ID, (payload, ctx) -> ClientState.groundCut(payload));
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.TaktFx.ID, (payload, ctx) -> TaktFxClient.receive(payload));
 		// Fabric puede avisar de la desconexión desde el hilo de red: lo de limpiar va al hilo del juego, que es el
 		// que dibuja y lee todo esto (si no, una ConcurrentModificationException podía cortar el guardado del progreso)
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {
 			ClientState.clear();
 			CutFx.clear();
+			TerrainFx.clear();
+			TaktFxClient.clear();
 			InputHandler.onDisconnect();
 			HudRoot.clear();
 		}));
@@ -58,12 +65,15 @@ public class OpeOpeClient implements ClientModInitializer {
 			ClientState.tick();
 			InputHandler.tick(client);
 			RoomFxClient.tick(client);
+			TerrainFx.tick(client);
+			TaktFxClient.tick(client);
 			HudRoot.tick(client);
 			CutFx.tick();
 			AutoTest.tick(client);
 		});
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(CutFx::render);
+		WorldRenderEvents.AFTER_TRANSLUCENT.register(TerrainFx::render);   // justo después del corte (diseño §5.1)
 		HudRenderCallback.EVENT.register(HudRoot::render);
 		HudRenderCallback.EVENT.register(CutFx::renderHud);
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");

@@ -113,5 +113,97 @@
   "ui.denegado": {
     "subtitle": "subtitles.opeope.ui.denegado",
     "sounds": [{"name": "minecraft:block.note_block.basedrum", "type": "event"}]
+  },
+  "cut.sweep": {
+    "subtitle": "subtitles.opeope.cut.sweep",
+    "sounds": [{"name": "minecraft:entity.player.attack.sweep", "type": "event"}]
+  },
+  "cut.ring": {
+    "sounds": [{"name": "minecraft:block.amethyst_block.resonate", "type": "event"}]
+  },
+  "cut.glint": {
+    "sounds": [{"name": "minecraft:block.amethyst_block.break", "type": "event"}]
+  },
+  "cut.thump": {
+    "subtitle": "subtitles.opeope.cut.thump",
+    "sounds": [{"name": "minecraft:block.heavy_core.place", "type": "event"}]
+  },
+  "cut.split": {
+    "subtitle": "subtitles.opeope.cut.split",
+    "sounds": [{"name": "minecraft:block.amethyst_cluster.break", "type": "event"}]
+  },
+  "takt.reach": {
+    "sounds": [{"name": "minecraft:block.enchantment_table.use", "type": "event"}]
+  },
+  "takt.crack": {
+    "subtitle": "subtitles.opeope.takt.crack",
+    "sounds": [{"name": "minecraft:block.pointed_dripstone.break", "type": "event"}]
+  },
+  "takt.tear": {
+    "sounds": [{"name": "minecraft:block.rooted_dirt.break", "type": "event"}]
+  },
+  "takt.rumble": {
+    "subtitle": "subtitles.opeope.takt.rumble",
+    "sounds": [{"name": "minecraft:entity.warden.dig", "type": "event"}]
+  },
+  "takt.grab": {
+    "subtitle": "subtitles.opeope.takt.grab",
+    "sounds": [{"name": "minecraft:block.amethyst_block.resonate", "type": "event"}]
+  },
+  "takt.grab_low": {
+    "sounds": [{"name": "minecraft:block.heavy_core.place", "type": "event"}]
+  },
+  "takt.chord": {
+    "sounds": [{"name": "minecraft:block.note_block.chime", "type": "event"}]
+  },
+  "takt.shed": {
+    "subtitle": "subtitles.opeope.takt.shed",
+    "sounds": [{"name": "minecraft:block.gravel.break", "type": "event"}]
+  },
+  "takt.hold": {
+    "subtitle": "subtitles.opeope.takt.hold",
+    "sounds": [{"name": "minecraft:block.beacon.ambient", "type": "event"}]
+  },
+  "takt.throw": {
+    "subtitle": "subtitles.opeope.takt.throw",
+    "sounds": [{"name": "minecraft:entity.wind_charge.throw", "type": "event"}]
+  },
+  "takt.throw_big": {
+    "sounds": [{"name": "minecraft:item.trident.riptide_3", "type": "event"}]
+  },
+  "takt.flyby": {
+    "subtitle": "subtitles.opeope.takt.flyby",
+    "sounds": [{"name": "minecraft:item.elytra.flying", "type": "event"}]
+  },
+  "takt.impact": {
+    "subtitle": "subtitles.opeope.takt.impact",
+    "sounds": [{"name": "minecraft:item.mace.smash_ground_heavy", "type": "event"}]
+  },
+  "takt.impact_far": {
+    "subtitle": "subtitles.opeope.takt.impact_far",
+    "sounds": [{"name": "minecraft:entity.generic.explode", "type": "event"}]
+  },
+  "takt.setdown": {
+    "subtitle": "subtitles.opeope.takt.setdown",
+    "sounds": [{"name": "minecraft:block.beacon.deactivate", "type": "event"}]
+  },
+  "takt.land": {
+    "subtitle": "subtitles.opeope.takt.land",
+    "sounds": [{"name": "minecraft:block.rooted_dirt.place", "type": "event"}]
+  },
+  "takt.seal": {
+    "subtitle": "subtitles.opeope.takt.seal",
+    "sounds": [{"name": "minecraft:block.amethyst_block.chime", "type": "event"}]
+  },
+  "takt.zone": {
+    "subtitle": "subtitles.opeope.takt.zone",
+    "sounds": [{"name": "minecraft:entity.evoker.cast_spell", "type": "event"}]
+  },
+  "takt.rewind": {
+    "subtitle": "subtitles.opeope.takt.rewind",
+    "sounds": [{"name": "minecraft:item.trident.return", "type": "event"}]
+  },
+  "takt.tick": {
+    "sounds": [{"name": "minecraft:block.comparator.click", "type": "event"}]
   }
 }

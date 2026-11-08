@@ -1,12 +1,18 @@
 package dev.opeope.entity;
 
 import dev.opeope.OpeConfig;
+import dev.opeope.OpeOpeMod;
+import dev.opeope.net.Payloads;
 import dev.opeope.power.CutEngine;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.Room;
+import dev.opeope.power.Takt;
 import dev.opeope.registry.ModEffects;
 import dev.opeope.registry.ModEntities;
+import dev.opeope.terrain.GroundRules;
+import dev.opeope.terrain.Landing;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -39,32 +45,47 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 /**
  * Un trozo de mundo cortado: lo que separa Amputate, lo que arranca Takt y las armas que se forjan con ello.
- * Cae, choca, se lanza, se cose (vuelve a ser bloques) y vuelve a su sitio con la Unión.
+ * Cae, choca, se lanza, se posa, se cose (vuelve a ser bloques) y vuelve a su sitio con la Unión.
  */
 public class PieceEntity extends Entity {
 	private static final TrackedData<NbtCompound> BLOCKS = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.NBT_COMPOUND);
 	private static final TrackedData<Byte> FLAGS = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
+	private static final TrackedData<Long> FX_TIME = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.LONG);
 
 	public static final int F_WEAPON = 1;     // pieza girada (lanza, hoja, martillo, estaca): caja pequeña en el centro
 	public static final int F_SUSPENDED = 2;  // suspendida tras un corte
 	public static final int F_SEAM = 4;       // brilla: elegida para coser o volviendo a su sitio
+	public static final int F_HELD = 8;       // la lleva el Takt de alguien (brillo del borde)
+	public static final int F_TEAR = 16;      // arrancándose: quieta, el cliente la hace temblar
+	public static final int F_FRESH = 32;     // sus caras cortadas brillan (desde fxTime); se apaga pasados TAKT_FRESH_TICKS
+	public static final int F_LANDED = 64;    // posándose o ya posada: no se coge, sin borde, se dibuja a 0,998
+	public static final int F_CHUNK = 128;    // arrancada del suelo con Takt
 
-	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. */
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER }
+	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. LANDING: se posa. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
+
+	/** Qué muelle la lleva (lo pone Takt.tick): en la mano, en órbita o aparcada. */
+	public static final int DRIVE_HAND = 0, DRIVE_ORBIT = 1, DRIVE_PARK = 2;
+
+	/** Solo en el hilo del servidor, desde el arranque: bloques que place() soltó como objeto o puso en otra celda (AutoTest). */
+	public static int DROPPED, RELOCATED;
 
 	public BlockSet blocks = new BlockSet();
 	public Mode mode = Mode.FREE;
@@ -76,6 +97,11 @@ public class PieceEntity extends Entity {
 	public boolean slowFall;
 	public boolean sewOnContact;
 	public boolean solid;
+
+	public Vec3d targetVel = Vec3d.ZERO;   // velocidad del sitio que sigue, en bloques por segundo (la pone Takt.tick)
+	public int drive = DRIVE_HAND;          // qué muelle (lo pone Takt.tick)
+	public double gravityMul = 1.0;         // gravedad de más de los trozos grandes lanzados (Takt al lanzar; vuelve a 1 al posarse)
+	@Nullable public Object renderState;    // solo en el cliente (C/render/PieceVisuals); el servidor nunca lo toca
 
 	public Weapon weapon;
 	public int wState;      // 0 quieta en la mano, 1 en uso, 2 clavada
@@ -97,6 +123,38 @@ public class PieceEntity extends Entity {
 	private int hoverTicks;
 	private int holdTicks;   // recién cortada: quieta un instante antes de moverse
 
+	// Ya puso sus bloques: sigue unos ticks (la cola) para que no se vea un hueco, pero no se guarda ni se toca
+	private boolean placed;
+	private int landedTail;
+
+	// Takt: el temblor del arranque, la subida recta y la altura sobre el suelo de los trozos grandes
+	private int tearTicks, liftTicks, liftT;
+	private double liftH, hover;
+	private Vec3d liftStart = Vec3d.ZERO;
+	@Nullable private UUID lastHolder;   // quién la llevó por última vez (dueño del aviso LAND)
+
+	// Posar: la bajada hasta su sitio
+	@Nullable private BlockPos landBase;
+	private int landTicks;
+	private double landV;
+
+	// Volver a su sitio: el arco de la Unión, o la vuelta callada de un arranque deshecho
+	private int retDelay, retT, retDur;
+	private Vec3d retFrom = Vec3d.ZERO;
+	private double arcH;
+	private boolean retQuiet;
+
+	@Nullable private BlockSet massSet;
+	private double massCache;
+
+	private static final boolean AUTOTEST = Boolean.getBoolean("opeope.autotest");
+	private static final UUID NOBODY = new UUID(0L, 0L);
+	/** Las 124 celdas del cubo 5×5×5 alrededor (sin el centro): más cerca primero, luego más arriba, luego x, luego z. */
+	private static final int[][] RELOCATE = relocateOffsets();
+	/** bestFit: alturas que prueba (y lo que cuesta cada una) y desplazamientos en horizontal, en este orden. */
+	private static final int[] FIT_DY = {0, -1, 1, 2}, FIT_DY_COST = {0, 1, 2, 4};
+	private static final int[][] FIT_XZ = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
 	public PieceEntity(EntityType<? extends PieceEntity> type, World world) {
 		super(type, world);
 	}
@@ -117,6 +175,7 @@ public class PieceEntity extends Entity {
 	protected void initDataTracker(DataTracker.Builder builder) {
 		builder.add(BLOCKS, new NbtCompound());
 		builder.add(FLAGS, (byte) 0);
+		builder.add(FX_TIME, 0L);
 	}
 
 	public void setBlocks(BlockSet set) {
@@ -126,18 +185,92 @@ public class PieceEntity extends Entity {
 	}
 
 	public int flags() {
-		return this.dataTracker.get(FLAGS);
+		return this.dataTracker.get(FLAGS) & 0xFF;
 	}
 
 	public void setFlag(int flag, boolean on) {
-		int f = flags();
-		f = on ? (f | flag) : (f & ~flag);
+		setFlags(on ? flag : 0, on ? 0 : flag);
+	}
+
+	/** Enciende y apaga varias marcas de una vez (off gana si una está en las dos). */
+	private void setFlags(int on, int off) {
+		int f = (flags() | on) & ~off;
 		this.dataTracker.set(FLAGS, (byte) f);
-		if (flag == F_WEAPON) setPosition(getX(), getY(), getZ());
+		if (((on | off) & F_WEAPON) != 0) setPosition(getX(), getY(), getZ());
+		if ((on & F_HELD) != 0 && (off & F_HELD) == 0 && !getWorld().isClient) noteHolder();
+	}
+
+	/** Recuerda quién la lleva ahora (si alguien la lleva). */
+	private void noteHolder() {
+		UUID h = Takt.holder(getId());
+		if (h != null) lastHolder = h;
 	}
 
 	public boolean isWeaponShape() {
 		return (flags() & F_WEAPON) != 0;
+	}
+
+	/** Tiempo del mundo del último momento que la hizo brillar (arranque o corte). */
+	public long fxTime() {
+		return this.dataTracker.get(FX_TIME);
+	}
+
+	public void markFx(long worldTime) {
+		this.dataTracker.set(FX_TIME, worldTime);
+	}
+
+	/** Radio de la pieza: media diagonal de su caja (0,6 si es un arma). */
+	public double radius() {
+		if (isWeaponShape()) return 0.6;
+		return 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sy * blocks.sy + (double) blocks.sz * blocks.sz);
+	}
+
+	/** Del centro a la base. */
+	public double below() {
+		return isWeaponShape() ? 0.4 : blocks.sy / 2.0;
+	}
+
+	/** Masa en kg (GroundRules.mass), calculada una vez por BlockSet. */
+	public double massKg() {
+		if (massSet != blocks) {
+			massSet = blocks;
+			massCache = GroundRules.mass(blocks);
+		}
+		return massCache;
+	}
+
+	/** Posándose o ya posada: no se parte, no se absorbe, no se cose, no se coge ni se devuelve. */
+	public boolean settling() {
+		return mode == Mode.LANDING || placed;
+	}
+
+	/** Olvida el temblor, la subida y la altura sobre el suelo de quien la llevaba (4.5). */
+	public void resetMotion() {
+		tearTicks = 0;
+		liftTicks = 0;
+		liftT = 0;
+		liftH = 0;
+		hover = 0;
+		setFlag(F_TEAR, false);
+	}
+
+	/** Recién arrancada del suelo (4.3): quieta temblando trembleTicks, con las caras cortadas brillando desde worldTime. */
+	public void tearAt(long worldTime, int trembleTicks) {
+		control(center());
+		resetMotion();
+		tearTicks = Math.max(0, trembleTicks);
+		setFlags(F_FRESH | F_CHUNK | (tearTicks > 0 ? F_TEAR : 0), 0);
+		liftStart = center();
+		markFx(worldTime);
+		setVelocity(Vec3d.ZERO);
+	}
+
+	/** Sube recta height bloques en liftTicks ticks (suave al principio y al final); empieza cuando acaba el temblor. */
+	public void lift(int liftTicks, double height) {
+		this.liftTicks = Math.max(0, liftTicks);
+		this.liftH = height;
+		this.liftT = 0;
+		this.liftStart = center();
 	}
 
 	@Override
@@ -186,9 +319,16 @@ public class PieceEntity extends Entity {
 
 	@Override
 	protected void writeCustomDataToNbt(NbtCompound nbt) {
-		nbt.put("blocks", blocks.toSaveNbt());
+		// Ya posada: sus bloques están en el mundo y no deben volver con la entidad.
+		nbt.put("blocks", (placed ? new BlockSet() : blocks).toSaveNbt());
 		if (origin != null) nbt.putLong("origin", origin.asLong());
 		if (owner != null) nbt.putUuid("owner", owner);
+	}
+
+	/** Ya posada no se guarda: un guardado durante la cola no puede traer sus bloques otra vez. */
+	@Override
+	public boolean shouldSave() {
+		return !placed && super.shouldSave();
 	}
 
 	public Packet<ClientPlayPacketListener> createSpawnPacket(EntityTrackerEntry entry) {
@@ -207,7 +347,7 @@ public class PieceEntity extends Entity {
 
 	@Override
 	public boolean canHit() {
-		return !isRemoved();
+		return !isRemoved() && (flags() & F_LANDED) == 0;
 	}
 
 	@Override
@@ -225,9 +365,18 @@ public class PieceEntity extends Entity {
 
 	@Override
 	public void tick() {
+		// setFlag(int, boolean) también sobrescribe el Entity.setFlag(índice, valor) de vanilla, y Entity.baseTick llama en
+		// cada tick a updateSwimming → setSwimming(false) → setFlag(4, false), que apagaría F_SEAM (= 4). Lo que
+		// super.tick() cambie en las marcas no cuenta.
+		int keep = flags();
 		super.tick();
+		if (flags() != keep) this.dataTracker.set(FLAGS, (byte) keep);
 		if (getWorld().isClient) return;
-		if (blocks.isEmpty()) {
+		if (landedTail > 0) {
+			if (--landedTail == 0) discard();
+			return;
+		}
+		if (placed || blocks.isEmpty()) {
 			discard();
 			return;
 		}
@@ -235,6 +384,8 @@ public class PieceEntity extends Entity {
 			discard();
 			return;
 		}
+		if (age % 10 == 0 && mode == Mode.CONTROLLED && weapon == null) watchdog();
+		if ((flags() & F_FRESH) != 0 && getWorld().getTime() - fxTime() > OpeConfig.TAKT_FRESH_TICKS) setFlag(F_FRESH, false);
 		if (weapon != null) {
 			weaponTick();
 			return;
@@ -251,6 +402,29 @@ public class PieceEntity extends Entity {
 			case FREE -> freeTick();
 			case SLIDING -> slideTick();
 			case HOVER -> hoverTick();
+			case LANDING -> landingTick();
+		}
+	}
+
+	/**
+	 * Vigía (4.4): una pieza llevada cuyo dueño de Takt ya no está (desconectado, en otra dimensión o muerto) se suelta,
+	 * y una suspendida cuyo dueño no está se suelta también. Así nada se queda flotando para siempre.
+	 */
+	private void watchdog() {
+		if (!(getWorld() instanceof ServerWorld sw)) return;
+		int f = flags();
+		if ((f & F_HELD) != 0) {
+			UUID h = Takt.holder(getId());
+			ServerPlayerEntity hp = h == null ? null : sw.getServer().getPlayerManager().getPlayer(h);
+			if (hp == null || hp.getServerWorld() != sw || !hp.isAlive()) {
+				Takt.forget(getId());
+				release(Vec3d.ZERO, false);
+			} else {
+				lastHolder = h;
+			}
+		} else if ((f & F_SUSPENDED) != 0) {
+			ServerPlayerEntity op = ownerPlayer();
+			if (op == null || op.getServerWorld() != sw) release(Vec3d.ZERO, false);
 		}
 	}
 
@@ -390,37 +564,149 @@ public class PieceEntity extends Entity {
 		}
 	}
 
-	/** Suelta la pieza: vuelve a caer con la gravedad. */
+	/** Suelta la pieza: vuelve a caer con la gravedad. Nadie la lleva ya. */
 	public void release(Vec3d velocity, boolean asThrow) {
 		mode = Mode.FREE;
 		solid = false;
 		target = null;
+		targetVel = Vec3d.ZERO;
 		setVelocity(velocity);
 		thrown = asThrow;
 		thrownTicks = 0;
 		restTicks = 0;
 		freeTicks = 0;
-		setFlag(F_SUSPENDED, false);
+		noClip = false;
+		setNoGravity(false);
+		resetMotion();
+		setFlags(0, F_SUSPENDED | F_HELD);
+		if (!getWorld().isClient) Takt.forget(getId());
 	}
 
 	public void control(Vec3d centerTarget) {
 		mode = Mode.CONTROLLED;
 		target = centerTarget;
+		targetVel = Vec3d.ZERO;
+		drive = DRIVE_HAND;
 		slowFall = false;
+		noClip = false;
+		setNoGravity(false);
+		gravityMul = 1.0;
 	}
 
+	/**
+	 * El muelle de Takt (4.5): tras el temblor sube recta, luego sigue su sitio sin tirones. Los trozos grandes (y los
+	 * arrancados del suelo) que se llevan en la mano o en órbita flotan a una altura segura sobre el suelo de debajo.
+	 */
 	private void controlledTick() {
+		if (tearTicks > 0) {
+			setVelocity(Vec3d.ZERO);
+			if (--tearTicks == 0) {
+				setFlag(F_TEAR, false);
+				liftStart = center();
+				liftT = 0;
+			}
+			return;
+		}
+		int f = flags();
+		boolean held = (f & F_HELD) != 0;
+		if (held) noteHolder();
 		if (target == null) target = center();
-		Vec3d c = center();
-		Vec3d v = target.subtract(c).multiply(0.35);
-		if (v.length() > 2.5) v = v.normalize().multiply(2.5);
-		setVelocity(v);
-		move(MovementType.SELF, v);
+		Vec3d t = target;
+		Vec3d vt = targetVel != null ? targetVel : Vec3d.ZERO;
+		double r = radius();
+		if (liftT < liftTicks) {
+			liftT++;
+			t = liftStart.add(0, liftH * smoothstep((double) liftT / liftTicks), 0);
+			vt = Vec3d.ZERO;
+		} else if (held && drive != DRIVE_PARK && (r > 2.5 || (f & F_CHUNK) != 0)) {
+			double need = groundBelow(t, r) + below() + 1.6 + 0.22 * r - t.y;
+			hover += (Math.max(0, need) - hover) * 0.32;
+			t = t.add(0, hover, 0);
+		}
+		spring(t, vt, r);
+	}
+
+	/**
+	 * La cara de arriba del suelo más alto bajo 7 puntos (t y 6 alrededor a distancia r), mirando 24 bloques hacia abajo;
+	 * −∞ si no hay. Si un punto cae dentro del suelo (la mano apunta a una ladera o a una pared), primero sale hacia arriba.
+	 */
+	private double groundBelow(Vec3d t, double r) {
+		BlockView view = GroundRules.loaded(getWorld());
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		double g = Double.NEGATIVE_INFINITY;
+		int yStart = MathHelper.floor(t.y);
+		for (int k = -1; k < 6; k++) {
+			double px = t.x, pz = t.z;
+			if (k >= 0) {
+				px += r * Math.cos(k * Math.PI / 3);
+				pz += r * Math.sin(k * Math.PI / 3);
+			}
+			int x = MathHelper.floor(px), z = MathHelper.floor(pz);
+			int y0 = yStart;
+			if (solidAt(view, m, x, y0, z)) {
+				int up = 1;
+				while (up <= 24 && solidAt(view, m, x, y0 + up, z)) up++;
+				if (up > 24) continue;
+				y0 += up;
+			}
+			for (int y = y0 - 1; y >= y0 - 24; y--) {
+				if (solidAt(view, m, x, y, z)) {
+					g = Math.max(g, y + 1);
+					break;
+				}
+			}
+		}
+		return g;
+	}
+
+	private static boolean solidAt(BlockView view, BlockPos.Mutable m, int x, int y, int z) {
+		m.set(x, y, z);
+		return GroundRules.solid(view.getBlockState(m), view, m);
+	}
+
+	/**
+	 * Un paso del muelle amortiguado hacia t (velocidad del sitio vt, en b/s), en 3 subpasos de 1/60 s y con la
+	 * aceleración limitada; los trozos grandes son más lentos y pesados. Se mueve chocando con el mundo.
+	 */
+	private void spring(Vec3d t, Vec3d vt, double r) {
+		double s = Math.max(1, r / 2.5);
+		double kHand = s <= 1 ? 34 : Math.max(7, 34 / Math.pow(s, 0.8));
+		double aHand = s <= 1 ? 90 : Math.max(22, 90 / Math.pow(s, 0.55));
+		double k, c, maxA;
+		if (drive == DRIVE_PARK) {
+			k = 22 / Math.sqrt(s);
+			c = 9 / Math.pow(s, 0.25);
+			maxA = 0.6 * aHand;
+		} else {
+			k = kHand;
+			c = s <= 1 ? 11 : 2 * Math.sqrt(kHand) * 0.92;
+			maxA = aHand;
+		}
+		final double h = 1 / 60.0;
+		Vec3d v = getVelocity().multiply(20);
+		Vec3d x = center();
+		Vec3d total = Vec3d.ZERO;
+		for (int i = 0; i < 3; i++) {
+			Vec3d acc = t.subtract(x).multiply(k).add(vt.subtract(v).multiply(c));
+			double a = acc.length();
+			if (a > maxA) acc = acc.multiply(maxA / a);
+			v = v.add(acc.multiply(h));
+			Vec3d step = v.multiply(h);
+			x = x.add(step);
+			total = total.add(step);
+		}
+		Vec3d before = getPos();
+		move(MovementType.SELF, total);
+		Vec3d moved = getPos().subtract(before);
+		v = new Vec3d(Math.abs(moved.x - total.x) > 1e-4 ? 0 : v.x, Math.abs(moved.y - total.y) > 1e-4 ? 0 : v.y,
+			Math.abs(moved.z - total.z) > 1e-4 ? 0 : v.z);
+		Vec3d perTick = v.multiply(1 / 20.0);
+		setVelocity(perTick);
 		if (sewOnContact && (horizontalCollision || verticalCollision)) {
 			settle(true);
 			return;
 		}
-		if (v.length() > 0.7) hitEntities(v, true);
+		if (perTick.length() > 0.7) hitEntities(perTick, true);
 	}
 
 	private void freeTick() {
@@ -428,13 +714,16 @@ public class PieceEntity extends Entity {
 		thrownTicks++;
 		Vec3d v = getVelocity();
 		double speedBefore = v.length();
-		if (!hasNoGravity()) v = v.add(0, slowFall ? -0.012 : -0.06, 0);
+		if (!hasNoGravity()) v = v.add(0, slowFall ? -0.012 : -0.06 * gravityMul, 0);
 		if (slowFall && v.y < -0.12) v = new Vec3d(v.x, -0.12, v.z);
 		setVelocity(v);
 		move(MovementType.SELF, v);
 		boolean collided = horizontalCollision || verticalCollision;
 		if (speedBefore > 0.5) hitEntities(v, false);
-		if (thrown && collided && speedBefore > 1.0 && thrownTicks > 2) impact(speedBefore);
+		if (thrown && collided && speedBefore > 1.0 && thrownTicks > 2) {
+			impact(speedBefore, v);
+			return;
+		}
 		if (sewOnContact && collided) {
 			settle(true);
 			return;
@@ -447,23 +736,133 @@ public class PieceEntity extends Entity {
 		if (restTicks > 6 || freeTicks > 20 * 30) settle(false);
 	}
 
+	// ------------------------------------------------------------------ posar (4.6)
+
+	/** Baja hasta base (la esquina mínima donde quedará) y allí vuelve a ser bloques, sellada. */
+	public void startLanding(BlockPos base) {
+		mode = Mode.LANDING;
+		landBase = base.toImmutable();
+		landTicks = 0;
+		landV = 0.11;
+		target = null;
+		thrown = false;
+		resetMotion();
+		setFlags(F_LANDED, F_HELD);
+		noClip = false;
+		setNoGravity(false);
+		setVelocity(Vec3d.ZERO);
+		if (!getWorld().isClient) Takt.forget(getId());
+	}
+
+	/** Cae cada vez más deprisa y se centra sobre su sitio; sin choques: la columna ya se comprobó libre. */
+	private void landingTick() {
+		if (landBase == null || placed) return;
+		BlockPos b = landBase;
+		Vec3d goal = new Vec3d(b.getX() + blocks.sx / 2.0, b.getY(), b.getZ() + blocks.sz / 2.0);
+		landTicks++;
+		landV = Math.min(0.45, landV + 0.02);
+		double hx = MathHelper.clamp((goal.x - getX()) * 0.35, -0.3, 0.3);
+		double hz = MathHelper.clamp((goal.z - getZ()) * 0.35, -0.3, 0.3);
+		double y = getY();
+		double ny = y > goal.y ? Math.max(goal.y, y - landV) : Math.min(goal.y, y + 0.3);
+		setPosition(getX() + hx, ny, getZ() + hz);
+		if ((Math.abs(ny - goal.y) < 1e-3 && Math.abs(hx) + Math.abs(hz) < 1e-3) || landTicks >= OpeConfig.TAKT_LAND_MAX_TICKS) {
+			setPosition(goal);
+			if (getWorld() instanceof ServerWorld w) {
+				List<BlockSet.Entry> under = blocks.underside();
+				int[] data = new int[Math.min(512, under.size())];
+				for (int i = 0; i < data.length; i++) {
+					BlockSet.Entry e = under.get(i);
+					data[i] = Payloads.TaktFx.pack(e.x(), e.z(), e.y());
+				}
+				sendFx(w, Payloads.TaktFx.LAND, b.getX(), b.getY(), b.getZ(), (float) radius(), tonnes(), chunkFx(), blocks.size(), data,
+					lastHolder != null ? lastHolder : ownerOr());
+			}
+			place(b, true, false, false);
+		}
+	}
+
+	// ------------------------------------------------------------------ volver a su sitio (4.9, 4.3)
+
+	/** La Unión: tras delayTicks vuela en arco a su sitio y allí se sella. */
+	public void startReturn(int delayTicks) {
+		mode = Mode.RETURNING;
+		retDelay = Math.max(0, delayTicks);
+		retT = 0;
+		retFrom = getPos();
+		retQuiet = false;
+		double d = home().distanceTo(retFrom);
+		retDur = Math.max(4, (int) Math.round(20 * 1.15 * (0.8 + Math.min(0.6, d / 60))));
+		arcH = Math.min(6, 0.4 + 0.12 * d);
+		target = null;
+		thrown = false;
+		resetMotion();
+		setFlags(F_SEAM, F_HELD | F_SUSPENDED);
+		noClip = false;
+		setNoGravity(false);
+		setVelocity(Vec3d.ZERO);
+		if (!getWorld().isClient) Takt.forget(getId());
+	}
+
+	/**
+	 * Deshacer un arranque ya suelto: vuelve a su hueco sin ruido. Si no se movió, se pone ahí mismo (la cola la sigue
+	 * dibujando, así no se ve un hueco); si se movió, se hunde recta en su sitio en 0,2 a 0,6 s, sin HOME ni campanilla.
+	 */
+	public void restoreHome() {
+		resetMotion();
+		setFlag(F_HELD, false);
+		if (!getWorld().isClient) Takt.forget(getId());
+		noClip = false;
+		setNoGravity(false);
+		setVelocity(Vec3d.ZERO);
+		if (origin == null) {
+			release(Vec3d.ZERO, false);
+			return;
+		}
+		Vec3d home = home();
+		double d = getPos().distanceTo(home);
+		if (d < 0.05) {
+			setPosition(home);
+			place(origin, true, false, true);
+			return;
+		}
+		mode = Mode.RETURNING;
+		target = null;
+		thrown = false;
+		retDelay = 0;
+		retT = 0;
+		retFrom = getPos();
+		arcH = 0;
+		retDur = MathHelper.clamp((int) Math.round(3 + 2 * d), 4, 12);
+		retQuiet = true;
+		setFlags(F_LANDED, F_SUSPENDED | F_SEAM);
+	}
+
+	/** El vuelo de vuelta con su propio reloj (nunca la edad de la pieza): espera, arco suave y sellado al llegar. */
 	private void returningTick() {
 		if (origin == null) {
 			release(Vec3d.ZERO, false);
 			return;
 		}
-		Vec3d goal = new Vec3d(origin.getX() + blocks.sx / 2.0, origin.getY(), origin.getZ() + blocks.sz / 2.0);
-		Vec3d d = goal.subtract(getPos());
-		if (d.length() < 0.2 || age > 20 * 60) {
-			setPosition(goal);
-			settleAt(origin, true);
+		if (retDelay > 0) {
+			retDelay--;
 			return;
 		}
-		Vec3d v = d.multiply(0.22);
-		if (v.length() > 2.0) v = v.normalize().multiply(2.0);
-		if (v.length() < 0.15) v = d.normalize().multiply(Math.min(0.15, d.length()));
-		setPosition(getPos().add(v));
-		sparkle(2);
+		retT++;
+		double u = Math.min(1, (double) retT / Math.max(1, retDur));
+		double e = easeInOutCubic(u);
+		Vec3d home = home();
+		setPosition(retFrom.lerp(home, e).add(0, Math.sin(Math.PI * e) * arcH, 0));
+		if (!retQuiet && retT % 2 == 0) sparkle(1);
+		if (u >= 1 || retT > retDur + 40) {
+			setPosition(home);
+			setFlag(F_SEAM, false);
+			if (!retQuiet && getWorld() instanceof ServerWorld w) {
+				sendFx(w, Payloads.TaktFx.HOME, home.x, home.y + blocks.sy / 2.0, home.z, (float) radius(), tonnes(), chunkFx(), 0,
+					new int[0], ownerOr());
+			}
+			place(origin, true, false, retQuiet);
+		}
 	}
 
 	private void sewingTick() {
@@ -518,79 +917,290 @@ public class PieceEntity extends Entity {
 		}
 	}
 
-	private void impact(double speed) {
+	// ------------------------------------------------------------------ impacto (4.8)
+
+	/**
+	 * Un trozo lanzado que choca (vel: su velocidad justo antes del choque). Con suelo debajo y energía de nivel 2 o más
+	 * abre un cráter y se hunde en él; contra una pared, un tronco o un techo no cava nada: pierde casi toda la velocidad
+	 * y cae al suelo. Desde el nivel 1 hace daño y empuja a lo que haya cerca. Nunca explota ni suelta objetos.
+	 */
+	private void impact(double speed, Vec3d vel) {
 		thrown = false;
-		float power = (float) MathHelper.clamp(0.4 + Math.cbrt(blocks.size()) * speed * 0.55, 1.0, 6.0);
-		Vec3d c = center();
-		getWorld().createExplosion(this, c.x, c.y, c.z, power, World.ExplosionSourceType.TNT);
+		if (!(getWorld() instanceof ServerWorld w)) return;
+		double energy = 0.5 * massKg() * (20 * speed) * (20 * speed);
+		int tier = energy >= OpeConfig.IMPACT_TIER3 ? 3 : energy >= OpeConfig.IMPACT_TIER2 ? 2 : energy >= OpeConfig.IMPACT_TIER1 ? 1 : 0;
+		boolean ceiling = verticalCollision && vel.y > 0;
+		Vec3d contact;
+		if (ceiling) contact = new Vec3d(getX(), getY() + blocks.sy, getZ());
+		else if (verticalCollision) contact = getPos();
+		else contact = center().add(vel.normalize().multiply(0.5 * Math.min(blocks.sx, blocks.sz)));
+		boolean side = ceiling || (horizontalCollision && !verticalCollision && !groundUnder(GroundRules.loaded(w)));
+		double R = 0, k = 0;
+		if (!side && tier >= 2) {
+			double lo = tier == 2 ? OpeConfig.IMPACT_TIER2 : OpeConfig.IMPACT_TIER3;
+			double hi = tier == 2 ? OpeConfig.IMPACT_TIER3 : 10 * OpeConfig.IMPACT_TIER3;
+			k = MathHelper.clamp(Math.log10(energy / lo) / Math.log10(hi / lo), 0, 1);
+			double r = radius();
+			R = tier == 2 ? MathHelper.clamp(0.55 * r, 1.4, 4) : MathHelper.clamp(0.85 * r, 3, 9);
+			double depth = (tier == 2 ? 0.35 + 0.15 * R : 0.9 + 0.22 * R) * (0.7 + 0.6 * k);
+			Crater.Result dug = Crater.dig(w, contact, R, depth, OpeConfig.CRATER_MAX_BLOCKS);
+			if (dug.removed() > 0) setPosition(getX(), getY() - Math.min(0.6 * depth, blocks.sy / 2.0), getZ());   // se hunde en el cráter
+		}
+		if (tier >= 1) shock(w, contact, R, k, tier);
+		sendFx(w, Payloads.TaktFx.IMPACT, contact.x, contact.y, contact.z, (float) R, (float) (energy / 1e6), chunkFx(), tier,
+			new int[0], ownerOr());
+		if (AUTOTEST) OpeOpeMod.LOG.info("AUTOTEST takt impacto nivel {} cráter {}", tier, String.format(Locale.ROOT, "%.2f", R));
+		if (side) {
+			// Sin cráter ni bloques pegados a la pared: una pieza suelta normal que cae y se posa en el suelo de abajo.
+			Vec3d v = getVelocity();
+			setVelocity(v.x * 0.3, Math.min(v.y, 0), v.z * 0.3);
+			return;
+		}
+		settle(false);
 	}
+
+	/** ¿Hay suelo sólido justo debajo de la pieza (una o dos celdas por debajo de su base)? */
+	private boolean groundUnder(BlockView view) {
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		int x = MathHelper.floor(getX()), y = MathHelper.floor(getY()), z = MathHelper.floor(getZ());
+		return solidAt(view, m, x, y - 1, z) || solidAt(view, m, x, y - 2, z);
+	}
+
+	/** La onda del golpe: daño y empujón a lo vivo a menos de R + 2 del punto de contacto (no al dueño). */
+	private void shock(ServerWorld w, Vec3d contact, double R, double k, int tier) {
+		double reach = R + 2;
+		DamageSource src = damageSource();
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(contact, contact).expand(reach),
+			e -> e.isAlive() && !e.isSpectator() && !e.getUuid().equals(owner))) {
+			double d = le.getPos().distanceTo(contact);
+			if (d > reach) continue;
+			double f = 1 - d / reach;
+			le.damage(src, (float) Math.min(24, (2 + 3 * tier) * f * (0.6 + 0.4 * k)));
+			Vec3d push = le.getPos().subtract(contact).normalize().multiply((0.6 + 0.4 * tier) * f).add(0, 0.35, 0);
+			le.addVelocity(push.x, push.y, push.z);
+			le.velocityModified = true;
+		}
+	}
+
+	// ------------------------------------------------------------------ volver a ser bloques (4.7)
 
 	/** Vuelve a ser bloques donde está (redondeando a la rejilla). */
 	public void settle(boolean sealed) {
+		if (placed || isRemoved() || !(getWorld() instanceof ServerWorld w)) return;
 		BlockPos base = BlockPos.ofFloored(getX() - blocks.sx / 2.0 + 0.5, getY() + 0.5, getZ() - blocks.sz / 2.0 + 0.5);
-		if (!sealed) base = bestFit(base);
-		settleAt(base, sealed);
+		if (!sealed) base = bestFit(w, base);
+		Vec3d c = center();
+		sendFx(w, Payloads.TaktFx.SETTLE, c.x, c.y, c.z, (float) radius(), tonnes(),
+			(sealed ? Payloads.TaktFx.F_SEALED : 0) | chunkFx(), blocks.size(), new int[0], ownerOr());
+		place(base, sealed, true, false);
 	}
 
-	/** Al redondear a la rejilla, elige el hueco cercano donde menos bloques de la pieza chocan con el mundo. */
-	private BlockPos bestFit(BlockPos base) {
-		if (!(getWorld() instanceof ServerWorld w)) return base;
-		int[][] tries = {{0, 0, 0}, {0, 1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, 2, 0}};
-		BlockPos best = base;
-		int bestHits = Integer.MAX_VALUE;
+	/**
+	 * Al redondear a la rejilla, elige entre 20 huecos cercanos el que menos bloques de la pieza deja sin sitio (sin
+	 * bloque y sin nadie de pie), mejor apoyado en algo, y luego el más cercano; con empate gana el primero probado.
+	 */
+	private BlockPos bestFit(ServerWorld w, BlockPos b0) {
+		BlockView view = GroundRules.loaded(w);
+		List<Box> bl = Landing.blockers(w, cellsBox(b0).expand(3));
 		BlockPos.Mutable m = new BlockPos.Mutable();
-		for (int[] t : tries) {
-			int hits = 0;
-			for (BlockSet.Entry e : blocks.entries) {
-				m.set(base.getX() + t[0] + e.x(), base.getY() + t[1] + e.y(), base.getZ() + t[2] + e.z());
-				BlockState cur = w.getBlockState(m);
-				if (!cur.isAir() && !cur.isReplaceable()) {
-					if (++hits >= bestHits) break;
+		BlockPos best = b0;
+		int bestScore = Integer.MAX_VALUE;
+		for (int i = 0; i < FIT_DY.length; i++) {
+			for (int[] xz : FIT_XZ) {
+				int score = FIT_DY_COST[i] + Math.abs(xz[0]) + Math.abs(xz[1]);
+				if (score >= bestScore) continue;
+				BlockPos b = b0.add(xz[0], FIT_DY[i], xz[1]);
+				if (!Landing.supported(view, blocks, b)) score += 50;
+				if (score >= bestScore) continue;
+				for (BlockSet.Entry e : blocks.entries) {
+					m.set(b.getX() + e.x(), b.getY() + e.y(), b.getZ() + e.z());
+					if (Landing.free(view, m, bl)) continue;
+					score += 100;
+					if (score >= bestScore) break;
 				}
-			}
-			if (hits < bestHits) {
-				bestHits = hits;
-				best = base.add(t[0], t[1], t[2]);
-				if (hits == 0) break;
+				if (score < bestScore) {
+					bestScore = score;
+					best = b;
+				}
 			}
 		}
 		return best;
 	}
 
 	public void settleAt(BlockPos base, boolean sealed) {
-		if (!(getWorld() instanceof ServerWorld w)) return;
+		place(base, sealed, true, false);
+	}
+
+	/**
+	 * Pone los bloques con su esquina mínima en base, una sola vez. Lo que no cabe en su celda (hay un bloque o alguien
+	 * de pie) va a la celda libre más cercana; solo si no hay ninguna en 2 bloques cae como objeto. Lo vivo que quede
+	 * dentro de un bloque sube al primer hueco. La entidad sigue TAKT_LANDED_TAIL ticks (la cola) y desaparece.
+	 * legacy: las partículas de siempre (sellada: destellos y campanilla; si no, polvo). quiet: ni sonido ni partículas.
+	 */
+	private void place(BlockPos base, boolean sealed, boolean legacy, boolean quiet) {
+		if (placed || isRemoved() || !(getWorld() instanceof ServerWorld w)) return;
+		placed = true;
+		BlockView view = GroundRules.loaded(w);
+		List<Box> bl = Landing.blockers(w, cellsBox(base).expand(3));
+		LongOpenHashSet start = new LongOpenHashSet(blocks.size() * 2);
+		LongOpenHashSet taken = new LongOpenHashSet(blocks.size() * 2);
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (BlockSet.Entry e : blocks.entries) {
+			m.set(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z());
+			if (!Landing.free(view, m, bl)) continue;
+			start.add(m.asLong());
+			taken.add(m.asLong());
+		}
 		List<BlockSet.Entry> sorted = new ArrayList<>(blocks.entries);
 		sorted.sort(Comparator.comparingInt(BlockSet.Entry::y));
+		LongOpenHashSet hard = new LongOpenHashSet();
+		int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE, z0 = Integer.MAX_VALUE;
+		int x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE, z1 = Integer.MIN_VALUE;
 		BlockState sample = null;
 		for (BlockSet.Entry e : sorted) {
-			BlockPos p = base.add(e.x(), e.y(), e.z());
-			if (w.isOutOfHeightLimit(p)) continue;
-			BlockState cur = w.getBlockState(p);
-			if (cur.isAir() || cur.isReplaceable()) {
-				w.setBlockState(p, e.state(), Block.NOTIFY_ALL);
-				if (e.be() != null) {
-					BlockEntity be = w.getBlockEntity(p);
-					if (be != null) {
-						be.read(e.be(), w.getRegistryManager());
-						be.markDirty();
-					}
+			BlockPos cell = base.add(e.x(), e.y(), e.z());
+			BlockPos put = start.contains(cell.asLong()) ? cell : relocate(view, cell, bl, taken);
+			if (put == null) {
+				Block.dropStacks(e.state(), w, cell);   // último recurso: no hay ni una celda libre cerca
+				DROPPED++;
+				continue;
+			}
+			w.setBlockState(put, e.state(), Block.NOTIFY_ALL);
+			if (e.be() != null) {
+				BlockEntity be = w.getBlockEntity(put);
+				if (be != null) {
+					be.read(e.be(), w.getRegistryManager());
+					be.markDirty();
 				}
-			} else {
-				Block.dropStacks(e.state(), w, p);
 			}
 			if (sample == null) sample = e.state();
+			if (!w.getBlockState(put).getCollisionShape(w, put).isEmpty()) {
+				hard.add(put.asLong());
+				x0 = Math.min(x0, put.getX());
+				y0 = Math.min(y0, put.getY());
+				z0 = Math.min(z0, put.getZ());
+				x1 = Math.max(x1, put.getX());
+				y1 = Math.max(y1, put.getY());
+				z1 = Math.max(z1, put.getZ());
+			}
 		}
+		if (!quiet) placeFx(w, sample, sealed, legacy);
+		if (!hard.isEmpty()) pushOut(w, hard, new Box(x0, y0, z0, x1 + 1, y1 + 1, z1 + 1));
+		gravityMul = 1.0;
+		resetMotion();
+		solid = false;
+		target = null;
+		setVelocity(Vec3d.ZERO);
+		setFlags(F_LANDED, F_HELD);
+		landedTail = OpeConfig.TAKT_LANDED_TAIL;
+		mode = Mode.LANDING;
+		Takt.forget(getId());
+	}
+
+	/** La celda libre más cercana a cell (orden RELOCATE) que nadie más va a ocupar; null si no hay. */
+	@Nullable
+	private static BlockPos relocate(BlockView view, BlockPos cell, List<Box> bl, LongOpenHashSet taken) {
+		BlockPos.Mutable q = new BlockPos.Mutable();
+		for (int[] o : RELOCATE) {
+			q.set(cell.getX() + o[0], cell.getY() + o[1], cell.getZ() + o[2]);
+			long key = q.asLong();
+			if (taken.contains(key) || !Landing.free(view, q, bl)) continue;
+			taken.add(key);
+			RELOCATED++;
+			return q.toImmutable();
+		}
+		return null;
+	}
+
+	/** Sonido del material y, en los asentamientos de siempre, sus partículas. */
+	private void placeFx(ServerWorld w, @Nullable BlockState mat, boolean sealed, boolean legacy) {
 		Vec3d c = center();
 		Box b = getBoundingBox();
+		if (mat != null) w.playSound(null, c.x, c.y, c.z, mat.getSoundGroup().getPlaceSound(), SoundCategory.BLOCKS, 1.0f, 0.7f);
+		if (!legacy) return;
 		if (sealed) {
 			w.spawnParticles(ParticleTypes.END_ROD, c.x, c.y, c.z, 30, b.getLengthX() / 2.5, b.getLengthY() / 2.5, b.getLengthZ() / 2.5, 0.02);
 			w.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0f, 0.8f);
-		} else if (sample != null) {
-			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, sample), c.x, getY(), c.z, 40,
+		} else if (mat != null) {
+			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, mat), c.x, getY(), c.z, 40,
 				b.getLengthX() / 3, 0.2, b.getLengthZ() / 3, 0.1);
-			w.playSound(null, c.x, c.y, c.z, sample.getSoundGroup().getPlaceSound(), SoundCategory.BLOCKS, 1.0f, 0.7f);
 		}
-		discard();
+	}
+
+	/** Lo vivo que quedó dentro de un bloque recién puesto sube al primer hueco libre (como mucho 8 bloques más arriba). */
+	private static void pushOut(ServerWorld w, LongOpenHashSet hard, Box area) {
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, area, e -> e.isAlive() && !e.isSpectator())) {
+			if (!overlaps(le.getBoundingBox().expand(-1e-4), hard)) continue;
+			for (int k = 1; k <= 8; k++) {
+				double y2 = Math.floor(le.getY()) + k;
+				if (w.isSpaceEmpty(le, le.getBoundingBox().offset(new Vec3d(0, y2 - le.getY(), 0)))) {
+					le.requestTeleport(le.getX(), y2, le.getZ());
+					break;
+				}
+			}
+		}
+	}
+
+	/** ¿Toca la caja alguna de esas celdas? */
+	private static boolean overlaps(Box b, LongOpenHashSet cells) {
+		int x0 = MathHelper.floor(b.minX), x1 = MathHelper.floor(b.maxX);
+		int y0 = MathHelper.floor(b.minY), y1 = MathHelper.floor(b.maxY);
+		int z0 = MathHelper.floor(b.minZ), z1 = MathHelper.floor(b.maxZ);
+		for (int x = x0; x <= x1; x++) {
+			for (int y = y0; y <= y1; y++) {
+				for (int z = z0; z <= z1; z++) {
+					if (cells.contains(BlockPos.asLong(x, y, z))) return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** La caja de las celdas de la pieza con su esquina mínima en base. */
+	private Box cellsBox(BlockPos base) {
+		return new Box(base.getX(), base.getY(), base.getZ(), base.getX() + blocks.sx, base.getY() + blocks.sy, base.getZ() + blocks.sz);
+	}
+
+	private static int[][] relocateOffsets() {
+		List<int[]> out = new ArrayList<>(124);
+		for (int x = -2; x <= 2; x++) {
+			for (int y = -2; y <= 2; y++) {
+				for (int z = -2; z <= 2; z++) {
+					if (x != 0 || y != 0 || z != 0) out.add(new int[]{x, y, z});
+				}
+			}
+		}
+		out.sort(Comparator.<int[]>comparingInt(o -> o[0] * o[0] + o[1] * o[1] + o[2] * o[2])
+			.thenComparingInt(o -> -o[1]).thenComparingInt(o -> o[0]).thenComparingInt(o -> o[2]));
+		return out.toArray(new int[0][]);
+	}
+
+	// ------------------------------------------------------------------ avisos a los clientes
+
+	private void sendFx(ServerWorld w, int kind, double x, double y, double z, float a, float b, int flags, int state, int[] data, UUID who) {
+		Takt.sendFx(w, new Payloads.TaktFx(kind, 0, getId(), who, x, y, z, a, b, 0, flags, state, data));
+	}
+
+	private UUID ownerOr() {
+		return owner != null ? owner : NOBODY;
+	}
+
+	/** F_CHUNK del aviso si la pieza se arrancó del suelo. */
+	private int chunkFx() {
+		return (flags() & F_CHUNK) != 0 ? Payloads.TaktFx.F_CHUNK : 0;
+	}
+
+	private float tonnes() {
+		return (float) (massKg() / 1000.0);
+	}
+
+	private static double smoothstep(double u) {
+		u = MathHelper.clamp(u, 0, 1);
+		return u * u * (3 - 2 * u);
+	}
+
+	private static double easeInOutCubic(double k) {
+		return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
 	}
 
 	// ------------------------------------------------------------------ armas forjadas
@@ -626,6 +1236,9 @@ public class PieceEntity extends Entity {
 		setPitch(0);
 		Vec3d c = getPos();
 		setPosition(c.x, c.y - blocks.sy / 2.0, c.z);
+		noClip = false;
+		setNoGravity(false);
+		resetMotion();
 		release(Vec3d.ZERO, false);
 	}
 

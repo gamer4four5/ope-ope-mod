@@ -2,6 +2,7 @@ package dev.opeope.power;
 
 import dev.opeope.entity.BlockSet;
 import dev.opeope.entity.PieceEntity;
+import dev.opeope.net.Payloads;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffects;
@@ -20,10 +21,34 @@ import net.minecraft.util.math.Vec3d;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 /** La Unión: lo cortado se vuelve a juntar cara con cara. Coser, reconstruir, rejuntar, unir todo y la Cirugía. */
 public final class Union {
 	private Union() {}
+
+	/** Unir todo busca también las piezas que salieron volando del ROOM: hasta este margen alrededor de su caja. */
+	private static final double HOME_MARGIN = 64;
+
+	/**
+	 * La regla de toda la Unión (elegir, coser, devolver y rejuntar): sin arma, sin estar posándose, sin estar ya
+	 * volviendo o cosiéndose, y que no la lleve el Takt de otro.
+	 */
+	private static boolean unionOk(ServerPlayerEntity p, PieceEntity pe) {
+		if (pe.weapon != null || pe.settling()) return false;
+		if (pe.mode == PieceEntity.Mode.RETURNING || pe.mode == PieceEntity.Mode.SEWING) return false;
+		UUID h = Takt.holder(pe.getId());
+		return h == null || h.equals(p.getUuid());
+	}
+
+	/** Deja de ser de Takt, de suspendidas y de aparcadas de este jugador, y nadie la lleva ya. */
+	private static void letGo(PlayerPower pw, PieceEntity pe) {
+		int id = pe.getId();
+		pw.takt.remove((Integer) id);
+		pw.suspended.remove((Integer) id);
+		pw.parked.remove(id);
+		Takt.forget(id);
+	}
 
 	public static void toggle(ServerPlayerEntity p, PlayerPower pw) {
 		List<Entity> held = Takt.resolve(p, pw);
@@ -58,7 +83,7 @@ public final class Union {
 	}
 
 	public static void click(ServerPlayerEntity p, PlayerPower pw) {
-		Entity e = PowerManager.raycastEntity(p, 200, 0.2, ent -> (ent instanceof PieceEntity pe && pe.weapon == null)
+		Entity e = PowerManager.raycastEntity(p, 200, 0.2, ent -> (ent instanceof PieceEntity pe && unionOk(p, pe))
 			|| (ent instanceof LivingEntity le && CutStates.isCut(le)));
 		if (e instanceof LivingEntity le) {
 			if (!CutStates.reattach(le, false)) p.sendMessage(Text.translatable("opeope.msg.no_reattach"), true);
@@ -76,7 +101,7 @@ public final class Union {
 		Entity sel = p.getWorld().getEntityById(pw.unionSelected);
 		clearSelection(p, pw);
 		pw.dirty = true;
-		if (!(sel instanceof PieceEntity pe) || pe.isRemoved()) return;
+		if (!(sel instanceof PieceEntity pe) || pe.isRemoved() || !unionOk(p, pe)) return;
 		BlockHitResult hit = PowerManager.raycastBlock(p, 200);
 		Vec3d target;
 		if (hit.getType() == HitResult.Type.BLOCK) {
@@ -87,8 +112,9 @@ public final class Union {
 		} else {
 			target = PowerManager.aimPoint(p, 30);
 		}
-		pw.takt.remove((Integer) pe.getId());
-		pw.suspended.remove((Integer) pe.getId());
+		letGo(pw, pe);
+		pe.setFlag(PieceEntity.F_HELD, false);
+		pe.resetMotion();
 		pe.mode = PieceEntity.Mode.SEWING;
 		pe.target = target;
 		pe.setFlag(PieceEntity.F_SEAM, true);
@@ -102,25 +128,29 @@ public final class Union {
 			return;
 		}
 		if (e instanceof PieceEntity pe) {
-			sendHome(pw, pe);
+			sendHome(p, pw, pe, 0);
 			return;
 		}
 		uniteAll(p, pw);
 	}
 
-	private static boolean sendHome(PlayerPower pw, PieceEntity pe) {
-		if (pe.origin == null) return false;
-		pw.takt.remove((Integer) pe.getId());
-		pw.suspended.remove((Integer) pe.getId());
-		pe.mode = PieceEntity.Mode.RETURNING;
-		pe.noClip = true;
-		pe.setFlag(PieceEntity.F_SEAM, true);
-		pe.setFlag(PieceEntity.F_SUSPENDED, false);
+	/**
+	 * Manda una pieza de vuelta a su sitio tras delay ticks (vuela en arco y se sella al llegar). Quien la manda pasa a
+	 * ser su dueño, así su aviso HOME es del mismo jugador que el REWIND de Unir todo.
+	 */
+	private static boolean sendHome(ServerPlayerEntity p, PlayerPower pw, PieceEntity pe, int delay) {
+		if (pe.origin == null || !unionOk(p, pe)) return false;
+		letGo(pw, pe);
+		pe.owner = p.getUuid();
+		pe.startReturn(delay);
 		pw.dirty = true;
 		return true;
 	}
 
-	/** R X: todo lo cortado vuelve volando a su sitio y se sella; los seres cortados se recomponen. */
+	/**
+	 * R X: todo lo cortado vuelve volando a su sitio y se sella, lo más reciente primero y de abajo arriba, en una ola
+	 * de 1,1 s; los seres cortados se recomponen. Cuenta las piezas que están en el ROOM o cuyo sitio está en él.
+	 */
 	public static void uniteAll(ServerPlayerEntity p, PlayerPower pw) {
 		Room room = pw.room;
 		if (room == null) {
@@ -128,15 +158,42 @@ public final class Union {
 			return;
 		}
 		Box box = new Box(room.center, room.center).expand(room.radius);
-		int n = 0;
-		for (PieceEntity pe : p.getWorld().getEntitiesByClass(PieceEntity.class, box, e -> e.weapon == null && room.contains(e.center()))) {
-			if (sendHome(pw, pe)) n++;
+		List<PieceEntity> pieces = new ArrayList<>(p.getWorld().getEntitiesByClass(PieceEntity.class, box.expand(HOME_MARGIN),
+			e -> e.origin != null && (e.flags() & PieceEntity.F_LANDED) == 0 && unionOk(p, e)
+				&& (room.contains(e.center()) || room.contains(homeCenter(e)))));
+		pieces.sort((a, b) -> {
+			int c = Long.compare(b.fxTime(), a.fxTime());
+			if (c == 0) c = Integer.compare(a.origin.getY(), b.origin.getY());
+			return c != 0 ? c : Integer.compare(a.getId(), b.getId());
+		});
+		int n = pieces.size(), sent = 0, longest = 0;
+		for (int i = 0; i < n; i++) {
+			PieceEntity pe = pieces.get(i);
+			int flight = flight(pe);
+			if (sendHome(p, pw, pe, n > 1 ? (int) Math.round(22.0 * i / (n - 1)) : 0)) {
+				sent++;
+				longest = Math.max(longest, flight);
+			}
 		}
+		int living = 0;
 		for (LivingEntity le : p.getWorld().getEntitiesByClass(LivingEntity.class, box, e -> CutStates.isCut(e) && room.contains(e.getPos()))) {
-			if (CutStates.reattach(le, false)) n++;
+			if (CutStates.reattach(le, false)) living++;
 		}
-		p.sendMessage(Text.translatable("opeope.msg.united", n), true);
-		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_POWER_SELECT, SoundCategory.PLAYERS, 1f, 1.8f);
+		p.sendMessage(Text.translatable("opeope.msg.united", sent + living), true);
+		Takt.sendFx(p.getServerWorld(), new Payloads.TaktFx(Payloads.TaktFx.REWIND, 0, -1, p.getUuid(), room.center.x, room.center.y,
+			room.center.z, (float) room.radius, 0f, 22 + longest, 0, sent, new int[0]));
+	}
+
+	/** El centro de la pieza cuando esté en su sitio. */
+	private static Vec3d homeCenter(PieceEntity pe) {
+		return new Vec3d(pe.origin.getX() + pe.blocks.sx / 2.0, pe.origin.getY() + pe.blocks.sy / 2.0, pe.origin.getZ() + pe.blocks.sz / 2.0);
+	}
+
+	/** Lo que tardará su vuelo de vuelta, en ticks (la misma cuenta que PieceEntity.startReturn). */
+	private static int flight(PieceEntity pe) {
+		Vec3d home = new Vec3d(pe.origin.getX() + pe.blocks.sx / 2.0, pe.origin.getY(), pe.origin.getZ() + pe.blocks.sz / 2.0);
+		double d = home.distanceTo(pe.getPos());
+		return Math.max(4, (int) Math.round(20 * 1.15 * (0.8 + Math.min(0.6, d / 60))));
 	}
 
 	/** R Z: todo lo cortado del ROOM vuela a una sola masa cosida, que queda en Takt para lanzarla. */
@@ -147,7 +204,7 @@ public final class Union {
 			return;
 		}
 		Box box = new Box(room.center, room.center).expand(room.radius);
-		List<PieceEntity> pieces = p.getWorld().getEntitiesByClass(PieceEntity.class, box, e -> e.weapon == null && room.contains(e.center()));
+		List<PieceEntity> pieces = p.getWorld().getEntitiesByClass(PieceEntity.class, box, e -> unionOk(p, e) && room.contains(e.center()));
 		if (pieces.isEmpty()) {
 			p.sendMessage(Text.translatable("opeope.msg.nothing_cut"), true);
 			return;
@@ -159,8 +216,7 @@ public final class Union {
 			if (all.size() > 6000) break;
 			all.addAll(pe.blocks.entries);
 			Techniques.beam(p, pe.center(), gc, CutEngine.ROOM_DUST);
-			pw.takt.remove((Integer) pe.getId());
-			pw.suspended.remove((Integer) pe.getId());
+			letGo(pw, pe);
 			pe.discard();
 		}
 		BlockSet ball = ball(all);
@@ -182,7 +238,7 @@ public final class Union {
 		for (int i = 0; i < n && i < cells.size(); i++) {
 			BlockSet.Entry e = entries.get(i);
 			int[] c = cells.get(i);
-			set.add(c[0] + r, c[1] + r, c[2] + r, e.state(), e.be());
+			set.add(c[0] + r, c[1] + r, c[2] + r, e.state(), e.be(), e.faces());
 		}
 		set.normalize();
 		return set;

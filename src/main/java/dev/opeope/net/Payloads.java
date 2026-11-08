@@ -178,21 +178,38 @@ public final class Payloads {
 		}
 	}
 
-	/** Servidor → cliente: el momento de un corte (zona y planos) para la hoja de luz y la costura. Ver CutFx en el cliente. */
-	public record CutFx(float[] data) implements CustomPayload {
+	/**
+	 * Servidor → cliente: el momento de un corte (zona y planos) para la hoja de luz y la costura. Ver CutFx en el cliente.
+	 * data: c(3) r lc(3) lr eye(3) look(3) y por plano n(3) p(3) swipe(3). cutterId: el jugador que corta; material: el
+	 * estado más repetido de lo cortado (Block.getRawIdFromState) o −1; pieces y living: lo que soltó el corte.
+	 */
+	public record CutFx(float[] data, int cutterId, int pieces, int living, int material, int flags) implements CustomPayload {
+		public static final int F_BLOCKS = 1;      // cortó bloques: la costura se puede dibujar sobre el mundo
+		public static final int F_TERRAIN = 2;     // alguna semilla es suelo (GroundRules.terrain)
+		public static final int F_SUSPEND = 4;     // el corte deja suspendido lo que suelta
+		public static final int F_REMEMBERED = 8;  // algún plano quedó recordado en GroundCuts
+		private static final int CAP = 14 + 16 * 9;
 		public static final Id<CutFx> ID = new Id<>(OpeOpeMod.id("cut_fx"));
 		public static final PacketCodec<RegistryByteBuf, CutFx> CODEC = PacketCodec.of(CutFx::write, CutFx::read);
 
 		static CutFx read(RegistryByteBuf buf) {
-			int n = Math.min(buf.readVarInt(), 14 + 16 * 9);
+			int n = len(buf.readVarInt(), CAP);
 			float[] p = new float[n];
 			for (int i = 0; i < n; i++) p[i] = buf.readFloat();
-			return new CutFx(p);
+			int cutter = buf.readVarInt(), pieces = buf.readVarInt(), living = buf.readVarInt(), material = buf.readVarInt(),
+				flags = buf.readVarInt();
+			return new CutFx(p, cutter, pieces, living, material, flags);
 		}
 
 		public void write(RegistryByteBuf buf) {
-			buf.writeVarInt(data.length);
-			for (float f : data) buf.writeFloat(f);
+			int n = Math.min(data.length, CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeFloat(data[i]);
+			buf.writeVarInt(cutterId);
+			buf.writeVarInt(pieces);
+			buf.writeVarInt(living);
+			buf.writeVarInt(material);
+			buf.writeVarInt(flags);
 		}
 
 		@Override
@@ -201,20 +218,24 @@ public final class Payloads {
 		}
 	}
 
-	/** Servidor → cliente: el estado de los poderes del jugador, para el HUD y para saber qué hace cada clic. */
-	public record State(int flags, int pattern, int taktCount, int taktMode, int weapon, int scanTicks, int[] cooldowns) implements CustomPayload {
+	/** Servidor → cliente: el estado de los poderes del jugador, para el HUD y para saber qué hace cada clic. held: los ids de Takt, en orden. */
+	public record State(int flags, int pattern, int taktCount, int taktMode, int weapon, int scanTicks, int[] cooldowns, int[] held) implements CustomPayload {
 		public static final int HAS_FRUIT = 1, AWAKEN_UNLOCKED = 2, AWAKENED = 4, REACH_TARGET = 8, SUSPEND = 16,
 			UNION = 32, BISTURI = 64, UNION_SELECTED = 128, CURTAIN = 256, SILENT = 512;
+		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);
 
 		static State read(RegistryByteBuf buf) {
 			int flags = buf.readVarInt(), pattern = buf.readVarInt(), takt = buf.readVarInt(), mode = buf.readVarInt(),
 				weapon = buf.readVarInt(), scan = buf.readVarInt();
-			int n = Math.min(buf.readVarInt(), 64);
+			int n = len(buf.readVarInt(), 64);
 			int[] cd = new int[n];
 			for (int i = 0; i < n; i++) cd[i] = buf.readVarInt();
-			return new State(flags, pattern, takt, mode, weapon, scan, cd);
+			int h = len(buf.readVarInt(), HELD_CAP);
+			int[] held = new int[h];
+			for (int i = 0; i < h; i++) held[i] = buf.readVarInt();
+			return new State(flags, pattern, takt, mode, weapon, scan, cd, held);
 		}
 
 		public void write(RegistryByteBuf buf) {
@@ -226,11 +247,209 @@ public final class Payloads {
 			buf.writeVarInt(scanTicks);
 			buf.writeVarInt(cooldowns.length);
 			for (int c : cooldowns) buf.writeVarInt(c);
+			int h = Math.min(held.length, HELD_CAP);
+			buf.writeVarInt(h);
+			for (int i = 0; i < h; i++) buf.writeVarInt(held[i]);
 		}
 
 		@Override
 		public Id<? extends CustomPayload> getId() {
 			return ID;
 		}
+	}
+
+	/**
+	 * Cliente → servidor: un toque de Takt (R). size2: el ancho del trozo × 2 (3..18). aim: el bloque que mira el cliente
+	 * (BlockPos.asLong), side: la cara tocada (Direction.ordinal) o NO_SIDE si no toca nada (entonces aim = 0 y h = 0);
+	 * h: el punto exacto. window: cuántos ticks espera la grieta a un segundo toque (0 al soltar sobre la vista previa).
+	 */
+	public record TaktTap(int kind, int size2, long aim, int side, float hx, float hy, float hz, int window) implements CustomPayload {
+		public static final int KIND_TAP = 0, KIND_DOUBLE = 1;
+		public static final int NO_SIDE = -1;
+		public static final Id<TaktTap> ID = new Id<>(OpeOpeMod.id("takt_tap"));
+		public static final PacketCodec<RegistryByteBuf, TaktTap> CODEC = PacketCodec.of(TaktTap::write, TaktTap::read);
+
+		static TaktTap read(RegistryByteBuf buf) {
+			int kind = buf.readVarInt(), size2 = buf.readVarInt();
+			long aim = buf.readLong();
+			int side = buf.readVarInt();
+			float hx = buf.readFloat(), hy = buf.readFloat(), hz = buf.readFloat();
+			int window = buf.readVarInt();
+			return new TaktTap(kind, size2, aim, side, hx, hy, hz, window);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(kind);
+			buf.writeVarInt(size2);
+			buf.writeLong(aim);
+			buf.writeVarInt(side);
+			buf.writeFloat(hx);
+			buf.writeFloat(hy);
+			buf.writeFloat(hz);
+			buf.writeVarInt(window);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/** Cliente → servidor: posar (R + V). Por cada pieza de Takt con fantasma, su id y la esquina mínima del fantasma (BlockPos.asLong). */
+	public record TaktPlace(int[] ids, long[] bases) implements CustomPayload {
+		private static final int CAP = 32;
+		public static final Id<TaktPlace> ID = new Id<>(OpeOpeMod.id("takt_place"));
+		public static final PacketCodec<RegistryByteBuf, TaktPlace> CODEC = PacketCodec.of(TaktPlace::write, TaktPlace::read);
+
+		static TaktPlace read(RegistryByteBuf buf) {
+			int n = len(buf.readVarInt(), CAP);
+			int[] ids = new int[n];
+			long[] bases = new long[n];
+			for (int i = 0; i < n; i++) {
+				ids[i] = buf.readVarInt();
+				bases[i] = buf.readLong();
+			}
+			return new TaktPlace(ids, bases);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			int n = Math.min(CAP, Math.min(ids.length, bases.length));
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) {
+				buf.writeVarInt(ids[i]);
+				buf.writeLong(bases[i]);
+			}
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
+	 * Servidor → cliente: un corte que el suelo recuerda. ADD: todos los campos, data = GroundCut.toFloats() (26 floats).
+	 * REMOVE: id, owner, dim y created de ese corte, data vacío. CLEAR: quita todos los cortes de owner (o de todos si
+	 * owner es ALL); id 0, dim el Overworld (no cuenta), created 0, data vacío.
+	 */
+	public record GroundCutSync(int op, int id, UUID owner, Identifier dim, long created, float[] data) implements CustomPayload {
+		public static final int ADD = 0, REMOVE = 1, CLEAR = 2;
+		public static final UUID ALL = new UUID(0L, 0L);
+		private static final int CAP = 32;
+		public static final Id<GroundCutSync> ID = new Id<>(OpeOpeMod.id("ground_cut"));
+		public static final PacketCodec<RegistryByteBuf, GroundCutSync> CODEC = PacketCodec.of(GroundCutSync::write, GroundCutSync::read);
+
+		static GroundCutSync read(RegistryByteBuf buf) {
+			int op = buf.readVarInt(), id = buf.readVarInt();
+			UUID owner = buf.readUuid();
+			Identifier dim = buf.readIdentifier();
+			long created = buf.readLong();
+			int n = len(buf.readVarInt(), CAP);
+			float[] d = new float[n];
+			for (int i = 0; i < n; i++) d[i] = buf.readFloat();
+			return new GroundCutSync(op, id, owner, dim, created, d);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(op);
+			buf.writeVarInt(id);
+			buf.writeUuid(owner);
+			buf.writeIdentifier(dim);
+			buf.writeLong(created);
+			int n = Math.min(data.length, CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeFloat(data[i]);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
+	 * Servidor → cliente: un momento de Takt (grieta, se suelta, se deshace, coge, zona, lanza, posa, impacto...), para que
+	 * el cliente lo haga notar con luz, partículas, sonido y cámara. owner: el jugador que lo causó. Qué lleva cada campo
+	 * según kind está en la tabla 3.1 del diseño; lo que no se usa va a 0, entityId a −1 y data vacío. DENY solo le llega
+	 * a quien lo pidió; el resto, a los jugadores a 160 bloques (Takt.sendFx).
+	 */
+	public record TaktFx(int kind, int id, int entityId, UUID owner, double x, double y, double z, float a, float b,
+						 int ticks, int flags, int state, int[] data) implements CustomPayload {
+		public static final int TEAR_START = 0, DETACH = 1, CANCEL = 2, GRAB = 3, ZONE = 4, SWEEP = 5, THROW = 6, LAND = 7,
+			SETTLE = 8, IMPACT = 9, REWIND = 10, HOME = 11, DENY = 12, KINDS = 13;
+		public static final String[] NAMES = {"TEAR_START", "DETACH", "CANCEL", "GRAB", "ZONE", "SWEEP", "THROW", "LAND",
+			"SETTLE", "IMPACT", "REWIND", "HOME", "DENY"};
+		public static final int F_CLOSED = 1, F_BIG = 2, F_AREA = 4, F_CHUNK = 8, F_ALL = 16, F_SEALED = 32, F_FACE = 64;
+		public static final int NO_ROOM = 0, FULL = 1, NO_GROUND = 2, NOTHING_LOOSE = 3, NOTHING_CUT = 4, BUSY = 5;   // DENY: el motivo (state)
+		public static final int DATA_CAP = 1024;
+		public static final Id<TaktFx> ID = new Id<>(OpeOpeMod.id("takt_fx"));
+		public static final PacketCodec<RegistryByteBuf, TaktFx> CODEC = PacketCodec.of(TaktFx::write, TaktFx::read);
+
+		static TaktFx read(RegistryByteBuf buf) {
+			int kind = buf.readVarInt(), id = buf.readVarInt(), entityId = buf.readVarInt();
+			UUID owner = buf.readUuid();
+			double x = buf.readDouble(), y = buf.readDouble(), z = buf.readDouble();
+			float a = buf.readFloat(), b = buf.readFloat();
+			int ticks = buf.readVarInt(), flags = buf.readVarInt(), state = buf.readVarInt();
+			int n = len(buf.readVarInt(), DATA_CAP);
+			int[] data = new int[n];
+			for (int i = 0; i < n; i++) data[i] = buf.readInt();
+			return new TaktFx(kind, id, entityId, owner, x, y, z, a, b, ticks, flags, state, data);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(kind);
+			buf.writeVarInt(id);
+			buf.writeVarInt(entityId);
+			buf.writeUuid(owner != null ? owner : GroundCutSync.ALL);
+			buf.writeDouble(x);
+			buf.writeDouble(y);
+			buf.writeDouble(z);
+			buf.writeFloat(a);
+			buf.writeFloat(b);
+			buf.writeVarInt(ticks);
+			buf.writeVarInt(flags);
+			buf.writeVarInt(state);
+			int n = data == null ? 0 : Math.min(data.length, DATA_CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeInt(data[i]);
+		}
+
+		/** El punto del momento como vector. */
+		public Vec3d pos() {
+			return new Vec3d(x, y, z);
+		}
+
+		/** El nombre del tipo, para los registros ("?" si no es uno conocido). */
+		public String name() {
+			return kind >= 0 && kind < NAMES.length ? NAMES[kind] : "?";
+		}
+
+		/** Empaqueta el desplazamiento de una columna o celda: ((dx+512)&1023) | ((dz+512)&1023)<<10 | ((dy+512)&1023)<<20 (| 1<<30 = borde). */
+		public static int pack(int dx, int dz, int dy) {
+			return ((dx + 512) & 1023) | (((dz + 512) & 1023) << 10) | (((dy + 512) & 1023) << 20);
+		}
+
+		public static int dx(int p) {
+			return (p & 1023) - 512;
+		}
+
+		public static int dz(int p) {
+			return ((p >> 10) & 1023) - 512;
+		}
+
+		public static int dy(int p) {
+			return ((p >> 20) & 1023) - 512;
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/** Cuántos elementos leer de un array: el largo que llega, entre 0 y su tope (como Cut.read, sin negativos). */
+	private static int len(int n, int cap) {
+		return Math.max(0, Math.min(n, cap));
 	}
 }

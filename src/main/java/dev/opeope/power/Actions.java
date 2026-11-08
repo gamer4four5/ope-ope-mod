@@ -41,8 +41,8 @@ public final class Actions {
 			case ROOM_BRING -> RoomOps.bring(p, pw);
 			case SHAMBLES -> Shambles.use(p, pw, arg == 1);
 			case MARKER -> Techniques.marker(p, pw);
-			case TAKT_TAP -> Takt.tap(p, pw);
-			case TAKT_DOUBLE -> Takt.zone(p, pw);
+			case TAKT_TAP -> Takt.tap(p, pw);                    // el cliente ya manda TaktTap; esto queda por si acaso
+			case TAKT_DOUBLE -> Takt.doubleTap(p, pw, null);
 			case TAKT_ORDER -> Takt.order(p, pw, arg);
 			case TAKT_THROW_ONE -> Takt.throwOne(p, pw);
 			case TAKT_THROW_ALL -> Takt.throwAll(p, pw);

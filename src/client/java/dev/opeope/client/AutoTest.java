@@ -1,5 +1,6 @@
 package dev.opeope.client;
 
+import dev.opeope.OpeConfig;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.hud.HudRoot;
@@ -8,14 +9,26 @@ import dev.opeope.client.input.Bisturi;
 import dev.opeope.client.input.InputHandler;
 import dev.opeope.client.input.Keys;
 import dev.opeope.client.input.Onboarding;
+import dev.opeope.client.render.TerrainFx;
 import dev.opeope.client.room.RoomFxClient;
 import dev.opeope.client.room.RoomSounds;
+import dev.opeope.client.room.TaktFxClient;
+import dev.opeope.client.room.TaktSounds;
 import dev.opeope.client.screen.KeysScreen;
 import dev.opeope.client.screen.SettingsScreen;
+import dev.opeope.entity.BlockSet;
+import dev.opeope.entity.Crater;
+import dev.opeope.entity.PieceEntity;
+import dev.opeope.net.Payloads;
+import dev.opeope.power.CutEngine;
+import dev.opeope.power.GroundCuts;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.Room;
 import dev.opeope.power.RoomOps;
+import dev.opeope.terrain.ChunkPlan;
+import dev.opeope.terrain.ChunkPlanner;
+import dev.opeope.terrain.GroundCut;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -24,12 +37,15 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.client.util.Window;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.passive.PigEntity;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.Heightmap;
@@ -38,6 +54,8 @@ import org.lwjgl.glfw.GLFW;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -186,6 +204,9 @@ public final class AutoTest {
 		pw.room.state = Room.State.FIXED;
 		PowerManager.broadcastRoom(sp, 0, pw.room);
 		OpeOpeMod.LOG.info("AUTOTEST escena lista en {} {} {}", x0, fy, z0);
+		gx0 = x0;
+		gfy = fy;
+		gz0 = z0;
 	}
 
 	private static void box(ServerWorld w, int x0, int y0, int z0, int x1, int y1, int z1, BlockState st) {
@@ -222,6 +243,23 @@ public final class AutoTest {
 	private static float r0;
 	private static Vec3d c0;
 	private static KeysScreen keysScreen;
+
+	// (k2) Takt sobre lo cortado
+	/** El origen de la escena (setup, en el hilo del servidor; se lee en los dos). */
+	private static volatile int gx0, gfy, gz0;
+	/** Resultados que se escriben en el hilo del servidor; −1 = todavía no. */
+	private static volatile int srvA = -1, srvB = -1, srvC = -1;
+	private static int solid0, items0, chunkId = -1;
+	/** Solo en el hilo del servidor. */
+	private static int dropped0;
+	private static Crater.Result crater0;
+	private static BlockPos ghost;
+	private static List<BlockSet.Entry> ghostSet = List.of();
+	/** Solo en el hilo del servidor. */
+	private static Room savedRoom;
+	private static Vec3d savedPos;
+	/** Cuántos avisos de Takt había de cada tipo al empezar a esperar uno. */
+	private static final int[] TBASE = new int[Payloads.TaktFx.KINDS];
 
 	private static void runPlan() {
 		planWaited++;
@@ -392,6 +430,11 @@ public final class AutoTest {
 			for (String n : RoomSounds.IDS) if (mc.getSoundManager().get(OpeOpeMod.id(n)) == null) missing.add(n);
 			check(missing.isEmpty(), "sonidos (" + RoomSounds.IDS.length + ")", "faltan " + missing);
 		});
+		step(0, "sonidos takt", () -> {
+			List<String> missing = new ArrayList<>();
+			for (String n : TaktSounds.IDS) if (mc.getSoundManager().get(OpeOpeMod.id(n)) == null) missing.add(n);
+			check(missing.isEmpty(), "sonidos de Takt (" + TaktSounds.IDS.length + ")", "faltan " + missing);
+		});
 		step(0, "iconos", () -> {
 			List<String> missing = new ArrayList<>();
 			for (String n : Icons.ALL) {
@@ -561,8 +604,13 @@ public final class AutoTest {
 			key(GLFW.GLFW_KEY_TAB, RELEASE);
 		});
 
-		// (k) Takt: dentro de un ROOM (fuera no coge nada), coger el cerdo, el chip, la fila de R y soltar
-		step(10, "takt: ROOM", () -> key(Q, PRESS));
+		// (k) Takt: dentro de un ROOM (fuera no coge nada), coger el cerdo, el chip, la fila de R y soltar. Sin cortes
+		// recordados de la fase A y con el trozo más pequeño, el toque arranca un trozo pequeño que ningún corte forma.
+		step(10, "takt: ROOM", () -> {
+			server(srv, id, (sp, pw) -> GroundCuts.clearOwner(sp.getUuid()));
+			ClientState.chunkSize = OpeConfig.TAKT_CHUNK_MIN;
+			key(Q, PRESS);
+		});
 		step(12, "takt: ROOM suelta", () -> key(Q, RELEASE));
 		step(5, "takt: mira", () -> srv.execute(() -> look(srv, id, 32, 28)));
 		step(12, "takt: toque", () -> key(GLFW.GLFW_KEY_R, PRESS));
@@ -577,7 +625,13 @@ public final class AutoTest {
 			key(GLFW.GLFW_KEY_B, PRESS);   // R + B: soltar
 		});
 		step(1, "takt: soltar", () -> key(GLFW.GLFW_KEY_B, RELEASE));
-		step(1, "takt: suelta R", () -> key(GLFW.GLFW_KEY_R, RELEASE));
+		step(1, "takt: suelta R", () -> {
+			key(GLFW.GLFW_KEY_R, RELEASE);
+			ClientState.chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;   // lo que espera la rueda de (k2)
+		});
+
+		// (k2) Takt sobre lo cortado
+		planSuelo(mc, srv, id);
 
 		// (l) Bisturí: en el ROOM de Takt, el panel, un corte y soltar
 		step(10, "bisturí: mira", () -> srv.execute(() -> look(srv, id, 0, 8)));
@@ -699,5 +753,347 @@ public final class AutoTest {
 			OpeOpeMod.LOG.info("AUTOTEST terminado");
 			stopAt = t + 40;
 		});
+	}
+
+	// ------------------------------------------------------------------ fase B (k2): Takt sobre lo cortado
+
+	/**
+	 * (k2) Cortes recordados, vista previa, arrancar, R R, fantasma, posar, lanzar, cráter y cueva. Rehace su propio
+	 * trozo de suelo (x gx0−16..gx0+16, z gz0−34..gz0+2) con su propio ROOM y al final deja el ROOM de (k) como estaba,
+	 * para (l). El jugador está en supervivencia desde (a).
+	 */
+	private static void planSuelo(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
+		final int LEFT = GLFW.GLFW_MOUSE_BUTTON_LEFT;
+		// los avisos de Takt (aquí LAND es el de Takt, no el del ROOM)
+		final int TEAR_START = Payloads.TaktFx.TEAR_START, DETACH = Payloads.TaktFx.DETACH, CANCEL = Payloads.TaktFx.CANCEL;
+		final int LAND = Payloads.TaktFx.LAND, THROW = Payloads.TaktFx.THROW, IMPACT = Payloads.TaktFx.IMPACT;
+
+		step(10, "suelo: preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				savedRoom = pw.room;
+				savedPos = sp.getPos();
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
+					en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
+				pw.room = new Room(w.getRegistryKey(), new Vec3d(gx0 + 0.5, gfy + 3, gz0 - 9.5), 14);
+				pw.room.state = Room.State.FIXED;
+				PowerManager.broadcastRoom(sp, 0, pw.room);
+				GroundCuts.clearOwner(sp.getUuid());   // (k) quitó los de la fase A; esto quita los que haya habido desde entonces
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 + 0.5, 180f, 15.1f);
+				srvA = 1;
+			});
+		});
+		waitFor("suelo: preparado", 40, "no se preparó el terreno", () -> srvA == 1 && room() != null && Math.abs(radius() - 14) < 0.01, null);
+
+		step(2, "suelo: cortes", () -> {
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				int cz = gz0 - 6;
+				Vec3d nx = new Vec3d(1, 0, 0), nz = new Vec3d(0, 0, 1);
+				Vec3d[][] pl = {{nx, new Vec3d(gx0 - 2, gfy, cz)}, {nx, new Vec3d(gx0 + 3, gfy, cz)},
+					{nz, new Vec3d(gx0, gfy, cz - 2)}, {nz, new Vec3d(gx0, gfy, cz + 3)}};
+				for (Vec3d[] q : pl) {
+					CutEngine.cut(sp, List.of(new CutEngine.Plane(q[0], q[1])), CutEngine.Region.of(pw.room), false, 0, 0f, true, true);
+				}
+				srvB = GroundCuts.count(sp.getUuid());
+			});
+		});
+		waitFor("suelo: cortes recordados", 40, "el cliente no tiene los 4 cortes",
+			() -> srvB >= 0 && ClientState.groundCutCount() >= 4, () -> {
+				check(srvB == 4, "el suelo recuerda los 4 cortes", "el servidor tiene " + srvB);
+				shot(mc, "14b-suelo-a-cortes");
+			});
+
+		// el plan no depende del orden de los cortes (el mismo cálculo que la vista previa, en el cliente)
+		step(1, "suelo: plan determinista", () -> {
+			BlockPos hit = new BlockPos(gx0, gfy, gz0 - 6);
+			BlockPos aimS = ChunkPlanner.surfaceAim(mc.world, hit);
+			ClientState.RoomInfo r = ClientState.ownRoomAt(Vec3d.ofCenter(hit));
+			List<GroundCut> near = aimS == null ? List.of() : ChunkPlanner.near(ClientState.ownGroundCuts(), mc.player.getUuid(),
+				mc.world.getRegistryKey().getValue(), ChunkPlanner.aimPoint(aimS), mc.world.getTime());
+			List<GroundCut> rev = new ArrayList<>(near);
+			Collections.reverse(rev);
+			ChunkPlan a = r == null ? ChunkPlan.EMPTY : ChunkPlanner.plan(mc.world, hit, 6, near, r.center(), (double) r.radius(), null);
+			ChunkPlan b = r == null ? ChunkPlan.EMPTY : ChunkPlanner.plan(mc.world, hit, 6, rev, r.center(), (double) r.radius(), null);
+			check(a.closed && !a.face && a.blocks.length == 30 && a.usedCuts.length == 4 && Arrays.equals(a.blocks, b.blocks)
+					&& Arrays.equals(a.riders, b.riders) && Arrays.equals(a.usedCuts, b.usedCuts),
+				"el plan es el mismo con los cortes en otro orden (30 bloques, 4 cortes)",
+				a.blocks.length + "/" + b.blocks.length + " bloques, cortes " + Arrays.toString(a.usedCuts) + " / " + Arrays.toString(b.usedCuts));
+		});
+
+		// vista previa y tamaño (R mantenida, nada en Takt)
+		step(10, "suelo: R", () -> key(R, PRESS));
+		step(6, "suelo: rueda +", () -> wheel(1));
+		step(2, "suelo: rueda + mira", () -> {
+			check(Math.abs(ClientState.chunkSize - 3.5) < 1e-6, "R + rueda agranda el trozo", "tamaño " + fmt(ClientState.chunkSize));
+			wheel(-1);
+		});
+		step(2, "suelo: rueda - mira", () -> check(Math.abs(ClientState.chunkSize - 3.0) < 1e-6, "R + rueda vuelve a 3",
+			"tamaño " + fmt(ClientState.chunkSize)));
+		waitFor("suelo: vista previa", 20, "no se ve la vista previa", TerrainFx::previewShown, () -> {
+			check(TerrainFx.previewClosed() && TerrainFx.previewCount() == 30, "vista previa: el trozo cerrado, 30 bloques",
+				"cerrado " + TerrainFx.previewClosed() + ", " + TerrainFx.previewCount() + " bloques");
+			shot(mc, "14b-suelo-b-vista-previa");
+		});
+		step(1, "suelo: suelta R", () -> {
+			tsnap(TEAR_START);
+			key(R, RELEASE);   // la rueda marcó R como usada: soltar no arranca
+		});
+		step(6, "suelo: suelta R mira", () -> check(!tgot(TEAR_START), "soltar R después de la rueda no arranca nada", "llegó TEAR_START"));
+
+		// arrancar: mantener R, leer la vista previa y soltar (ventana 0: se suelta a los 4 ticks)
+		step(4, "suelo: arranca", () -> {
+			tsnap(TEAR_START);
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(14, "suelo: mantiene", () -> {});   // 700 ms > toqueR: soltar no es un toque rápido
+		waitFor("suelo: vista previa 2", 20, "no se ve la vista previa", TerrainFx::previewShown, () -> key(R, RELEASE));
+		waitFor("suelo: grieta", 10, "no llegó TEAR_START", () -> tgot(TEAR_START), () -> {
+			int espera = ticksOf(TEAR_START);
+			check(espera == OpeConfig.TAKT_TEAR_TICKS, "mantener R y soltar arranca lo que se ve (4 ticks de grieta)", "espera " + espera);
+			shot(mc, "14b-suelo-c-grieta");
+		});
+		waitFor("suelo: se suelta", 20, "no llegó DETACH", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		step(2, "14b-suelo-d", () -> shot(mc, "14b-suelo-d-tiembla"));
+		step(10, "14b-suelo-e", () -> shot(mc, "14b-suelo-e-sube"));
+		BooleanSupplier inHand = () -> held(chunkId) && mc.world.getEntityById(chunkId) instanceof PieceEntity pe
+			&& (pe.flags() & PieceEntity.F_CHUNK) != 0 && pe.blocks.size() == 30;
+		waitFor("suelo: en la mano", 60, "el trozo no llegó a Takt", inHand, () -> {
+			if (inHand.getAsBoolean()) ok("Takt arranca el trozo cerrado (30 bloques)");
+		});
+		step(0, "suelo: hueco", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				srvB = GroundCuts.count(sp.getUuid());
+				srvA = count(sp.getServerWorld(), gx0 - 2, gfy - 3, gz0 - 8, gx0 + 2, gfy, gz0 - 4, true);
+			});
+		});
+		waitFor("suelo: hueco medido", 20, null, () -> srvA >= 0 && srvB >= 0, () -> {
+			check(srvA == 30, "el hueco es el del trozo (30)", "aire " + srvA);
+			check(srvB == 0, "el arranque gasta los 4 cortes que lo forman", "quedan " + srvB);
+		});
+
+		// R R: el primer toque empieza a arrancar; el segundo llega dentro de su ventana y lo deshace antes de que se
+		// suelte, y solo levanta lo suelto
+		step(2, "suelo: R R mira", () -> srv.execute(() -> look(srv, id, 180f, 5.8f)));
+		step(10, "suelo: R R", () -> {
+			tsnap(TEAR_START);
+			tsnap(DETACH);
+			tsnap(CANCEL);
+			key(R, PRESS);
+		});
+		step(2, "suelo: R R 1", () -> key(R, RELEASE));
+		step(2, "suelo: R R 2", () -> key(R, PRESS));
+		step(2, "suelo: R R 2 suelta", () -> key(R, RELEASE));
+		waitFor("suelo: R R deshace", 30, "R R no deshizo el arranque", () -> tgot(CANCEL), () ->
+			check(tgot(TEAR_START) && !tgot(DETACH), "R R lo deshace antes de que se suelte",
+				"TEAR_START " + tgot(TEAR_START) + ", DETACH " + tgot(DETACH)));
+		step(20, "suelo: R R mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> srvA = count(sp.getServerWorld(), gx0 - 5, gfy - 4, gz0 - 21, gx0 + 5, gfy, gz0 - 11, true));
+		});
+		waitFor("suelo: R R medido", 20, null, () -> srvA >= 0, () -> {
+			check(srvA == 0, "R R deja el suelo como estaba", "aire " + srvA);
+			check(ClientState.heldIds.length == 1, "R R no arranca suelo", "Takt lleva " + ClientState.heldIds.length);
+		});
+
+		// fantasma y posar
+		step(2, "suelo: fantasma mira", () -> srv.execute(() -> look(srv, id, 225f, 20f)));
+		waitFor("suelo: fantasma", 40, "no hay fantasma", () -> TerrainFx.ghostFor(chunkId) != null, null);
+		step(15, "14b-suelo-f", () -> shot(mc, "14b-suelo-f-fantasma"));
+		step(0, "suelo: posar R", () -> key(R, PRESS));
+		step(5, "suelo: posar", () -> {
+			ghost = TerrainFx.ghostFor(chunkId);
+			ghostSet = mc.world.getEntityById(chunkId) instanceof PieceEntity pe ? List.copyOf(pe.blocks.entries) : List.of();
+			tsnap(LAND);
+			key(V, PRESS);
+		});
+		step(1, "suelo: posar suelta", () -> {
+			key(V, RELEASE);
+			key(R, RELEASE);
+		});
+		waitFor("suelo: posado", 100, "el trozo no se posó", () -> mc.world.getEntityById(chunkId) == null, () -> shot(mc, "14b-suelo-g-posado"));
+		step(0, "suelo: posado mide", () -> {
+			srvA = -1;
+			BlockPos g = ghost;
+			List<BlockSet.Entry> es = ghostSet;
+			server(srv, id, (sp, pw) -> srvA = mismatches(sp.getServerWorld(), g, es));
+		});
+		waitFor("suelo: posado medido", 20, null, () -> srvA >= 0, () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[LAND];
+			boolean same = tgot(LAND) && f != null && ghost != null && f.x() == ghost.getX() && f.y() == ghost.getY() && f.z() == ghost.getZ();
+			check(same && srvA == 0, "posar deja el trozo justo en su fantasma",
+				"LAND " + (f == null ? "-" : fmt(f.x()) + " " + fmt(f.y()) + " " + fmt(f.z())) + ", fantasma " + ghost + ", "
+					+ srvA + " bloques distintos");
+		});
+
+		// lanzar: cráter, sin objetos, sin perder bloques y con las cuentas del servidor
+		step(5, "suelo: lanzar mide", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				dropped0 = PieceEntity.DROPPED;
+				crater0 = Crater.last;
+				srvB = items(w, new Box(gx0 - 14, gfy - 10, gz0 - 32, gx0 + 15, gfy + 15, gz0 + 1));
+				srvA = count(w, gx0 - 14, gfy - 10, gz0 - 32, gx0 + 14, gfy + 14, gz0, false);
+			});
+		});
+		waitFor("suelo: lanzar medido", 20, null, () -> srvA >= 0 && srvB >= 0, () -> {
+			solid0 = srvA;
+			items0 = srvB;
+		});
+		step(0, "suelo: lanzar mira", () -> srv.execute(() -> look(srv, id, 162.9f, 6.8f)));
+		step(10, "suelo: lanzar arranca", () -> {
+			tsnap(TEAR_START);
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(2, "suelo: lanzar toque", () -> key(R, RELEASE));
+		waitFor("suelo: lanzar grieta", 10, "no llegó TEAR_START", () -> tgot(TEAR_START), () -> {
+			int win = Math.max(OpeConfig.TAKT_TEAR_TICKS, (int) Math.ceil(OpeSettings.get().dobleToque / 50.0) + 1);
+			int espera = ticksOf(TEAR_START);
+			check(espera == win, "un toque espera la ventana del doble toque (" + win + " ticks)", "espera " + espera);
+		});
+		waitFor("suelo: lanzar se suelta", 30, "no llegó DETACH", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		waitFor("suelo: lanzar en la mano", 60, "el trozo no llegó a Takt", () -> held(chunkId), null);
+		step(20, "suelo: lanzar apunta", () -> srv.execute(() -> look(srv, id, 171.0f, 4.8f)));
+		step(12, "suelo: lanzar clic", () -> {
+			tsnap(THROW);
+			tsnap(IMPACT);
+			mouse(LEFT, PRESS);
+		});
+		step(1, "suelo: lanzar suelta", () -> mouse(LEFT, RELEASE));   // suelto antes de la ráfaga de 6 ticks
+		step(2, "14b-suelo-h", () -> shot(mc, "14b-suelo-h-vuela"));
+		waitFor("suelo: impacto", 80, "el trozo no impactó", () -> tgot(IMPACT), () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
+			if (!tgot(IMPACT) || f == null) return;   // el FALLO ya está apuntado
+			OpeOpeMod.LOG.info("AUTOTEST suelo impacto nivel {} cráter {}", f.state(), fmt(f.a()));
+			check(tgot(THROW) && f.state() >= 2 && f.a() > 0, "un trozo lanzado abre un cráter", "nivel " + f.state() + ", radio " + fmt(f.a()));
+		});
+		step(4, "14b-suelo-i", () -> shot(mc, "14b-suelo-i-crater"));
+		step(40, "suelo: cráter mide", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Crater.Result c = Crater.last;
+				srvC = (c != crater0 && c.removed() == c.piled() + c.putBack() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0);
+				OpeOpeMod.LOG.info("AUTOTEST suelo cráter {} cavados, {} al borde, {} devueltos", c.removed(), c.piled(), c.putBack());
+				srvB = items(w, new Box(gx0 - 14, gfy - 10, gz0 - 32, gx0 + 15, gfy + 15, gz0 + 1));
+				srvA = count(w, gx0 - 14, gfy - 10, gz0 - 32, gx0 + 14, gfy + 14, gz0, false);
+			});
+		});
+		waitFor("suelo: cráter medido", 20, null, () -> srvA >= 0 && srvB >= 0 && srvC >= 0, () -> {
+			check(srvB == items0, "el impacto no suelta objetos", (srvB - items0) + " objetos nuevos");
+			check(srvA == solid0, "el impacto no pierde bloques", solid0 + " → " + srvA);
+			check((srvC & 1) != 0, "el cráter amontona o devuelve todo lo que cava", "cuentas del cráter distintas");
+			check((srvC & 2) != 0, "ningún bloque cae como objeto al asentarse", "PieceEntity.DROPPED cambió");
+		});
+
+		// cueva: con techo encima, el plan sigue el suelo de la cueva (solo el cálculo del cliente; no se arranca nada)
+		step(2, "suelo: cueva", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 + 4; x <= gx0 + 8; x++)
+					for (int z = gz0 - 14; z <= gz0 - 10; z++)
+						for (int y = gfy - 6; y <= gfy - 4; y++) w.setBlockState(m.set(x, y, z), Blocks.AIR.getDefaultState(), 2 | 16);
+				srvA = 1;
+			});
+		});
+		waitFor("suelo: cueva hecha", 40, "el cliente no ve la cueva",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0 + 6, gfy - 6, gz0 - 12)).isAir(), () -> {
+				BlockPos hit = new BlockPos(gx0 + 6, gfy - 7, gz0 - 12);
+				ClientState.RoomInfo r = ClientState.ownRoomAt(Vec3d.ofCenter(hit));
+				ChunkPlan p = r == null ? ChunkPlan.EMPTY : ChunkPlanner.plan(mc.world, hit, 6, List.of(), r.center(), (double) r.radius(), null);
+				int top = Integer.MIN_VALUE;
+				for (long l : p.blocks) top = Math.max(top, BlockPos.unpackLongY(l));
+				check(!p.isEmpty() && !p.face && top <= gfy - 7, "en una cueva Takt sigue el suelo que miras",
+					p.size() + " bloques, cara " + p.face + ", el más alto en " + (p.blocks.length == 0 ? "-" : String.valueOf(top - gfy)));
+			});
+
+		// dejarlo como estaba para (l)
+		step(5, "suelo: fin", () -> server(srv, id, (sp, pw) -> {
+			pw.room = savedRoom;
+			PowerManager.broadcastRoom(sp, 0, savedRoom);
+			if (savedPos != null) sp.networkHandler.requestTeleport(savedPos.x, savedPos.y, savedPos.z, 0f, 10f);
+		}));
+	}
+
+	private static void tsnap(int k) {
+		TBASE[k] = TaktFxClient.COUNTS[k];
+	}
+
+	/** ¿Ha llegado un aviso k de Takt desde el último tsnap(k)? */
+	private static boolean tgot(int k) {
+		return TaktFxClient.COUNTS[k] > TBASE[k];
+	}
+
+	/** ticks del último aviso k de Takt si llegó desde el último tsnap(k); −1 si no. */
+	private static int ticksOf(int k) {
+		Payloads.TaktFx f = TaktFxClient.LAST[k];
+		return tgot(k) && f != null ? f.ticks() : -1;
+	}
+
+	/** La entidad del último aviso k de Takt si llegó desde el último tsnap(k); −1 si no. */
+	private static int entityOf(int k) {
+		Payloads.TaktFx f = TaktFxClient.LAST[k];
+		return tgot(k) && f != null ? f.entityId() : -1;
+	}
+
+	/** ¿Lleva Takt esa entidad? */
+	private static boolean held(int entityId) {
+		for (int h : ClientState.heldIds) if (h == entityId) return true;
+		return false;
+	}
+
+	/** En el hilo del servidor: el terreno de setup en x0..x1 × z0..z1 (piedra, tres de tierra, hierba en fy y aire encima). */
+	private static void patch(ServerWorld w, int x0, int x1, int z0, int z1, int fy) {
+		BlockState air = Blocks.AIR.getDefaultState(), dirt = Blocks.DIRT.getDefaultState(), grass = Blocks.GRASS_BLOCK.getDefaultState();
+		BlockState stone = Blocks.STONE.getDefaultState();
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int x = x0; x <= x1; x++) {
+			for (int z = z0; z <= z1; z++) {
+				for (int y = fy - 14; y <= fy + 26; y++) {
+					BlockState st = y > fy ? air : y == fy ? grass : y > fy - 4 ? dirt : stone;
+					w.setBlockState(m.set(x, y, z), st, 2 | 16);
+				}
+			}
+		}
+	}
+
+	/** En el hilo del servidor: cuántas celdas de la caja (con los dos extremos) son aire (air) o no lo son (!air). */
+	private static int count(ServerWorld w, int x0, int y0, int z0, int x1, int y1, int z1, boolean air) {
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		int n = 0;
+		for (int x = x0; x <= x1; x++)
+			for (int y = y0; y <= y1; y++)
+				for (int z = z0; z <= z1; z++) if (w.getBlockState(m.set(x, y, z)).isAir() == air) n++;
+		return n;
+	}
+
+	/** En el hilo del servidor: los objetos tirados en b. */
+	private static int items(ServerWorld w, Box b) {
+		return w.getEntitiesByClass(ItemEntity.class, b, e -> true).size();
+	}
+
+	/** En el hilo del servidor: cuántos bloques de es no están en base + su sitio; 9999 si no hay base o bloques. */
+	private static int mismatches(ServerWorld w, BlockPos base, List<BlockSet.Entry> es) {
+		if (base == null || es == null || es.isEmpty()) return 9999;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		int n = 0;
+		for (BlockSet.Entry e : es) {
+			m.set(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z());
+			if (w.getBlockState(m).getBlock() != e.state().getBlock()) n++;
+		}
+		return n;
 	}
 }

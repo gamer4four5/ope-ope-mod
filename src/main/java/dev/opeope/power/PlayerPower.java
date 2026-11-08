@@ -1,5 +1,6 @@
 package dev.opeope.power;
 
+import dev.opeope.OpeConfig;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
@@ -33,6 +34,13 @@ public class PlayerPower {
 	public final List<Integer> bisturiHeld = new ArrayList<>();   // lo cortado con el Bisturí, quieto hasta soltar
 	public final List<Integer> weapons = new ArrayList<>();
 	public int weaponKind = -1;
+
+	// Takt sobre el suelo
+	public final List<Takt.Rip> rips = new ArrayList<>();   // arranques pendientes o recién sueltos (aún se pueden deshacer)
+	public double orbitPhase;              // radianes; lo avanza Takt.tick
+	public int lastTapRip = -1;            // el arranque que empezó el último toque; −1 si ese toque no empezó ninguno (R R deshace)
+	public long lastTapTick = -1000;       // tiempo del mundo del último toque aceptado (límite de toques)
+	public int ripBudget = OpeConfig.TAKT_RIP_BUDGET;   // lo gastan los arranques y lo recupera Takt.tick
 
 	// Shambles y almas
 	public int shamblesMark = -1;

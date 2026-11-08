@@ -136,7 +136,7 @@ public class GuideScreen extends Screen {
 		row("patrón: un tajo, rodajas, cruz o dados", tab, "+", g(Keys.T_PATTERN));
 		row("alcance: todo lo que cruza el ROOM o solo el objetivo", tab, "+", g(Keys.T_REACH));
 		row("suspender: lo cortado queda flotando hasta que lo pulses otra vez", tab, "+", g(Keys.T_SUSPEND));
-		note("Lo que queda encima del corte resbala por el plano hacia donde fue el tajo; el borde del ROOM también corta. Si está encajado, se separa y flota unos segundos (agárralo con Takt). Un mob cortado no pierde vida: queda en piezas vivas.");
+		note("Lo que queda encima del corte resbala por el plano hacia donde fue el tajo; el borde del ROOM también corta. Si está encajado, se separa y flota unos segundos (agárralo con Takt); una cuña muy grande se queda en su sitio. Los cortes en el suelo quedan marcados tres minutos y Takt arranca justo lo que encierran. Un mob cortado no pierde vida: queda en piezas vivas.");
 		note("Con la Kikoku dentro del ROOM, cada tajo de la espada corta de verdad lo que alcanza el filo.");
 
 		title("Shambles");
@@ -147,8 +147,8 @@ public class GuideScreen extends Screen {
 		row("Scan y luego robar lo que lleva en la mano", g(Keys.SCAN), "y", alt);
 
 		title("Takt");
-		row("toque: coger lo que miras (seres, objetos, piezas o un trozo de suelo); otro toque, otro más", r);
-		row("doble toque: levantar todo lo suelto alrededor del punto", r, r);
+		row("toque: coger lo que miras (seres, objetos o piezas); sobre el suelo, arranca un trozo que sigue tus cortes", r);
+		row("doble toque: levantar todo lo suelto alrededor del punto (no arranca suelo); justo después de un arranque, lo deshace", r, r);
 		row("lanzar el de delante; mantener: ráfaga", clic);
 		row("mantener y soltar: lo lanza todo junto", der);
 		switch (s.modoR) {
@@ -158,14 +158,29 @@ public class GuideScreen extends Screen {
 		}
 		row("órbita o a la mano", r, "+", g(Keys.R_ORBIT));
 		row("aparcar", r, "+", g(Keys.R_PARK));
-		row("posar", r, "+", g(Keys.R_SETDOWN));
+		row("posar: baja recto a su silueta y queda en bloques", r, "+", g(Keys.R_SETDOWN));
 		row("soltar", r, "+", g(Keys.R_DROP));
-		row("más cerca o más lejos", r, "+", rueda);
+		row("con algo en Takt: más cerca o más lejos; sin nada: el tamaño del trozo de suelo", r, "+", rueda);
 		row("zona", r, "+", g(Keys.R_ZONE));
 		row("lo cortado", r, "+", g(Keys.R_CUT));
 		row("rejuntar", r, "+", g(Keys.R_GATHER));
 		row("unir todo", r, "+", g(Keys.R_UNITE));
 		row("lanzar todo", r, "+", der);
+
+		title("Moldear el suelo con Takt");
+		row("corta el suelo dentro del ROOM: cada corte queda marcado unos minutos con una línea tenue", clic);
+		if (s.modoR == OpeSettings.ModoFila.MANTENER) {
+			row("mantenida y mirando al suelo: se ve el trozo exacto; al soltarla, lo arrancas", r);
+		} else {
+			// Alternar y Una tecla: al soltar R las órdenes quedan abiertas; el toque que las cierra arranca el trozo
+			row("mantenida y mirando al suelo: se ve el trozo exacto; al soltarla sigue a la vista y otro toque lo arranca", r);
+		}
+		row("el tamaño del trozo (de 3 a 18 bloques de ancho)", r, "+", rueda);
+		row("toque: el trozo se agrieta, tiembla, se suelta y sube a tu mano", r);
+		row("posar: baja recto a su silueta y queda en bloques", r, "+", g(Keys.R_SETDOWN));
+		row("lanzarlo: abre un cráter y se queda clavado (no explota)", clic);
+		row("unir todo: cada trozo vuelve a su hueco y se sella", r, "+", g(Keys.R_UNITE));
+		note("Si tres cortes o más encierran una zona, Takt arranca justo esa forma, y su contorno late cuando la miras. Sin cortes, arranca un trozo redondo del tamaño elegido. En una cueva sigue el suelo de la cueva; en una pared o un techo arranca un pedazo tosco. Un doble toque justo después deshace el arranque.");
 
 		title("Armas del entorno (con material en Takt)");
 		row("lanza: atraviesa y ensarta al primero; " + k(Keys.TAKT) + " sobre ella la recupera", r, "+", g(Keys.R_FORGE1));

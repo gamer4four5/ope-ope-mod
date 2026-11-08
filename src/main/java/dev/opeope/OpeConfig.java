@@ -44,6 +44,40 @@ public final class OpeConfig {
 	public static final double TAKT_RANGE = 200;
 	public static final double TAKT_ZONE_RADIUS = 6;
 
+	// Takt sobre el suelo
+	public static final double TAKT_CHUNK_DEFAULT = 3.0, TAKT_CHUNK_MIN = 1.5, TAKT_CHUNK_MAX = 9.0, TAKT_CHUNK_STEP = 0.5;
+	public static final int TAKT_CHUNK_MAX_BLOCKS = 4000;  // terreno + lo que va encima, en un arranque
+	public static final int TAKT_RIDER_MAX = 600;          // lo que va encima, en un arranque
+	public static final double TAKT_CUT_REACH = 18.0;      // un corte cuenta si su plano está a menos de esto de la mira (y la mira en su caja ± esto)
+	public static final double TAKT_CLOSED_HALF = 11.25;   // medio lado del cuadrado de la prueba de "cerrado" (9 × 1,25)
+	public static final int TAKT_STEP_MAX = 3;             // la superficie de una columna se busca a ± esto de la de su vecina (4.2.3)
+	public static final int TAKT_AIM_DOWN = 12;            // mira en una planta, un tronco o una pared: el suelo se busca hasta esto por debajo
+	public static final int TAKT_TEAR_TICKS = 4;           // el arranque más corto: del toque a soltarse
+	public static final int TAKT_TAP_WINDOW_DEFAULT = 8;   // espera de un toque apuntado por el servidor (Actions.TAKT_TAP): ceil(350 / 50) + 1
+	public static final int TAKT_TAP_WINDOW_MAX = 13;      // la espera más larga que se acepta de un cliente: ceil(600 / 50) + 1
+	public static final int TAKT_TREMBLE_TICKS = 5, TAKT_TREMBLE_TICKS_BIG = 8;
+	public static final double TAKT_BIG_RADIUS = 6.0;      // PieceEntity.radius() por encima de esto = trozo grande
+	public static final int TAKT_UNDO_MAX_TICKS = 40;      // R R deshace el arranque del toque anterior si empezó hace como mucho esto
+	public static final int TAKT_TAP_MIN_TICKS = 2;        // los toques de un jugador más seguidos que esto no cuentan
+	public static final int TAKT_RIP_BUDGET = 8000;        // bloques que un jugador puede empezar a arrancar de golpe...
+	public static final int TAKT_RIP_REFILL = 400;         // ...que se recuperan a este ritmo por tick (8000 por segundo)
+	public static final double TAKT_SLIDE_PROBE = 0.6;     // regla de la cuña: cuánto se prueba a bajar por el plano una loncha grande, bloques
+	public static final int TAKT_FRESH_TICKS = 240;        // F_FRESH se apaga pasado esto
+	public static final double TAKT_THROW_ALL_SPEED = 2.4; // bloques/tick (TAKT_LAUNCH 2,1 sigue para lanzar uno)
+	public static final int TAKT_LAND_MAX_TICKS = 80;      // posar: tiempo máximo de bajada
+	public static final int TAKT_LANDED_TAIL = 3;          // ticks que la entidad sigue ahí después de poner sus bloques
+	public static final int TAKT_LANDING_SEARCH = 48;      // Landing.find: cuántos pasos baja como mucho
+	public static final int TAKT_PLACE_TOLERANCE = 2;      // el fantasma del cliente vale si está a esto del del servidor (en cada eje)
+	public static final int TAKT_WAVE_MAX_TICKS = 20;      // tope de la oleada de zona y de "lo cortado"
+	// Cortes que el suelo recuerda
+	public static final int GROUND_CUT_TICKS = 3600;       // 180 s
+	public static final int GROUND_CUT_MAX = 24;           // por jugador; se van los más viejos
+	public static final int GROUND_CUT_MAX_PER_CUT = 9;    // planos que un solo corte puede dejar recordados (una rejilla del R-ROOM)
+	public static final int GROUND_CUT_FADE_TICKS = 200;   // cliente: las marcas se apagan en sus últimos 10 s
+	// Impactos
+	public static final double IMPACT_TIER1 = 6e4, IMPACT_TIER2 = 1.2e6, IMPACT_TIER3 = 1.2e7;   // julios
+	public static final int CRATER_MAX_BLOCKS = 600;
+
 	// Shambles
 	public static final int SHAMBLES_MARK_TICKS = 20 * 6;
 	public static final int SOUL_MARK_TICKS = 20 * 8;

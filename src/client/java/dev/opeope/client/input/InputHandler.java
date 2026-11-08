@@ -1,14 +1,18 @@
 package dev.opeope.client.input;
 
+import dev.opeope.OpeConfig;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeProgress;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.hud.Toasts;
 import dev.opeope.client.render.CutFx;
+import dev.opeope.client.render.TerrainFx;
 import dev.opeope.client.room.RoomFxClient;
+import dev.opeope.client.room.TaktSounds;
 import dev.opeope.client.screen.GuideScreen;
 import dev.opeope.client.screen.SettingsScreen;
+import dev.opeope.net.Payloads;
 import dev.opeope.power.Actions;
 import dev.opeope.power.Tech;
 import dev.opeope.registry.ModItems;
@@ -34,6 +38,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 
@@ -62,6 +67,7 @@ public final class InputHandler {
 	private static final long ROW2_STEP_MS = 300;
 	private static final long PLAYER_LIST_MS = 600;
 	private static final long LATCH_IDLE_MS = 10_000;
+	private static final long SIZE_TOAST_MS = 400;        // la rueda quieta este tiempo: aviso con el tamaño del trozo
 
 	public static boolean row2Down;
 	public static boolean rDown;
@@ -85,6 +91,7 @@ public final class InputHandler {
 	// órdenes de Takt
 	private static boolean rowRLatched, rowROneKey;
 	private static long rLatchAt;
+	private static long sizeToastAt;           // cuándo avisar del tamaño del trozo (0 = nada pendiente)
 	// Bisturí y Cirugía fijos, lista de jugadores
 	private static boolean bisturiLatched;
 	private static boolean surgeryLatched;
@@ -247,7 +254,15 @@ public final class InputHandler {
 			return true;
 		}
 		if (rDown) {
-			Send.action(Actions.TAKT_SCROLL, dir);
+			if (ClientState.heldIds.length == 0) {
+				// sin nada en Takt: el tamaño del trozo de suelo que arranca (solo en el cliente)
+				ClientState.chunkSize = MathHelper.clamp(ClientState.chunkSize + OpeConfig.TAKT_CHUNK_STEP * dir,
+					OpeConfig.TAKT_CHUNK_MIN, OpeConfig.TAKT_CHUNK_MAX);
+				TaktSounds.chunkSizeTick(ClientState.chunkSize);
+				sizeToastAt = now + SIZE_TOAST_MS;
+			} else {
+				Send.action(Actions.TAKT_SCROLL, dir);
+			}
 			rUsed = true;
 			rLatchAt = now;
 			lastFruitInputAt = now;
@@ -325,9 +340,16 @@ public final class InputHandler {
 		}
 		if (Keys.TAKT.matches(type, code)) {
 			if (rowRLatched || rowROneKey) {
+				// cierra la fila; si no se usó y se ve el trozo, lo arranca (se mira antes de cerrar)
+				boolean rip = !rUsed && ClientState.heldIds.length == 0 && TerrainFx.previewShown();
 				rowRLatched = rowROneKey = false;
 				rDown = false;
 				mark(markCode, NOTHING);
+				if (rip) {
+					Send.taktTap(Payloads.TaktTap.KIND_TAP, 0);
+					lastRTapAt = 0;
+					Onboarding.mark(Onboarding.STEP_TAKT);
+				}
 				return true;
 			}
 			rDown = true;
@@ -340,7 +362,8 @@ public final class InputHandler {
 		if (rowR()) {
 			for (Keys k : Keys.values()) {
 				if (k.group() == Keys.Group.TAKT && k.matches(type, code)) {
-					Send.action(Actions.TAKT_ORDER, order(k));
+					if (k == Keys.R_SETDOWN) Send.taktPlace();   // posar: con la base del fantasma de cada pieza
+					else Send.action(Actions.TAKT_ORDER, order(k));
 					rUsed = true;
 					rLatchAt = now;
 					endOneKeyR();
@@ -646,13 +669,22 @@ public final class InputHandler {
 		OpeSettings s = OpeSettings.get();
 		if (!rUsed && before(rDownAt, rDownTick, s.toqueR)) {
 			if (lastRTapAt != 0 && before(lastRTapAt, lastRTapTick, s.dobleToque)) {
-				Send.action(Actions.TAKT_DOUBLE);
+				Send.taktTap(Payloads.TaktTap.KIND_DOUBLE, 0);
 				lastRTapAt = 0;
 			} else {
-				Send.action(Actions.TAKT_TAP);
+				// el arranque espera lo que dura el doble toque (y un tick más) por si llega el segundo
+				Send.taktTap(Payloads.TaktTap.KIND_TAP, (int) Math.ceil(s.dobleToque / 50.0) + 1);
 				lastRTapAt = now;
 				lastRTapTick = clientTick;
 			}
+			Onboarding.mark(Onboarding.STEP_TAKT);
+			rDown = false;
+			return;
+		}
+		if (!rUsed && s.modoR == OpeSettings.ModoFila.MANTENER && ClientState.heldIds.length == 0 && TerrainFx.previewShown()) {
+			// mantenida, leída la vista previa y suelta: arranca lo que se ve
+			Send.taktTap(Payloads.TaktTap.KIND_TAP, 0);
+			lastRTapAt = 0;
 			Onboarding.mark(Onboarding.STEP_TAKT);
 			rDown = false;
 			return;
@@ -998,11 +1030,16 @@ public final class InputHandler {
 			clearLatches(mc.player != null);
 			hidePlayerList();
 			row2Down = rDown = roomDown = leftHeld = dragging = false;
+			sizeToastAt = 0;
 			if (Bisturi.active) Bisturi.cancel();
 			return;
 		}
 		long now = System.currentTimeMillis();
 		OpeSettings s = OpeSettings.get();
+		if (sizeToastAt != 0 && now >= sizeToastAt) {
+			sizeToastAt = 0;
+			Toasts.push(Text.literal("Trozo de tierra: " + ClientState.chunkSize2() + " bloques de ancho"), Toasts.INFO);
+		}
 		if (leftHeld && ClientState.taktCount > 0) {
 			leftHeldTicks++;
 			if (leftHeldTicks > 6 && leftHeldTicks % 3 == 0) Send.action(Actions.TAKT_THROW_ONE);
@@ -1049,6 +1086,7 @@ public final class InputHandler {
 		rUsed = roomUsed = row2Used = false;
 		unionCHeld = surgeryOn = false;
 		lastRTapAt = lastRoomTapAt = 0;
+		sizeToastAt = 0;
 		cancelDrag();
 		if (Bisturi.active) {
 			Bisturi.active = false;

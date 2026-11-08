@@ -5,12 +5,15 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.math.RotationAxis;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * La cámara del ROOM (spec §5.6): un cabeceo con muelle (positivo = la vista baja), un temblor que se apaga solo y
- * golpes de campo de visión. Entra por {@code GameRendererMixin}: el giro va a la proyección (la mira no se mueve) y el
- * campo de visión se suma al del juego.
+ * La cámara del ROOM y de Takt: tres muelles (cabeceo, positivo = la vista baja; guiñada; alabeo), un temblor que se
+ * apaga solo, con un mínimo por cada quien lo pide («room», «takt»), y golpes de campo de visión. Entra por
+ * {@code GameRendererMixin}: el giro va a la proyección (la mira no se mueve) y el campo de visión se suma al del juego.
  * <p>Se integra con el tiempo real de cada llamada (0 en pausa, como mucho 0,05 s de golpe): las dos llamadas de un
- * mismo fotograma (mundo y mano) solo se reparten el paso. Cabeceo y temblor se multiplican por
+ * mismo fotograma (mundo y mano) solo se reparten el paso. Los muelles y el temblor se multiplican por
  * {@link OpeSettings#shakeScale()}; el campo de visión, por {@link OpeSettings#fovKickScale()}. Con «menos
  * movimiento» las dos escalas valen 0.
  */
@@ -21,7 +24,10 @@ public final class CameraFx {
 	private static final int MAX_FOV = 6;
 
 	private static double x, v;              // el cabeceo (grados) y su velocidad
-	private static double trauma, traumaFloor;
+	private static double xy, vy;            // la guiñada (grados) y su velocidad
+	private static double xr, vr;            // el alabeo (grados) y su velocidad
+	private static double trauma, traumaFloor;   // traumaFloor: el mayor de FLOORS
+	private static final Map<String, Float> FLOORS = new HashMap<>();
 	private static double t;                 // reloj del temblor
 	private static long lastNanos;
 
@@ -35,8 +41,15 @@ public final class CameraFx {
 
 	/** Un golpe de cabeceo con pico de unos peakDeg grados a los 0,15 s (positivo = la vista baja). */
 	public static void kick(float peakDeg) {
+		kick(peakDeg, 0f, 0f);
+	}
+
+	/** Un golpe en los tres muelles a la vez: cabeceo, guiñada y alabeo, con picos de unos tantos grados a los 0,15 s. */
+	public static void kick(float pitchDeg, float yawDeg, float rollDeg) {
 		step();
-		v += IMPULSE * peakDeg;
+		v += IMPULSE * pitchDeg;
+		vy += IMPULSE * yawDeg;
+		vr += IMPULSE * rollDeg;
 	}
 
 	/** Suma temblor (0..1). */
@@ -45,9 +58,18 @@ public final class CameraFx {
 		trauma = Math.min(1.0, trauma + add);
 	}
 
-	/** Un mínimo de temblor mientras dure (el ROOM propio creciendo: 0,22). */
+	/** Un mínimo de temblor mientras dure (el ROOM propio creciendo: 0,22). Es el mínimo «room». */
 	public static void traumaFloor(float floor) {
-		traumaFloor = Math.max(0, Math.min(1, floor));
+		traumaFloor("room", floor);
+	}
+
+	/** El mínimo de temblor que pide key (0..1; 0 = ninguno). Vale el mayor de todos los que hay pedidos. */
+	public static void traumaFloor(String key, float floor) {
+		float f = Float.isNaN(floor) ? 0f : Math.max(0f, Math.min(1f, floor));
+		FLOORS.put(key, f);
+		double max = 0;
+		for (float g : FLOORS.values()) max = Math.max(max, g);
+		traumaFloor = max;
 	}
 
 	/** Un golpe de campo de visión: sube en rise s (easeOutCubic) y vuelve en fall s (smoothstep). */
@@ -75,8 +97,13 @@ public final class CameraFx {
 	public static void clear() {
 		x = 0;
 		v = 0;
+		xy = 0;
+		vy = 0;
+		xr = 0;
+		vr = 0;
 		trauma = 0;
 		traumaFloor = 0;
+		FLOORS.clear();
 		for (int i = 0; i < MAX_FOV; i++) FOV_ON[i] = false;
 	}
 
@@ -112,11 +139,11 @@ public final class CameraFx {
 		if (scale <= 0f) return;
 		double tt = trauma * trauma;
 		double tau = 2 * Math.PI;
-		double pitch = x, yaw = 0, roll = 0;
+		double pitch = x, yaw = xy, roll = xr;
 		if (tt > 1e-5) {
 			pitch += 2.5 * tt * (0.6 * Math.sin(tau * 7.3 * t) + 0.4 * Math.sin(tau * 13.1 * t + 1.3));
-			yaw = 2.5 * tt * (0.6 * Math.sin(tau * 6.1 * t + 0.7) + 0.4 * Math.sin(tau * 11.7 * t));
-			roll = 4.0 * tt * (0.6 * Math.sin(tau * 4.7 * t + 2.1) + 0.4 * Math.sin(tau * 9.9 * t));
+			yaw += 2.5 * tt * (0.6 * Math.sin(tau * 6.1 * t + 0.7) + 0.4 * Math.sin(tau * 11.7 * t));
+			roll += 4.0 * tt * (0.6 * Math.sin(tau * 4.7 * t + 2.1) + 0.4 * Math.sin(tau * 9.9 * t));
 		}
 		pitch *= scale;
 		yaw *= scale;
@@ -137,17 +164,31 @@ public final class CameraFx {
 		if (dt > 0.05) dt = 0.05;
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc == null || mc.isPaused()) return;
-		// el muelle, en pasos pequeños para que sea estable
+		// los tres muelles (mismos K y D), en pasos pequeños para que sean estables
 		int n = (int) Math.ceil(dt / 0.004);
 		double h = dt / n;
 		for (int i = 0; i < n; i++) {
 			double a = -K * x - D * v;
 			v += a * h;
 			x += v * h;
+			double ay = -K * xy - D * vy;
+			vy += ay * h;
+			xy += vy * h;
+			double ar = -K * xr - D * vr;
+			vr += ar * h;
+			xr += vr * h;
 		}
 		if (Math.abs(x) < 1e-5 && Math.abs(v) < 1e-4) {
 			x = 0;
 			v = 0;
+		}
+		if (Math.abs(xy) < 1e-5 && Math.abs(vy) < 1e-4) {
+			xy = 0;
+			vy = 0;
+		}
+		if (Math.abs(xr) < 1e-5 && Math.abs(vr) < 1e-4) {
+			xr = 0;
+			vr = 0;
 		}
 		trauma = Math.max(traumaFloor, trauma - 1.3 * dt);
 		if (trauma < 1e-4) trauma = 0;

@@ -2,9 +2,12 @@ package dev.opeope.client.render;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import dev.opeope.OpeOpeMod;
 import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.input.InputHandler;
+import dev.opeope.client.room.TaktFxClient;
+import dev.opeope.net.Payloads;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
@@ -34,7 +37,9 @@ public final class CutFx {
 	private CutFx() {}
 
 	private static final float[] EMPTY = new float[0];
-	private static final long SWEEP_MS = 120, LIFE_MS = 1100, FLASH_MS = 320;
+	private static final long SWEEP_MS = 90, LIFE_MS = 2000, FLASH_MS = 320;
+	// colores de la costura (ROOM y HOT del diseño)
+	private static final int ROOM = 0x73D9FF, HOT = 0xC5E2FF;
 
 	/** Un corte: plano (n, p), dirección del tajo, zona cortada y los segmentos de la costura (9 floats cada uno). */
 	private record Fx(Vec3d n, Vec3d p, Vec3d swipe, Vec3d c, double r, float[] seg, long start) {}
@@ -65,6 +70,8 @@ public final class CutFx {
 	private static float[] preview = EMPTY;
 	private static long flashAt;
 	private static double flashX = 1, flashY;
+	private static int ticks;
+	private static boolean warned;
 
 	// ------------------------------------------------------------------ eventos
 
@@ -76,33 +83,60 @@ public final class CutFx {
 	}
 
 	/**
-	 * Llega del servidor justo antes de que se separen los bloques: la costura se calcula sobre el mundo aún entero.
-	 * Datos: c(3) r lc(3) lr eye(3) look(3), y por plano n(3) p(3) tajo(3).
+	 * Llega del servidor justo antes de que se separen los bloques: la costura se calcula sobre el mundo aún entero, y
+	 * solo si el corte cortó bloques (si no, solo la hoja de luz). Datos: c(3) r lc(3) lr eye(3) look(3), y por plano
+	 * n(3) p(3) tajo(3). Luego TaktFxClient pone las partículas, el sonido y la cámara del corte, con la costura entera.
+	 * Los arrays del paquete pueden ser los mismos que usa el servidor (un jugador): aquí solo se leen.
 	 */
-	public static void receive(float[] d) {
+	public static void receive(Payloads.CutFx fx) {
 		MinecraftClient mc = MinecraftClient.getInstance();
-		if (mc.world == null || d.length < 14 + 9) return;
-		Vec3d look = new Vec3d(d[11], d[12], d[13]);
-		boolean eyed = look.lengthSquared() > 0.25;
-		Zone z = new Zone(new Vec3d(d[0], d[1], d[2]), d[3], d[7] > 0 ? new Vec3d(d[4], d[5], d[6]) : null, d[7],
-			eyed ? new Vec3d(d[8], d[9], d[10]) : null, eyed ? look : null);
-		long now = System.currentTimeMillis();
-		int budget = 9000;
-		for (int i = 14; i + 8 < d.length; i += 9) {
-			Vec3d n = new Vec3d(d[i], d[i + 1], d[i + 2]);
-			Vec3d p = new Vec3d(d[i + 3], d[i + 4], d[i + 5]);
-			Vec3d s = new Vec3d(d[i + 6], d[i + 7], d[i + 8]);
-			float[] seg = budget > 0 ? segments(mc.world, n, p, z, budget, 64) : EMPTY;
-			budget -= seg.length / 9;
-			ACTIVE.add(new Fx(n, p, s, z.sampleC(), z.sampleR(), seg, now));
+		if (mc.world == null || fx == null) return;
+		float[] d = fx.data();
+		List<float[]> parts = new ArrayList<>();
+		int total = 0;
+		if (d != null && d.length >= 14 + 9) {
+			Vec3d look = new Vec3d(d[11], d[12], d[13]);
+			boolean eyed = look.lengthSquared() > 0.25;
+			Zone z = new Zone(new Vec3d(d[0], d[1], d[2]), d[3], d[7] > 0 ? new Vec3d(d[4], d[5], d[6]) : null, d[7],
+				eyed ? new Vec3d(d[8], d[9], d[10]) : null, eyed ? look : null);
+			boolean blocks = (fx.flags() & Payloads.CutFx.F_BLOCKS) != 0;
+			long now = System.currentTimeMillis();
+			int budget = 9000;
+			for (int i = 14; i + 8 < d.length; i += 9) {
+				Vec3d n = new Vec3d(d[i], d[i + 1], d[i + 2]);
+				Vec3d p = new Vec3d(d[i + 3], d[i + 4], d[i + 5]);
+				Vec3d s = new Vec3d(d[i + 6], d[i + 7], d[i + 8]);
+				float[] seg = blocks && budget > 0 ? segments(mc.world, n, p, z, budget, 64) : EMPTY;
+				budget -= seg.length / 9;
+				ACTIVE.add(new Fx(n, p, s, z.sampleC(), z.sampleR(), seg, now));
+				if (seg.length > 0) {
+					parts.add(seg);
+					total += seg.length;
+				}
+			}
+			while (ACTIVE.size() > 32) ACTIVE.remove(0);
 		}
-		while (ACTIVE.size() > 32) ACTIVE.remove(0);
+		float[] seam = new float[total];
+		int o = 0;
+		for (float[] part : parts) {
+			System.arraycopy(part, 0, seam, o, part.length);
+			o += part.length;
+		}
+		try {
+			TaktFxClient.onCut(fx, seam);
+		} catch (RuntimeException e) {
+			if (!warned) {
+				warned = true;
+				OpeOpeMod.LOG.warn("CutFx: {}", e.toString());
+			}
+		}
 	}
 
 	public static void tick() {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		long now = System.currentTimeMillis();
 		ACTIVE.removeIf(f -> now - f.start > LIFE_MS);
+		if (++ticks % 4 == 0 && mc.world != null) prune(mc.world);
 		double[] pl = InputHandler.dragPlane();
 		if (pl == null && dev.opeope.client.input.Bisturi.active) pl = dev.opeope.client.input.Bisturi.current(1f);
 		ClientState.RoomInfo room = ClientState.ownRoom();
@@ -117,6 +151,43 @@ public final class CutFx {
 	public static void clear() {
 		ACTIVE.clear();
 		preview = EMPTY;
+	}
+
+	/** Cada costura pierde los trozos cuyo bloque ya no está (un trozo arrancado se lleva su costura). Arrays nuevos: nunca se tocan los viejos. */
+	private static void prune(World w) {
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int i = 0; i < ACTIVE.size(); i++) {
+			Fx f = ACTIVE.get(i);
+			float[] kept = prune(w, f.seg, m);
+			if (kept != f.seg) ACTIVE.set(i, new Fx(f.n, f.p, f.swipe, f.c, f.r, kept, f.start));
+		}
+	}
+
+	private static float[] prune(World w, float[] s, BlockPos.Mutable m) {
+		int n = s.length / 9, keep = 0;
+		if (n == 0) return s;
+		boolean[] ok = new boolean[n];
+		for (int i = 0; i < n; i++) {
+			int o = i * 9;
+			// el bloque de la cara: medio bloque hacia dentro desde el punto medio del trozo
+			double x = (s[o] + s[o + 3]) * 0.5 - s[o + 6] * 0.5;
+			double y = (s[o + 1] + s[o + 4]) * 0.5 - s[o + 7] * 0.5;
+			double z = (s[o + 2] + s[o + 5]) * 0.5 - s[o + 8] * 0.5;
+			m.set((int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z));
+			if (solid(w, m)) {
+				ok[i] = true;
+				keep++;
+			}
+		}
+		if (keep == n) return s;
+		float[] r = new float[keep * 9];
+		int at = 0;
+		for (int i = 0; i < n; i++) {
+			if (!ok[i]) continue;
+			System.arraycopy(s, i * 9, r, at, 9);
+			at += 9;
+		}
+		return r;
 	}
 
 	// ------------------------------------------------------------------ la costura: plano ∩ caras visibles
@@ -219,7 +290,7 @@ public final class CutFx {
 
 	// ------------------------------------------------------------------ dibujo en el mundo
 
-	private static boolean isIdentity(Matrix4f m) {
+	static boolean isIdentity(Matrix4f m) {
 		float e = 1e-4f;
 		return Math.abs(m.m00() - 1) < e && Math.abs(m.m11() - 1) < e && Math.abs(m.m22() - 1) < e
 			&& Math.abs(m.m01()) < e && Math.abs(m.m02()) < e && Math.abs(m.m10()) < e
@@ -233,40 +304,113 @@ public final class CutFx {
 		long now = System.currentTimeMillis();
 
 		RenderSystem.enableBlend();
-		RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);   // luz: se suma
 		RenderSystem.disableCull();
 		RenderSystem.enableDepthTest();
 		RenderSystem.depthMask(false);
 		RenderSystem.setShader(GameRenderer::getPositionColorProgram);
-		BufferBuilder buf = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+		try {
+			// «Contraste»: una sombra oscura bajo el centro de la costura, con mezcla normal, antes de la luz
+			if (OpeSettings.highContrast() && !ACTIVE.isEmpty()) {
+				RenderSystem.defaultBlendFunc();
+				BufferBuilder under = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+				try {
+					for (Fx f : ACTIVE) {
+						double k = (now - f.start) / 1000.0;
+						flat(under, m, cam, f.seg, 0.06 * 1.8, 0, 0, 0, alpha(0.45 * seamCore(k)));
+					}
+				} finally {
+					draw(under);
+				}
+			}
+			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);   // luz: se suma
+			BufferBuilder buf = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+			try {
+				// la vista previa: late despacio, está viva
+				if (preview.length > 0) {
+					float pulse = 0.85f + 0.15f * (float) Math.sin(now / 1000.0 * 6);
+					flat(buf, m, cam, preview, 0.05, 115, 217, 255, (int) (230 * pulse));
+					flat(buf, m, cam, preview, 0.16, 115, 217, 255, (int) (70 * pulse));
+				}
+				for (Fx f : ACTIVE) {
+					double age = now - f.start;
+					// la hoja de luz que barre el plano
+					if (age < SWEEP_MS + 260) sheet(buf, m, cam, f, age);
+					seam(buf, m, cam, f.seg, age / 1000.0);
+				}
+			} finally {
+				draw(buf);
+			}
+		} finally {
+			RenderSystem.depthMask(true);
+			RenderSystem.enableCull();
+			RenderSystem.defaultBlendFunc();
+			RenderSystem.disableBlend();
+		}
+	}
 
-		// la vista previa: late despacio, está viva
-		if (preview.length > 0) {
-			float pulse = 0.85f + 0.15f * (float) Math.sin(now / 1000.0 * 6);
-			lines(buf, m, cam, preview, 0.05, 115, 217, 255, (int) (230 * pulse));
-			lines(buf, m, cam, preview, 0.16, 115, 217, 255, (int) (70 * pulse));
-		}
-		for (Fx f : ACTIVE) {
-			double age = now - f.start;
-			// la hoja de luz que barre el plano
-			if (age < SWEEP_MS + 260) sheet(buf, m, cam, f, age);
-			// la costura: blanca al principio, luego azul, y se apaga
-			double k = age / LIFE_MS;
-			float a = (float) Math.max(0, 1 - k * k);
-			int r = (int) (255 - 130 * Math.min(1, k * 3)), g = (int) (255 - 40 * Math.min(1, k * 3));
-			lines(buf, m, cam, f.seg, 0.06, r, g, 255, (int) (255 * a));
-			lines(buf, m, cam, f.seg, 0.2, 140, 220, 255, (int) (90 * a));
-		}
+	private static void draw(BufferBuilder buf) {
 		var built = buf.endNullable();
 		if (built != null) BufferRenderer.drawWithGlobalProgram(built);
-		RenderSystem.depthMask(true);
-		RenderSystem.enableCull();
-		RenderSystem.defaultBlendFunc();
-		RenderSystem.disableBlend();
+	}
+
+	/**
+	 * La costura, k segundos después del corte: un velo ancho y un destello blanco al principio, y un centro que pasa de
+	 * blanco azulado al azul del ROOM y se apaga despacio (dura 2 s).
+	 */
+	private static void seam(BufferBuilder buf, Matrix4f m, Vec3d cam, float[] seg, double k) {
+		if (seg.length == 0) return;
+		double core = seamCore(k);
+		int rgb = mix(HOT, ROOM, smoothstep(0, 0.3, k));
+		flat(buf, m, cam, seg, 0.35, HOT >> 16 & 255, HOT >> 8 & 255, HOT & 255, alpha(hc(flash(seamCap(k)))));
+		flat(buf, m, cam, seg, 0.20, ROOM >> 16 & 255, ROOM >> 8 & 255, ROOM & 255, alpha(hc(0.35 * core)));
+		flat(buf, m, cam, seg, 0.06, rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, alpha(hc(core)));
+		flat(buf, m, cam, seg, 0.03, 255, 255, 255, alpha(hc(flash(0.8 * seamHot(k)))));
+	}
+
+	// curvas y ayudas de alfa (sección 0 del diseño)
+
+	private static double smoothstep(double a, double b, double x) {
+		double u = Math.max(0, Math.min(1, (x - a) / (b - a)));
+		return u * u * (3 - 2 * u);
+	}
+
+	private static double seamCap(double t) {
+		return 0.55 * Math.max(0, 1 - t / 0.40);
+	}
+
+	private static double seamCore(double t) {
+		return Math.max(0, Math.min(1, 1.35 * (1 - smoothstep(0, 1.7, t))));
+	}
+
+	private static double seamHot(double t) {
+		return Math.max(0, 1 - t / 0.3);
+	}
+
+	private static int alpha(double a) {
+		return (int) Math.max(0, Math.min(255, Math.round(255 * a)));
+	}
+
+	private static double flash(double a) {
+		return switch (OpeSettings.flashLevel()) {
+			case 2 -> a;
+			case 1 -> Math.min(a, 0.35);
+			default -> Math.min(a, 0.12);
+		};
+	}
+
+	private static double hc(double a) {
+		return OpeSettings.highContrast() ? Math.min(1, 1.5 * a) : a;
+	}
+
+	private static int mix(int c1, int c2, double k) {
+		int r = (int) Math.round((c1 >> 16 & 255) + ((c2 >> 16 & 255) - (c1 >> 16 & 255)) * k);
+		int g = (int) Math.round((c1 >> 8 & 255) + ((c2 >> 8 & 255) - (c1 >> 8 & 255)) * k);
+		int b = (int) Math.round((c1 & 255) + ((c2 & 255) - (c1 & 255)) * k);
+		return r << 16 | g << 8 | b;
 	}
 
 	/** Cada segmento como una cinta plana pegada a su cara. */
-	private static void lines(BufferBuilder buf, Matrix4f m, Vec3d cam, float[] s, double width, int r, int g, int b, int a) {
+	static void flat(BufferBuilder buf, Matrix4f m, Vec3d cam, float[] s, double width, int r, int g, int b, int a) {
 		if (a <= 0) return;
 		a = Math.min(255, a);
 		for (int o = 0; o + 8 < s.length; o += 9) {

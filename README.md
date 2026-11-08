@@ -25,9 +25,11 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
   ni ataca hasta que se recompone (30 s, la Unión o la Cirugía).
 - **Shambles** (Alt izquierdo): teletransporte al aire del ROOM, marcar y cambiar, cambiar bloques agachado, piedra
   marcador (G), robar con Scan.
-- **Takt** (R): coger seres, objetos, piezas o arrancar un trozo de suelo; R R zona; clic lanza el de delante (mantener:
-  ráfaga); clic derecho lo lanza todo; R mantenida + tecla: órbita, aparcar, posar, soltar, zona, lo cortado, rejuntar,
-  unir todo y **forjar** lanza, hoja colosal, martillo, estacas o muralla con el material que llevas.
+- **Takt** (R): coger seres, objetos o piezas, o **arrancar un trozo de suelo** que sigue tus cortes (con R mantenida
+  se ve antes y al soltarla se arranca; R + rueda cambia su tamaño); R R levanta lo suelto de la zona; clic lanza el de
+  delante (mantener: ráfaga; un trozo abre un cráter); clic derecho lo lanza todo; R mantenida + tecla: órbita, aparcar,
+  posar (baja a su silueta), soltar, zona, lo cortado, rejuntar, unir todo y **forjar** lanza, hoja colosal, martillo,
+  estacas o muralla con el material que llevas.
 - **Unión** (Tab C): coser piezas, reconstruir (vuelven volando a su sitio y se sellan), Cirugía manteniendo.
 - **El suelo del ROOM**: pilar, muralla que sigue la mirada, sima, meseta.
 - **Técnicas**: Radio Knife, Injection Shot, Gamma Knife, Scan (contornos a través de paredes), Curtain, Mes (el corazón
@@ -113,6 +115,26 @@ Crear o mover el ROOM ahora se ve, se oye y se siente:
   movimiento» o «Sacudidas de cámara», y respeta «Efectos de distorsión» y «Efectos de campo de visión» de Minecraft.
 - Los demás jugadores cercanos ven y oyen tu ROOM (sin los efectos de cámara). Con un servidor sin esta versión del mod
   solo se ve la esfera.
+
+## Moldear el suelo con Takt
+- **Cortes que se recuerdan**: cada corte de Amputate, de un patrón o del Bisturí que cruza el suelo dentro del ROOM
+  queda marcado tres minutos con una línea tenue (como mucho 24 por jugador). También se recuerdan los del R-ROOM; los
+  de alcance corto (la Kikoku, Radio Knife, la hoja colosal o «Alcance: solo el objetivo»), no.
+- **Ver antes de arrancar**: con R mantenida y la mira en el suelo de tu ROOM se ve el trozo exacto, y al soltar R se
+  arranca justo ese. Si tus cortes encierran una zona (tres o más), es justo esa forma, y su contorno late aunque no
+  pulses nada; si no, es un trozo redondo. En una cueva sigue el suelo de la cueva; en una pared o un techo es un
+  pedazo tosco. R + rueda cambia su tamaño (de 3 a 18 bloques de ancho). Con las órdenes de Takt en Alternar o «Una
+  tecla», al soltar R el trozo sigue a la vista y otro toque de R lo arranca.
+- **Arrancar**: un toque de R agrieta el borde; el trozo tiembla, se suelta con polvo y piedras y sube a tu mano
+  soltando tierra. Los cortes que le dieron forma se borran; los demás siguen. R R justo después lo deshace.
+- **Llevarlo**: pesa. Se inclina al moverlo, flota sobre el terreno, y con los muy grandes la cámara tiembla un poco.
+- **Posar** (R + V): una silueta muestra dónde caerá; baja recto y queda en bloques justo ahí, con un sello de luz,
+  sin enterrar a nadie.
+- **Lanzar**: cae donde apuntas. Si golpea fuerte abre un cráter, amontona la tierra en el borde y se queda clavado. No
+  explota y no se pierde ningún bloque.
+- **Unir todo** (R + X): cada trozo vuelve en arco a su hueco, del más nuevo al más viejo, y se sella.
+- Los demás jugadores lo ven y lo oyen, y nadie puede quitarte de Takt lo que llevas. Todo respeta «Menos
+  movimiento», «Sacudidas de cámara», «Destellos» y «Contraste».
 
 ## Compilar
 `./gradlew build` (Java 21). El .jar queda en `build/libs/`. El flujo de GitHub Actions (`.github/workflows/build.yml`)

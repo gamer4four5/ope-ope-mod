@@ -25,6 +25,7 @@ import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
@@ -65,22 +66,28 @@ public final class PowerManager {
 			ServerPlayerEntity p = handler.getPlayer();
 			get(p).dirty = true;
 			sendAllRooms(p);
+			GroundCuts.sendAll(p);
 		});
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> cleanup(handler.getPlayer()));
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			PlayerPower pw = get(newPlayer);
-			releaseAll(newPlayer, pw);
+			releaseAll(newPlayer, pw, oldPlayer.getServerWorld());   // lo que llevaba se quedó en el mundo donde murió
 			pw.dirty = true;
 			sendAllRooms(newPlayer);
 		});
 		ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register((player, origin, destination) -> {
 			PlayerPower pw = get(player);
-			releaseAll(player, pw);
+			releaseAll(player, pw, origin);   // lo que llevaba sigue en el mundo del que sale
 			RoomOps.remove(player, pw);
 			sendAllRooms(player);
 		});
 		EntityTrackingEvents.START_TRACKING.register((entity, player) -> CutStates.onStartTracking(entity, player));
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			// Quien muere suelta lo que lleva y sus arranques pendientes se deshacen (sigue haciendo tick hasta reaparecer).
+			if (entity instanceof ServerPlayerEntity sp) {
+				PlayerPower dead = peek(sp.getUuid());
+				if (dead != null) releaseAll(sp, dead, sp.getServerWorld());
+			}
 			Entity attacker = source.getAttacker();
 			if (attacker instanceof ServerPlayerEntity sp && ModAttachments.hasFruit(sp)
 				&& (entity instanceof EnderDragonEntity || entity instanceof WitherEntity)) {
@@ -97,6 +104,8 @@ public final class PowerManager {
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
 			POWERS.clear();
 			CutStates.clearAll();
+			GroundCuts.clearAll();
+			Takt.clearAll();
 		});
 	}
 
@@ -144,14 +153,24 @@ public final class PowerManager {
 		POWERS.remove(p.getUuid());
 	}
 
-	/** Suelta todo lo de Takt, las armas y lo suspendido (al morir, cambiar de mundo o salir). */
+	/** Suelta todo lo de Takt, las armas y lo suspendido (al salir o perder la fruta), en el mundo donde está. */
 	public static void releaseAll(ServerPlayerEntity p, PlayerPower pw) {
-		Takt.dropAll(p, pw, false);
+		releaseAll(p, pw, p.getServerWorld());
+	}
+
+	/**
+	 * Lo mismo, buscando lo que lleva en from: el mundo que deja al cambiar de mundo o al reaparecer. Primero se deshacen
+	 * los arranques pendientes (su suelo no se ha tocado); luego se suelta lo que lleva.
+	 */
+	public static void releaseAll(ServerPlayerEntity p, PlayerPower pw, ServerWorld from) {
+		Takt.cancelPending(p, pw);
+		Takt.dropAll(p, pw, false, from);
 		Forge.dropWeapons(p, pw);
 		Techniques.releaseSuspended(p, pw);
 	}
 
 	private static void tick(MinecraftServer server) {
+		GroundCuts.tick(server);
 		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
 			PlayerPower pw = POWERS.get(p.getUuid());
 			if (pw == null) {
@@ -165,6 +184,7 @@ public final class PowerManager {
 			}
 		}
 		CutStates.tick(server);
+		Takt.serverTick(server);
 	}
 
 	public static void syncState(ServerPlayerEntity p, PlayerPower pw) {
@@ -180,7 +200,10 @@ public final class PowerManager {
 		if (pw.curtainTicks > 0) flags |= Payloads.State.CURTAIN;
 		if (pw.silentTicks > 0) flags |= Payloads.State.SILENT;
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
-		ServerPlayNetworking.send(p, new Payloads.State(flags, pw.pattern, pw.takt.size(), pw.taktMode.ordinal(), weapon, pw.scanTicks, pw.cooldowns.clone()));
+		int[] held = new int[Math.min(pw.takt.size(), 64)];   // lo que lleva en Takt, en orden (el cliente dibuja sus fantasmas)
+		for (int i = 0; i < held.length; i++) held[i] = pw.takt.get(i);
+		ServerPlayNetworking.send(p, new Payloads.State(flags, pw.pattern, pw.takt.size(), pw.taktMode.ordinal(), weapon, pw.scanTicks,
+			pw.cooldowns.clone(), held));
 	}
 
 	// ------------------------------------------------------------------ ROOMs a los clientes
@@ -329,7 +352,8 @@ public final class PowerManager {
 			Vec3d at = target != null ? target.getBoundingBox().getCenter() : aimPoint(p, 200);
 			region.withLimit(at, target != null ? Math.max(2.5, target.getBoundingBox().getAverageSideLength() * 1.5) : 4.0);
 		}
-		CutEngine.cut(p, planes, region, pw.suspend && kind != 3, 0, 0f);
+		// El suelo recuerda el corte salvo si llega solo hasta un objetivo (Kikoku, "Alcance: solo el objetivo").
+		CutEngine.cut(p, planes, region, pw.suspend && kind != 3, 0, 0f, true, region.lc == null);
 		if (kind == 3) {
 			// Bisturí: cada clic corta ya, pero lo cortado se queda quieto con la costura encendida hasta que sueltas.
 			for (PieceEntity pe : CutEngine.SPAWNED) {

@@ -81,6 +81,15 @@ public final class ChordStrip {
 		return List.of(r1, r2, r3);
 	}
 
+	/** ¿Takt va vacío? Lo mismo que mira la rueda de R (InputHandler): los ids que manda el servidor. */
+	private static boolean nothingHeld() {
+		return ClientState.heldIds == null || ClientState.heldIds.length == 0;
+	}
+
+	/**
+	 * Las órdenes de Takt. Con Takt vacío (none) la rueda cambia el trozo de suelo que arranca R (su ancho en bloques)
+	 * y Zona, Lo cortado y Unir todo siguen valiendo; lo que necesita algo en Takt sale apagado.
+	 */
 	private static List<List<Entry>> taktRows(boolean none) {
 		List<Entry> r1 = new ArrayList<>(), r2 = new ArrayList<>(), r3 = new ArrayList<>();
 		int a = Theme.SOFT, f = Theme.FORGE;
@@ -89,11 +98,12 @@ public final class ChordStrip {
 		r1.add(e(Keys.R_SETDOWN, "posar", a, "Posar", null, none));
 		r1.add(e(Keys.R_DROP, "soltar", a, "Soltar", null, none));
 		r1.add(new Entry(KeyLabels.mouseRight(), "lanzar_todo", a, "Lanzar todo", null, none));
-		r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Distancia", null, none));
-		r2.add(e(Keys.R_ZONE, "zona", a, "Zona", null, none));
-		r2.add(e(Keys.R_CUT, "lo_cortado", a, "Lo cortado", null, none));
+		String wheel = none ? "Trozo: " + ClientState.chunkSize2() : "Distancia";
+		r1.add(new Entry(KeyLabels.wheel(), "alcance", a, wheel, null, false));
+		r2.add(e(Keys.R_ZONE, "zona", a, "Zona", null, false));
+		r2.add(e(Keys.R_CUT, "lo_cortado", a, "Lo cortado", null, false));
 		r2.add(e(Keys.R_GATHER, "rejuntar", a, "Rejuntar", null, none));
-		r2.add(e(Keys.R_UNITE, "unir", a, "Unir todo", null, none));
+		r2.add(e(Keys.R_UNITE, "unir", a, "Unir todo", null, false));
 		Keys[] forge = {Keys.R_FORGE1, Keys.R_FORGE2, Keys.R_FORGE3, Keys.R_FORGE4, Keys.R_FORGE5};
 		String[] names = {"Lanza", "Hoja colosal", "Martillo", "Estacas", "Muralla"};
 		for (int i = 0; i < forge.length; i++) r3.add(e(forge[i], Icons.WEAPONS[i], f, names[i], null, none));
@@ -130,10 +140,10 @@ public final class ChordStrip {
 				REASONS.add(reason("Lluvia necesita un ROOM", null, null));
 			}
 		} else {
-			boolean none = ClientState.taktCount <= 0;
+			boolean none = nothingHeld();
 			rows = taktRows(none);
 			if (none) {
-				REASONS.add(reason("No controlas nada:", KeyLabels.of(Keys.TAKT), "sobre algo para cogerlo"));
+				REASONS.add(reason("Nada en Takt:", KeyLabels.of(Keys.TAKT), "sobre el suelo arranca un trozo"));
 				REASONS.add(reason("Forjar necesita material en Takt", null, null));
 			}
 		}

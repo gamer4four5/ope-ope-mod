@@ -43,7 +43,7 @@ public final class Forge {
 		List<BlockSet.Entry> material = new ArrayList<>();
 		for (PieceEntity pe : pool) material.addAll(pe.blocks.entries);
 		BlockSet all = new BlockSet();
-		for (BlockSet.Entry e : material) all.add(e.x(), e.y(), e.z(), e.state(), null);
+		for (BlockSet.Entry e : material) all.add(e.x(), e.y(), e.z(), e.state(), null, e.faces());
 		BlockState mat = all.dominant();
 		if (mat == null) return;
 
@@ -53,6 +53,8 @@ public final class Forge {
 		for (PieceEntity pe : pool) {
 			Techniques.beam(p, pe.center(), forgeAt, CutEngine.ROOM_DUST);
 			pw.takt.remove((Integer) pe.getId());
+			pw.parked.remove(pe.getId());
+			Takt.forget(pe.getId());
 			pe.discard();
 		}
 
@@ -131,10 +133,11 @@ public final class Forge {
 			if (leftSide.lengthSquared() < 1e-4) leftSide = new Vec3d(1, 0, 0);
 			Vec3d at = p.getEyePos().add(leftSide.normalize().multiply(2.5)).add(0, 1.5, 0);
 			PieceEntity spare = PieceEntity.spawn(w, ball, at.subtract(ball.sx / 2.0, ball.sy / 2.0, ball.sz / 2.0), null, p.getUuid());
-			pw.takt.add(spare.getId());
-			spare.control(at);
-			pw.taktMode = PlayerPower.TaktMode.PARK;
-			pw.parked.put(spare.getId(), at);
+			Takt.grab(p, pw, spare);   // como cualquier cosa que coge Takt (quién la lleva); si Takt está lleno, cae
+			if (pw.takt.contains(spare.getId())) {
+				pw.taktMode = PlayerPower.TaktMode.PARK;
+				pw.parked.put(spare.getId(), at);
+			}
 		}
 
 		w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, mat), forgeAt.x, forgeAt.y, forgeAt.z, 60, 0.8, 0.8, 0.8, 0.1);

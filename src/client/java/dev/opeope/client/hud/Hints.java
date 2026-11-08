@@ -86,6 +86,8 @@ public final class Hints {
 			rows.add(row(click, kikoku ? "cada tajo corta" : "arrastra: Amputate"));
 			rows.add(row(right, bisturiToggle ? "toca: Bisturí" : "mantén: Bisturí"));
 			rows.add(row(key(Keys.SHAMBLES), "Shambles: ir o cambiar"));
+			rows.add(row(key(Keys.TAKT), "Takt: arranca el suelo"));
+			rows.add(chord(key(Keys.TAKT), wheel, "tamaño del trozo"));
 			if (roomToggle) {
 				rows.add(row(key(Keys.ROOM), "toca: modo ROOM"));
 				rows.add(new Ui.Line().key(wheel).action("tamaño").text(" · ", Theme.TEXT3)
@@ -103,6 +105,7 @@ public final class Hints {
 			rows.add(row(right, "mantén: todo a la vez"));
 			rows.add(row(key(Keys.TAKT), "otro · mantén: órdenes"));
 			rows.add(new Ui.Line().key(key(Keys.TAKT)).key(key(Keys.TAKT)).action("la zona cercana"));
+			rows.add(chord(key(Keys.TAKT), key(Keys.R_SETDOWN), "posar en su silueta"));
 			rows.add(chord(key(Keys.TAKT), wheel, "acercar o alejar"));
 			rows.add(chord(key(Keys.ROW2), key(Keys.T_UNION), "coserlo a algo"));
 			return new Context(id, "TAKT", "takt", Theme.TAKT, rows, true);
