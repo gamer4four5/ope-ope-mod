@@ -133,9 +133,10 @@ public class PieceEntity extends Entity {
 	private Vec3d liftStart = Vec3d.ZERO;
 	@Nullable private UUID lastHolder;   // quién la llevó por última vez (dueño del aviso LAND)
 
-	// Posar: la bajada hasta su sitio
+	// Posar: la espera de su turno y la bajada hasta su sitio
 	@Nullable private BlockPos landBase;
-	private int landTicks;
+	private int landTicks, landWait, landMax, landRetry;
+	private boolean landNear;
 	private double landV;
 
 	// Volver a su sitio: el arco de la Unión, o la vuelta callada de un arranque deshecho
@@ -271,6 +272,15 @@ public class PieceEntity extends Entity {
 		this.liftH = height;
 		this.liftT = 0;
 		this.liftStart = center();
+	}
+
+	/**
+	 * Como lift, pero sin chocar con el mundo mientras sube y hasta que su caja queda libre de bloques: un trozo recién
+	 * arrancado sale de su hueco aunque encima haya un árbol, una cuesta, un techo o la columna que pisa quien lo arranca.
+	 */
+	public void liftThrough(int liftTicks, double height) {
+		lift(liftTicks, height);
+		noClip = true;
 	}
 
 	@Override
@@ -618,10 +628,14 @@ public class PieceEntity extends Entity {
 			liftT++;
 			t = liftStart.add(0, liftH * smoothstep((double) liftT / liftTicks), 0);
 			vt = Vec3d.ZERO;
-		} else if (held && drive != DRIVE_PARK && (r > 2.5 || (f & F_CHUNK) != 0)) {
-			double need = groundBelow(t, r) + below() + 1.6 + 0.22 * r - t.y;
-			hover += (Math.max(0, need) - hover) * 0.32;
-			t = t.add(0, hover, 0);
+		} else {
+			// la subida sin choques (liftThrough) acaba cuando su caja ya no toca ningún bloque: desde ahí choca como siempre
+			if (noClip && getWorld().isBlockSpaceEmpty(this, getBoundingBox())) noClip = false;
+			if (held && drive != DRIVE_PARK && (r > 2.5 || (f & F_CHUNK) != 0)) {
+				double need = groundBelow(t, r) + below() + 1.6 + 0.22 * r - t.y;
+				hover += (Math.max(0, need) - hover) * 0.32;
+				t = t.add(0, hover, 0);
+			}
 		}
 		spring(t, vt, r);
 	}
@@ -740,9 +754,21 @@ public class PieceEntity extends Entity {
 
 	/** Baja hasta base (la esquina mínima donde quedará) y allí vuelve a ser bloques, sellada. */
 	public void startLanding(BlockPos base) {
+		startLanding(base, 0);
+	}
+
+	/**
+	 * Lo mismo, pero antes espera quieta waitTicks: varias piezas posadas a la vez llegan en orden, cada una después de
+	 * las que le quedan debajo, sin cruzarse.
+	 */
+	public void startLanding(BlockPos base, int waitTicks) {
 		mode = Mode.LANDING;
 		landBase = base.toImmutable();
 		landTicks = 0;
+		landWait = Math.max(0, waitTicks);
+		landRetry = 0;
+		landNear = false;
+		landMax = landBudget(getY() - base.getY());
 		landV = 0.11;
 		target = null;
 		thrown = false;
@@ -754,9 +780,43 @@ public class PieceEntity extends Entity {
 		if (!getWorld().isClient) Takt.forget(getId());
 	}
 
-	/** Cae cada vez más deprisa y se centra sobre su sitio; sin choques: la columna ya se comprobó libre. */
+	/** El tope de ticks de una bajada de drop bloques: una red, nunca el final normal (a 0,45 b/t llega antes). */
+	private static int landBudget(double drop) {
+		return Math.max(OpeConfig.TAKT_LAND_MAX_TICKS, 20 + (int) Math.ceil(Math.abs(drop) / 0.3));
+	}
+
+	/**
+	 * Los ticks que tarda en posarse una pieza a drop bloques por encima de su sitio (negativo: por debajo) y desviada
+	 * dx, dz en horizontal: la misma cuenta que landingTick.
+	 */
+	public static int landingTicks(double drop, double dx, double dz) {
+		double v = 0.11, down = Math.max(0, drop), up = Math.max(0, -drop), ax = Math.abs(dx), az = Math.abs(dz);
+		int n = 0;
+		while (n < 2000) {
+			n++;
+			v = Math.min(0.45, v + 0.02);
+			double hx = Math.min(0.3, ax * 0.35), hz = Math.min(0.3, az * 0.35);
+			ax -= hx;
+			az -= hz;
+			if (down > 0) down = Math.max(0, down - v);
+			else up = Math.max(0, up - 0.3);
+			if (down + up < 1e-3 && hx + hz < 1e-3) break;
+		}
+		return n;
+	}
+
+	/**
+	 * Espera su turno; luego cae cada vez más deprisa y se centra sobre su sitio, sin choques: la columna se comprobó
+	 * libre al elegirlo. Justo antes de entrar y al llegar lo vuelve a mirar: si mientras tanto apareció algo ahí (otra
+	 * pieza posada, un bloque puesto), busca sitio otra vez desde donde está y se queda encima.
+	 */
 	private void landingTick() {
 		if (landBase == null || placed) return;
+		if (landWait > 0) {
+			landWait--;
+			setVelocity(Vec3d.ZERO);
+			return;
+		}
 		BlockPos b = landBase;
 		Vec3d goal = new Vec3d(b.getX() + blocks.sx / 2.0, b.getY(), b.getZ() + blocks.sz / 2.0);
 		landTicks++;
@@ -766,7 +826,24 @@ public class PieceEntity extends Entity {
 		double y = getY();
 		double ny = y > goal.y ? Math.max(goal.y, y - landV) : Math.min(goal.y, y + 0.3);
 		setPosition(getX() + hx, ny, getZ() + hz);
-		if ((Math.abs(ny - goal.y) < 1e-3 && Math.abs(hx) + Math.abs(hz) < 1e-3) || landTicks >= OpeConfig.TAKT_LAND_MAX_TICKS) {
+		boolean arrived = (Math.abs(ny - goal.y) < 1e-3 && Math.abs(hx) + Math.abs(hz) < 1e-3) || landTicks >= landMax;
+		boolean near = !landNear && ny - goal.y <= 1.2;
+		if ((arrived || near) && landRetry < 3 && getWorld() instanceof ServerWorld sw) {
+			landNear = true;
+			BlockView view = GroundRules.loaded(sw);
+			if (!Landing.fits(view, blocks, b, List.of())) {
+				landRetry++;
+				BlockPos nb = Landing.find(view, blocks, corner(), List.of());
+				if (nb != null && !nb.equals(b)) {
+					landBase = nb;
+					landTicks = 0;
+					landNear = false;
+					landMax = landBudget(getY() - nb.getY());
+					return;
+				}
+			}
+		}
+		if (arrived) {
 			setPosition(goal);
 			if (getWorld() instanceof ServerWorld w) {
 				List<BlockSet.Entry> under = blocks.underside();
@@ -1041,7 +1118,9 @@ public class PieceEntity extends Entity {
 		if (placed || isRemoved() || !(getWorld() instanceof ServerWorld w)) return;
 		placed = true;
 		BlockView view = GroundRules.loaded(w);
+		liftLiving(w, base);   // antes de mirar quién estorba: quien esté donde va la pieza sube encima y no queda encerrado
 		List<Box> bl = Landing.blockers(w, cellsBox(base).expand(3));
+		int top = base.getY() + blocks.sy;
 		LongOpenHashSet start = new LongOpenHashSet(blocks.size() * 2);
 		LongOpenHashSet taken = new LongOpenHashSet(blocks.size() * 2);
 		BlockPos.Mutable m = new BlockPos.Mutable();
@@ -1059,7 +1138,7 @@ public class PieceEntity extends Entity {
 		BlockState sample = null;
 		for (BlockSet.Entry e : sorted) {
 			BlockPos cell = base.add(e.x(), e.y(), e.z());
-			BlockPos put = start.contains(cell.asLong()) ? cell : relocate(view, cell, bl, taken);
+			BlockPos put = start.contains(cell.asLong()) ? cell : relocate(view, cell, bl, taken, top);
 			if (put == null) {
 				Block.dropStacks(e.state(), w, cell);   // último recurso: no hay ni una celda libre cerca
 				DROPPED++;
@@ -1097,9 +1176,13 @@ public class PieceEntity extends Entity {
 		Takt.forget(getId());
 	}
 
-	/** La celda libre más cercana a cell (orden RELOCATE) que nadie más va a ocupar; null si no hay. */
+	/**
+	 * La celda libre más cercana a cell (orden RELOCATE) que nadie más va a ocupar. Si no hay ninguna en 2 bloques, la
+	 * primera libre de su columna por encima de la pieza (desde top, hasta 16 más arriba, sin atravesar un techo); null
+	 * si tampoco.
+	 */
 	@Nullable
-	private static BlockPos relocate(BlockView view, BlockPos cell, List<Box> bl, LongOpenHashSet taken) {
+	private static BlockPos relocate(BlockView view, BlockPos cell, List<Box> bl, LongOpenHashSet taken, int top) {
 		BlockPos.Mutable q = new BlockPos.Mutable();
 		for (int[] o : RELOCATE) {
 			q.set(cell.getX() + o[0], cell.getY() + o[1], cell.getZ() + o[2]);
@@ -1109,7 +1192,41 @@ public class PieceEntity extends Entity {
 			RELOCATED++;
 			return q.toImmutable();
 		}
+		for (int y = Math.max(cell.getY() + 3, top); y <= top + 16; y++) {
+			q.set(cell.getX(), y, cell.getZ());
+			long key = q.asLong();
+			if (taken.contains(key)) continue;
+			if (!GroundRules.replaceable(view.getBlockState(q))) break;   // un techo: más arriba ya es otro sitio
+			if (!Landing.free(view, q, bl)) continue;
+			taken.add(key);
+			RELOCATED++;
+			return q.toImmutable();
+		}
 		return null;
+	}
+
+	/**
+	 * Lo vivo que está donde va a quedar la pieza sube encima de ella antes de poner los bloques (hasta 8 bloques por
+	 * encima de su cara de arriba): nadie queda encerrado en un hueco, ni se queda sin sitio el bloque de su celda. Si
+	 * arriba no hay dónde, se queda donde está y sus celdas se quedan sin bloque, como siempre.
+	 */
+	private void liftLiving(ServerWorld w, BlockPos base) {
+		List<LivingEntity> in = w.getEntitiesByClass(LivingEntity.class, cellsBox(base), e -> e.isAlive() && !e.isSpectator());
+		if (in.isEmpty()) return;
+		LongOpenHashSet foot = new LongOpenHashSet(blocks.size() * 2);
+		for (BlockSet.Entry e : blocks.entries) foot.add(BlockPos.asLong(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z()));
+		int top = base.getY() + blocks.sy;
+		for (LivingEntity le : in) {
+			Box bb = le.getBoundingBox().expand(-1e-4);
+			if (!overlaps(bb, foot)) continue;
+			for (int y2 = MathHelper.floor(le.getY()) + 1; y2 <= top + 8; y2++) {
+				Box at = bb.offset(0, y2 - le.getY(), 0);
+				if (overlaps(at, foot) || !w.isSpaceEmpty(le, at)) continue;
+				le.requestTeleport(le.getX(), y2, le.getZ());
+				le.fallDistance = 0;
+				break;
+			}
+		}
 	}
 
 	/** Sonido del material y, en los asentamientos de siempre, sus partículas. */

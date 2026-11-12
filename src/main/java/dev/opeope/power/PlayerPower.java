@@ -40,6 +40,7 @@ public class PlayerPower {
 	public double orbitPhase;              // radianes; lo avanza Takt.tick
 	public int lastTapRip = -1;            // el arranque que empezó el último toque; −1 si ese toque no empezó ninguno (R R deshace)
 	public long lastTapTick = -1000;       // tiempo del mundo del último toque aceptado (límite de toques)
+	public long lastZoneTick = -1000;      // tiempo del mundo del último R R / R + E aceptado (el mismo límite)
 	public int ripBudget = OpeConfig.TAKT_RIP_BUDGET;   // lo gastan los arranques y lo recupera Takt.tick
 
 	// Shambles y almas

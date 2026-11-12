@@ -20,15 +20,18 @@ import dev.opeope.entity.BlockSet;
 import dev.opeope.entity.Crater;
 import dev.opeope.entity.PieceEntity;
 import dev.opeope.net.Payloads;
+import dev.opeope.power.Actions;
 import dev.opeope.power.CutEngine;
 import dev.opeope.power.GroundCuts;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.Room;
 import dev.opeope.power.RoomOps;
+import dev.opeope.power.Takt;
 import dev.opeope.terrain.ChunkPlan;
 import dev.opeope.terrain.ChunkPlanner;
 import dev.opeope.terrain.GroundCut;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -249,12 +252,12 @@ public final class AutoTest {
 	private static volatile int gx0, gfy, gz0;
 	/** Resultados que se escriben en el hilo del servidor; −1 = todavía no. */
 	private static volatile int srvA = -1, srvB = -1, srvC = -1;
-	private static int solid0, items0, chunkId = -1;
+	private static int solid0, items0, chunkId = -1, chunkB = -1;
 	/** Solo en el hilo del servidor. */
-	private static int dropped0;
+	private static int dropped0, relocated0;
 	private static Crater.Result crater0;
-	private static BlockPos ghost;
-	private static List<BlockSet.Entry> ghostSet = List.of();
+	private static BlockPos ghost, ghostB;
+	private static List<BlockSet.Entry> ghostSet = List.of(), ghostSetB = List.of();
 	/** Solo en el hilo del servidor. */
 	private static Room savedRoom;
 	private static Vec3d savedPos;
@@ -758,9 +761,11 @@ public final class AutoTest {
 	// ------------------------------------------------------------------ fase B (k2): Takt sobre lo cortado
 
 	/**
-	 * (k2) Cortes recordados, vista previa, arrancar, R R, fantasma, posar, lanzar, cráter y cueva. Rehace su propio
-	 * trozo de suelo (x gx0−16..gx0+16, z gz0−34..gz0+2) con su propio ROOM y al final deja el ROOM de (k) como estaba,
-	 * para (l). El jugador está en supervivencia desde (a).
+	 * (k2) Cortes recordados, vista previa, arrancar, R R, fantasma, posar, lanzar, cráter y cueva; y (k3) los casos que
+	 * encontró la revisión: un trozo que sube aunque tenga algo encima, lo que pisas no se arranca, nadie queda encerrado
+	 * al devolver un trozo y dos trozos posados a la vez. Rehace su propio trozo de suelo (x gx0−16..gx0+16,
+	 * z gz0−34..gz0+2) con su propio ROOM y al final deja el ROOM de (k) como estaba, para (l). El jugador está en
+	 * supervivencia desde (a).
 	 */
 	private static void planSuelo(MinecraftClient mc, IntegratedServer srv, UUID id) {
 		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
@@ -1020,12 +1025,223 @@ public final class AutoTest {
 					p.size() + " bloques, cara " + p.face + ", el más alto en " + (p.blocks.length == 0 ? "-" : String.valueOf(top - gfy)));
 			});
 
+		planRevision(mc, srv, id);
+
 		// dejarlo como estaba para (l)
 		step(5, "suelo: fin", () -> server(srv, id, (sp, pw) -> {
 			pw.room = savedRoom;
 			PowerManager.broadcastRoom(sp, 0, savedRoom);
 			if (savedPos != null) sp.networkHandler.requestTeleport(savedPos.x, savedPos.y, savedPos.z, 0f, 10f);
 		}));
+	}
+
+	/**
+	 * (k3) Lo que encontró la revisión, sobre terreno recién rehecho y con el ROOM de (k2): con un bloque flotando encima
+	 * el trozo sube igual, lo que pisas al soltarse no se arranca, quien está en el hueco sube encima cuando el trozo
+	 * vuelve y dos trozos posados a la vez quedan cada uno en su fantasma.
+	 */
+	private static void planRevision(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
+		final int TEAR_START = Payloads.TaktFx.TEAR_START, DETACH = Payloads.TaktFx.DETACH, HOME = Payloads.TaktFx.HOME;
+
+		// terreno nuevo y un tronco flotando sobre una columna que se va a arrancar (no toca el suelo: no va con el trozo)
+		step(5, "revisión: preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
+					en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
+				GroundCuts.clearOwner(sp.getUuid());
+				w.setBlockState(new BlockPos(gx0 + 2, gfy + 2, gz0 - 6), Blocks.OAK_LOG.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 + 0.5, 180f, 15.1f);
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: preparado", 60, "el cliente no ve el terreno nuevo",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0 + 2, gfy + 2, gz0 - 6)).isOf(Blocks.OAK_LOG)
+				&& mc.world.getBlockState(new BlockPos(gx0, gfy, gz0 - 6)).isOf(Blocks.GRASS_BLOCK)
+				&& ClientState.heldIds.length == 0 && mc.player.getZ() > gz0, null);
+
+		// un toque; mientras dura la grieta el jugador se pone encima de lo que se va a arrancar
+		step(10, "revisión: toque", () -> {
+			tsnap(TEAR_START);
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(2, "revisión: toque suelta", () -> key(R, RELEASE));
+		waitFor("revisión: grieta", 10, "no llegó TEAR_START", () -> tgot(TEAR_START), () ->
+			server(srv, id, (sp, pw) -> sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 5.5, 180f, 15.1f)));
+		waitFor("revisión: se suelta", 40, "no llegó DETACH", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		BooleanSupplier risen = () -> mc.world.getEntityById(chunkId) instanceof PieceEntity pe && pe.getY() >= gfy + 1.5;
+		waitFor("revisión: sube", 60, "el trozo no subió: sigue en su hueco", risen, () -> {
+			if (risen.getAsBoolean()) ok("el trozo sube aunque tenga un bloque encima");
+			shot(mc, "14c-revision-a-sube");
+		});
+		step(0, "revisión: pies", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				boolean ground = !w.getBlockState(new BlockPos(gx0, gfy, gz0 - 6)).isAir();
+				boolean stands = sp.getY() >= gfy + 0.99;
+				boolean log = w.getBlockState(new BlockPos(gx0 + 2, gfy + 2, gz0 - 6)).isOf(Blocks.OAK_LOG);
+				boolean under = w.getBlockState(new BlockPos(gx0 + 2, gfy, gz0 - 6)).isAir();
+				OpeOpeMod.LOG.info("AUTOTEST revisión pies: suelo {}, jugador en y {}, tronco {}, arrancado debajo del tronco {}",
+					ground, fmt(sp.getY() - gfy), log, under);
+				srvA = (ground ? 1 : 0) | (stands ? 2 : 0) | (log ? 4 : 0) | (under ? 8 : 0);
+			});
+		});
+		waitFor("revisión: pies medido", 20, null, () -> srvA >= 0, () -> {
+			check((srvA & 3) == 3, "lo que pisas no se arranca aunque te muevas durante la grieta",
+				"suelo " + ((srvA & 1) != 0) + ", de pie " + ((srvA & 2) != 0));
+			check((srvA & 12) == 12, "el bloque de encima se queda y el suelo de debajo se va con el trozo",
+				"tronco " + ((srvA & 4) != 0) + ", arrancado debajo " + ((srvA & 8) != 0));
+		});
+		step(60, "revisión: choca otra vez", () -> {
+			srvB = -1;
+			server(srv, id, (sp, pw) -> srvB = sp.getServerWorld().getEntityById(chunkId) instanceof PieceEntity pe ? (pe.noClip ? 0 : 1) : 2);
+		});
+		waitFor("revisión: choca medido", 20, null, () -> srvB >= 0, () ->
+			check(srvB == 1, "fuera del hueco el trozo vuelve a chocar con el mundo", srvB == 0 ? "sigue atravesando bloques" : "ya no está"));
+
+		// dentro del hueco cuando el trozo vuelve a su sitio (Unir todo): sube encima, no queda encerrado
+		step(2, "revisión: al hueco", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				BlockSet.Entry best = null;
+				double bd = Double.MAX_VALUE;
+				if (w.getEntityById(chunkId) instanceof PieceEntity pe && pe.origin != null) {
+					for (BlockSet.Entry e : pe.blocks.entries) {
+						if (e.y() != 0 || !pe.blocks.contains(e.x(), 1, e.z())) continue;   // una columna del hueco de 2 de hondo
+						if (pe.origin.getX() + e.x() == gx0 + 2 && pe.origin.getZ() + e.z() == gz0 - 6) continue;   // la del tronco no
+						double dx = pe.origin.getX() + e.x() + 0.5 - sp.getX(), dz = pe.origin.getZ() + e.z() + 0.5 - sp.getZ();
+						if (dx * dx + dz * dz < bd) {
+							bd = dx * dx + dz * dz;
+							best = e;
+						}
+					}
+					if (best != null) {
+						dropped0 = PieceEntity.DROPPED;
+						relocated0 = PieceEntity.RELOCATED;
+						sp.networkHandler.requestTeleport(pe.origin.getX() + best.x() + 0.5, pe.origin.getY(), pe.origin.getZ() + best.z() + 0.5,
+							180f, 15.1f);
+					}
+				}
+				srvA = best != null ? 1 : 0;
+			});
+		});
+		waitFor("revisión: en el hueco", 40, "no se pudo bajar al hueco", () -> srvA == 1 && mc.player.getY() < gfy + 0.5, null);
+		step(5, "revisión: unir", () -> {
+			tsnap(HOME);
+			server(srv, id, (sp, pw) -> Takt.order(sp, pw, Actions.ORDER_UNITE));
+		});
+		waitFor("revisión: vuelve", 100, "el trozo no volvió a su sitio", () -> tgot(HOME) && mc.world.getEntityById(chunkId) == null, null);
+		step(5, "revisión: unir mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int air = count(w, gx0 - 6, gfy - 4, gz0 - 12, gx0 + 6, gfy, gz0, true);
+				boolean up = sp.getY() >= gfy + 0.99;
+				int moved = (PieceEntity.RELOCATED - relocated0) + (PieceEntity.DROPPED - dropped0);
+				OpeOpeMod.LOG.info("AUTOTEST revisión unir: aire {}, jugador en y {}, {} recolocados o soltados", air, fmt(sp.getY() - gfy), moved);
+				srvA = (air == 0 ? 1 : 0) | (up ? 2 : 0) | (moved == 0 ? 4 : 0);
+			});
+		});
+		waitFor("revisión: unir medido", 20, null, () -> srvA >= 0, () -> {
+			check((srvA & 2) != 0, "quien está en el hueco sube encima cuando el trozo vuelve", "sigue dentro");
+			check((srvA & 5) == 5, "el trozo vuelve entero a su sitio, sin bloques recolocados",
+				"hueco cerrado " + ((srvA & 1) != 0) + ", nada recolocado " + ((srvA & 4) != 0));
+		});
+
+		// dos trozos a la vez: cada uno en su fantasma, sin pisarse
+		step(5, "revisión: dos, preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				sp.getServerWorld().setBlockState(new BlockPos(gx0 + 2, gfy + 2, gz0 - 6), Blocks.AIR.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 + 0.5, 180f, 15.1f);
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: dos, preparado", 40, "el jugador no volvió a su sitio",
+			() -> srvA == 1 && mc.player.getZ() > gz0 && ClientState.heldIds.length == 0, null);
+		step(10, "revisión: dos, toque 1", () -> {
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(2, "revisión: dos, toque 1 suelta", () -> key(R, RELEASE));
+		waitFor("revisión: dos, suelto 1", 40, "no llegó DETACH", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		waitFor("revisión: dos, en la mano 1", 60, "el primer trozo no llegó a Takt", () -> held(chunkId), null);
+		step(20, "revisión: dos, mira", () -> srv.execute(() -> look(srv, id, 180f, 6.5f)));
+		step(10, "revisión: dos, toque 2", () -> {
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(2, "revisión: dos, toque 2 suelta", () -> key(R, RELEASE));
+		waitFor("revisión: dos, suelto 2", 40, "no llegó el segundo DETACH", () -> tgot(DETACH), () -> chunkB = entityOf(DETACH));
+		waitFor("revisión: dos, en la mano 2", 60, "Takt no lleva los dos trozos", () -> held(chunkId) && held(chunkB), null);
+		step(40, "revisión: dos, quietos", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				dropped0 = PieceEntity.DROPPED;
+				relocated0 = PieceEntity.RELOCATED;
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: dos, fantasmas", 80, "no hay dos fantasmas",
+			() -> srvA == 1 && TerrainFx.ghostFor(chunkId) != null && TerrainFx.ghostFor(chunkB) != null,
+			() -> shot(mc, "14c-revision-b-dos-fantasmas"));
+		step(2, "revisión: dos, posar R", () -> key(R, PRESS));
+		step(5, "revisión: dos, posar", () -> {
+			ghost = TerrainFx.ghostFor(chunkId);
+			ghostB = TerrainFx.ghostFor(chunkB);
+			ghostSet = entries(mc, chunkId);
+			ghostSetB = entries(mc, chunkB);
+			check(ghost != null && ghostB != null && disjoint(ghost, ghostSet, ghostB, ghostSetB), "los fantasmas de dos trozos no se pisan",
+				"fantasmas " + ghost + " y " + ghostB);
+			key(V, PRESS);
+		});
+		step(1, "revisión: dos, posar suelta", () -> {
+			key(V, RELEASE);
+			key(R, RELEASE);
+		});
+		waitFor("revisión: dos, posados", 200, "los dos trozos no se posaron",
+			() -> mc.world.getEntityById(chunkId) == null && mc.world.getEntityById(chunkB) == null, () -> shot(mc, "14c-revision-c-posados"));
+		step(0, "revisión: dos, mide", () -> {
+			srvA = -1;
+			srvB = -1;
+			BlockPos g1 = ghost, g2 = ghostB;
+			List<BlockSet.Entry> e1 = ghostSet, e2 = ghostSetB;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int mis = mismatches(w, g1, e1) + mismatches(w, g2, e2);
+				int moved = (PieceEntity.RELOCATED - relocated0) + (PieceEntity.DROPPED - dropped0);
+				OpeOpeMod.LOG.info("AUTOTEST revisión dos trozos: {} y {} bloques, {} distintos, {} recolocados o soltados",
+					e1.size(), e2.size(), mis, moved);
+				srvB = moved;
+				srvA = mis;
+			});
+		});
+		waitFor("revisión: dos, medido", 20, null, () -> srvA >= 0 && srvB >= 0, () -> {
+			check(srvA == 0, "dos trozos posados a la vez quedan cada uno en su fantasma", srvA + " bloques distintos");
+			check(srvB == 0, "al posar dos trozos no se recoloca ni se suelta ningún bloque", srvB + " bloques");
+		});
+	}
+
+	/** Los bloques de esa pieza, tal como los ve el cliente; vacío si no está. */
+	private static List<BlockSet.Entry> entries(MinecraftClient mc, int entityId) {
+		return mc.world.getEntityById(entityId) instanceof PieceEntity pe ? List.copyOf(pe.blocks.entries) : List.of();
+	}
+
+	/** ¿No comparten ninguna celda las dos piezas, cada una con su esquina mínima en su base? */
+	private static boolean disjoint(BlockPos a, List<BlockSet.Entry> ea, BlockPos b, List<BlockSet.Entry> eb) {
+		LongOpenHashSet cells = new LongOpenHashSet(ea.size() * 2);
+		for (BlockSet.Entry e : ea) cells.add(BlockPos.asLong(a.getX() + e.x(), a.getY() + e.y(), a.getZ() + e.z()));
+		for (BlockSet.Entry e : eb) {
+			if (cells.contains(BlockPos.asLong(b.getX() + e.x(), b.getY() + e.y(), b.getZ() + e.z()))) return false;
+		}
+		return !ea.isEmpty() && !eb.isEmpty();
 	}
 
 	private static void tsnap(int k) {
@@ -1085,15 +1301,22 @@ public final class AutoTest {
 		return w.getEntitiesByClass(ItemEntity.class, b, e -> true).size();
 	}
 
-	/** En el hilo del servidor: cuántos bloques de es no están en base + su sitio; 9999 si no hay base o bloques. */
+	/**
+	 * En el hilo del servidor: cuántos bloques de es no están en base + su sitio; 9999 si no hay base o bloques. La
+	 * hierba tapada pasa a tierra sola en cualquier momento: hierba y tierra cuentan como lo mismo.
+	 */
 	private static int mismatches(ServerWorld w, BlockPos base, List<BlockSet.Entry> es) {
 		if (base == null || es == null || es.isEmpty()) return 9999;
 		BlockPos.Mutable m = new BlockPos.Mutable();
 		int n = 0;
 		for (BlockSet.Entry e : es) {
 			m.set(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z());
-			if (w.getBlockState(m).getBlock() != e.state().getBlock()) n++;
+			if (soil(w.getBlockState(m)) != soil(e.state())) n++;
 		}
 		return n;
+	}
+
+	private static net.minecraft.block.Block soil(BlockState st) {
+		return st.isOf(Blocks.GRASS_BLOCK) ? Blocks.DIRT : st.getBlock();
 	}
 }

@@ -64,9 +64,10 @@ public final class OpeConfig {
 	public static final double TAKT_SLIDE_PROBE = 0.6;     // regla de la cuña: cuánto se prueba a bajar por el plano una loncha grande, bloques
 	public static final int TAKT_FRESH_TICKS = 240;        // F_FRESH se apaga pasado esto
 	public static final double TAKT_THROW_ALL_SPEED = 2.4; // bloques/tick (TAKT_LAUNCH 2,1 sigue para lanzar uno)
-	public static final int TAKT_LAND_MAX_TICKS = 80;      // posar: tiempo máximo de bajada
+	public static final int TAKT_LAND_MAX_TICKS = 80;      // posar: tiempo máximo de una bajada corta (una larga tiene los ticks que necesita)
 	public static final int TAKT_LANDED_TAIL = 3;          // ticks que la entidad sigue ahí después de poner sus bloques
 	public static final int TAKT_LANDING_SEARCH = 48;      // Landing.find: cuántos pasos baja como mucho
+	public static final int TAKT_LANDING_OVER = 24;        // Landing.find: cuánto sube como mucho para salir de los sitios que apartaron otras piezas
 	public static final int TAKT_PLACE_TOLERANCE = 2;      // el fantasma del cliente vale si está a esto del del servidor (en cada eje)
 	public static final int TAKT_WAVE_MAX_TICKS = 20;      // tope de la oleada de zona y de "lo cortado"
 	// Cortes que el suelo recuerda

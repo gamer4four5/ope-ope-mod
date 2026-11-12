@@ -12,6 +12,7 @@ import dev.opeope.terrain.ChunkPlanner;
 import dev.opeope.terrain.GroundCut;
 import dev.opeope.terrain.GroundRules;
 import dev.opeope.terrain.Landing;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -345,8 +346,11 @@ public final class Takt {
 		unmark(rip);
 		BlockView view = GroundRules.loaded(w);
 		List<BlockPos> list = new ArrayList<>(rip.plan.size());
-		for (long l : rip.plan.blocks) addCuttable(view, l, list);
-		for (long l : rip.plan.riders) addCuttable(view, l, list);
+		// Lo que pisa ahora quien arranca se queda en el suelo (pudo moverse durante la grieta): la regla del plan, otra vez
+		Box user = p.getBoundingBox();
+		Long2IntOpenHashMap tops = rip.plan.face ? null : columnTops(rip.plan.blocks);
+		for (long l : rip.plan.blocks) if (!underfoot(user, l, tops)) addCuttable(view, l, list);
+		for (long l : rip.plan.riders) if (!underfoot(user, l, tops)) addCuttable(view, l, list);
 		boolean full = pw.takt.size() >= OpeConfig.TAKT_MAX;
 		if (list.isEmpty() || full) {
 			GroundCuts.restore(rip.id);
@@ -374,7 +378,8 @@ public final class Takt {
 		if (!rip.plan.face) {   // un pedazo de pared o techo no sube: el muelle lo saca hacia la mano
 			double s = Math.max(1, r / 2.5);
 			int ticks = (int) Math.round(20 * Math.min(1.44, 0.45 + 0.3 * log2(s)));
-			pe.lift(ticks, Math.max(2.6, (rip.plan.topMax + 1 - pe.corner().y) + 1.4));
+			// sin chocar hasta quedar libre: su caja abarca terreno que no es suyo (un árbol al lado, una cuesta, un techo)
+			pe.liftThrough(ticks, Math.max(2.6, (rip.plan.topMax + 1 - pe.corner().y) + 1.4));
 		}
 		adopt(pw, p.getUuid(), pe);
 		pw.dirty = true;
@@ -389,6 +394,36 @@ public final class Takt {
 	private static void addCuttable(BlockView view, long l, List<BlockPos> out) {
 		BlockPos pos = BlockPos.fromLong(l);
 		if (GroundRules.cuttable(view.getBlockState(pos), view, pos)) out.add(pos);
+	}
+
+	/** El bloque más alto de cada columna (x, z) de esas celdas. */
+	private static Long2IntOpenHashMap columnTops(long[] cells) {
+		Long2IntOpenHashMap tops = new Long2IntOpenHashMap();
+		tops.defaultReturnValue(Integer.MIN_VALUE);
+		for (long l : cells) {
+			long k = columnKey(BlockPos.unpackLongX(l), BlockPos.unpackLongZ(l));
+			int y = BlockPos.unpackLongY(l);
+			if (y > tops.get(k)) tops.put(k, y);
+		}
+		return tops;
+	}
+
+	private static long columnKey(int x, int z) {
+		return ((long) x << 32) | (z & 0xFFFFFFFFL);
+	}
+
+	/**
+	 * ¿Pisa el jugador esa celda? Como en el plan (ChunkPlanner): su caja, ensanchada 0,35, toca la columna y sus pies
+	 * están entre 0,5 y 2,5 por encima del bloque más alto de la columna (o de la propia celda, si va encima de otra
+	 * cosa). En un plan de cara (tops null): lo que queda de sus pies menos 2 a su cabeza.
+	 */
+	private static boolean underfoot(Box u, long l, @Nullable Long2IntOpenHashMap tops) {
+		int x = BlockPos.unpackLongX(l), y = BlockPos.unpackLongY(l), z = BlockPos.unpackLongZ(l);
+		if (!(u.minX < x + 1.35 && u.maxX > x - 0.35 && u.minZ < z + 1.35 && u.maxZ > z - 0.35)) return false;
+		if (tops == null) return y >= MathHelper.floor(u.minY) - 2 && y < MathHelper.ceil(u.maxY);
+		if (u.minY >= y + 0.5 && u.minY <= y + 2.5) return true;
+		int top = tops.get(columnKey(x, z));
+		return top != Integer.MIN_VALUE && y <= top && u.minY >= top + 0.5 && u.minY <= top + 2.5;
 	}
 
 	/**
@@ -621,6 +656,9 @@ public final class Takt {
 	}
 
 	private static void zoneAt(ServerPlayerEntity p, PlayerPower pw, Vec3d point) {
+		long tick = p.getServerWorld().getTime();
+		if (tick - pw.lastZoneTick < OpeConfig.TAKT_TAP_MIN_TICKS) return;   // demasiado seguido: no cuenta, sin aviso
+		pw.lastZoneTick = tick;
 		if (!PowerManager.inRoom(p, point)) {
 			PowerManager.noRoom(p);
 			deny(p, TaktFx.NO_ROOM, point);
@@ -779,15 +817,30 @@ public final class Takt {
 			for (int i = 0; i < n; i++) props.put(place.ids()[i], place.bases()[i]);
 		}
 		ServerWorld w = p.getServerWorld();
+		// Cada pieza aparta su sitio: la siguiente se posa encima o al lado, nunca dentro, y llega después de las que le
+		// quedan debajo (el cliente hace lo mismo con los fantasmas, en el mismo orden)
+		LongOpenHashSet taken = new LongOpenHashSet();
+		BlockView view = Landing.reserving(GroundRules.loaded(w), taken);
+		List<int[]> landings = new ArrayList<>();   // {x0, z0, x1, z1, tick de llegada}
 		for (Entity e : resolve(p, pw)) {
 			int id = e.getId();
 			pw.takt.remove((Integer) id);
 			pw.parked.remove(id);
 			forget(id);
 			if (e instanceof PieceEntity pe && pe.weapon == null) {
-				BlockPos base = landingBase(w, pe, props.get(id));
+				BlockPos base = landingBase(w, view, pe, props.get(id));
 				if (base != null) {
-					pe.startLanding(base);
+					Vec3d c = pe.corner();
+					int ticks = PieceEntity.landingTicks(c.y - base.getY(), base.getX() - c.x, base.getZ() - c.z);
+					int x0 = base.getX(), z0 = base.getZ(), x1 = x0 + pe.blocks.sx, z1 = z0 + pe.blocks.sz;
+					int wait = 0;
+					for (int[] o : landings) {
+						if (x0 < o[2] && x1 > o[0] && z0 < o[3] && z1 > o[1]) wait = Math.max(wait, o[4] + 2 - ticks);
+					}
+					wait = Math.min(wait, 200);
+					landings.add(new int[]{x0, z0, x1, z1, wait + ticks});
+					Landing.reserve(taken, pe.blocks, base);
+					pe.startLanding(base, wait);
 				} else {
 					pe.release(Vec3d.ZERO, false);
 					pe.slowFall = true;
@@ -808,10 +861,12 @@ public final class Takt {
 		pw.dirty = true;
 	}
 
-	/** Dónde se posa una pieza: la propuesta del cliente si vale, si no la del servidor; null si no hay sitio. */
+	/**
+	 * Dónde se posa una pieza: la propuesta del cliente si vale, si no la del servidor; null si no hay sitio. view es el
+	 * mundo con los sitios que ya apartaron las piezas anteriores de la misma orden.
+	 */
 	@Nullable
-	private static BlockPos landingBase(ServerWorld w, PieceEntity pe, @Nullable Long proposal) {
-		BlockView view = GroundRules.loaded(w);
+	private static BlockPos landingBase(ServerWorld w, BlockView view, PieceEntity pe, @Nullable Long proposal) {
 		Vec3d corner = pe.corner();
 		List<Box> bl = Landing.blockers(w, Landing.region(pe.blocks, corner));
 		BlockPos server = Landing.find(view, pe.blocks, corner, bl);
@@ -1075,9 +1130,18 @@ public final class Takt {
 
 	// ------------------------------------------------------------------ avisos
 
-	/** A los jugadores a 160 bloques del punto del momento. */
+	/** A los jugadores a 160 bloques del punto del momento, y siempre a su dueño si está en ese mundo (Takt alcanza más lejos). */
 	public static void sendFx(ServerWorld w, TaktFx fx) {
-		for (ServerPlayerEntity sp : PlayerLookup.around(w, fx.pos(), 160)) ServerPlayNetworking.send(sp, fx);
+		UUID owner = fx.owner();
+		boolean told = owner == null;
+		for (ServerPlayerEntity sp : PlayerLookup.around(w, fx.pos(), 160)) {
+			ServerPlayNetworking.send(sp, fx);
+			if (!told && sp.getUuid().equals(owner)) told = true;
+		}
+		if (!told) {
+			ServerPlayerEntity op = w.getServer().getPlayerManager().getPlayer(owner);
+			if (op != null && op.getServerWorld() == w) ServerPlayNetworking.send(op, fx);
+		}
 	}
 
 	private static TaktFx fx(int kind, int id, int entityId, UUID owner, Vec3d at, float a, float b, int ticks, int flags, int state, int[] data) {

@@ -404,11 +404,13 @@ public final class CutEngine {
 		for (BlockPos pos : removed) w.updateNeighbors(pos, Blocks.AIR);
 
 		// 4. Seres vivos y piezas que ya estaban sueltas (las que se están posando o ya se posaron no se tocan: sus
-		//    bloques están, o están a punto de estar, en el mundo).
+		//    bloques están, o están a punto de estar, en el mundo; tampoco las que vuelven a su sitio o se están cosiendo:
+		//    partirlas dejaría su hueco abierto para siempre).
 		int living = 0;
 		for (Entity e : w.getOtherEntities(player, region.box(), e -> !(e instanceof SterbenEntity))) {
 			if (e instanceof PieceEntity pe) {
-				if (pe.weapon != null || pe.isRemoved() || pe.settling()) continue;
+				if (pe.weapon != null || pe.isRemoved() || pe.settling() || pe.mode == PieceEntity.Mode.RETURNING
+					|| pe.mode == PieceEntity.Mode.SEWING || (pe.flags() & PieceEntity.F_LANDED) != 0) continue;
 				if (!region.contains(pe.center())) continue;
 				splitPiece(pe, planes, suspend, power);
 			} else if (e instanceof LivingEntity le && le.isAlive()) {
@@ -650,6 +652,7 @@ public final class CutEngine {
 			}
 			if (wasHeld) {
 				np.control(np.center().add(sep.multiply(4)));
+				np.noClip = pe.noClip;   // partida mientras salía de su hueco sin chocar: las partes salen igual
 				made.add(np);
 			} else if (suspend || wasSuspended) {
 				np.control(np.center().add(sep.multiply(4)));

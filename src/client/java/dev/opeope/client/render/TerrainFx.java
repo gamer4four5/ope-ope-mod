@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -198,6 +199,9 @@ public final class TerrainFx {
 
 	private static final Int2ObjectOpenHashMap<Ghost> GHOSTS = new Int2ObjectOpenHashMap<>();
 	private static int ghostTick = NEVER;
+	private static final int[] NO_IDS = new int[0];
+	/** Las piezas de Takt (y su orden) con las que se calcularon los fantasmas la última vez. */
+	private static int[] ghostHeld = NO_IDS;
 	private static final Int2ObjectOpenHashMap<Scar> SCARS = new Int2ObjectOpenHashMap<>();
 	private static final List<Crack> CRACKS = new ArrayList<>();
 	private static final List<Ring> RINGS = new ArrayList<>();
@@ -301,6 +305,7 @@ public final class TerrainFx {
 		closed = false;
 		GHOSTS.clear();
 		ghostTick = NEVER;
+		ghostHeld = NO_IDS;
 		SCARS.clear();
 		CRACKS.clear();
 		RINGS.clear();
@@ -366,15 +371,17 @@ public final class TerrainFx {
 		if (idleOn) idleLines = planLines;
 	}
 
-	/** Recalcula el plan como mucho cada 3 ticks y solo si cambió lo que lo decide; cada 20 ticks de todos modos. */
+	/**
+	 * Recalcula el plan en cuanto cambia lo que lo decide (como mucho una vez por tick: lo dibujado es siempre lo que
+	 * se arrancaría al soltar) y, si nada cambia, cada 20 ticks de todos modos.
+	 */
 	private static void replan(MinecraftClient mc, BlockPos hb, ClientState.RoomInfo room, List<GroundCut> near, int now) {
 		int size2 = ClientState.chunkSize2();
 		int[] ids = new int[near.size()];
 		for (int i = 0; i < ids.length; i++) ids[i] = near.get(i).id;
 		boolean same = planAt != NEVER && keyPos == hb.asLong() && keySize == size2 && Arrays.equals(keyCuts, ids)
 			&& keyRadius == room.radius() && room.center().equals(keyCenter);
-		int age = now - planAt;
-		if (same ? age < 20 : age < 3) return;
+		if (same && now - planAt < 20) return;
 		plan = ChunkPlanner.plan(mc.world, hb, size2, near, room.center(), (double) room.radius(), mc.player.getBoundingBox());
 		planAt = now;
 		keyPos = hb.asLong();
@@ -417,6 +424,7 @@ public final class TerrainFx {
 		int[] held = ClientState.heldIds;
 		if (held.length == 0 || ClientState.taktMode != 0) {
 			GHOSTS.clear();
+			ghostHeld = NO_IDS;
 			return;
 		}
 		if (!GHOSTS.isEmpty()) {
@@ -424,11 +432,17 @@ public final class TerrainFx {
 		}
 		if (now - ghostTick < 2) return;
 		ghostTick = now;
+		// En el orden de Takt, cada fantasma aparta su sitio y el siguiente queda encima o al lado, nunca dentro: lo mismo
+		// que hará el servidor al posar (Takt.setDown). Si uno cambia, se rehacen los que van detrás.
+		boolean redo = !Arrays.equals(held, ghostHeld);
+		ghostHeld = held;
+		LongOpenHashSet taken = new LongOpenHashSet();
+		BlockView view = Landing.reserving(mc.world, taken);
 		for (int id : held) {
 			Entity en = mc.world.getEntityById(id);
 			if (!(en instanceof PieceEntity pe) || pe.isWeaponShape() || pe.blocks == null || pe.blocks.isEmpty()
 				|| pe.blocks.size() > OpeConfig.TAKT_CHUNK_MAX_BLOCKS) {
-				GHOSTS.remove(id);
+				if (GHOSTS.remove(id) != null) redo = true;
 				continue;
 			}
 			Ghost g = GHOSTS.get(id);
@@ -438,12 +452,15 @@ public final class TerrainFx {
 			}
 			Vec3d corner = pe.corner();
 			BlockPos key = Landing.snap(corner);
-			if (!key.equals(g.key) || pe.blocks != g.set || now - g.at >= 10) {
-				g.base = Landing.find(mc.world, pe.blocks, corner, Landing.blockers(mc.world, Landing.region(pe.blocks, corner)));
+			if (redo || !key.equals(g.key) || pe.blocks != g.set || now - g.at >= 10) {
+				BlockPos base = Landing.find(view, pe.blocks, corner, Landing.blockers(mc.world, Landing.region(pe.blocks, corner)));
+				if (!Objects.equals(base, g.base)) redo = true;
+				g.base = base;
 				g.key = key;
 				g.set = pe.blocks;
 				g.at = now;
 			}
+			if (g.base != null) Landing.reserve(taken, pe.blocks, g.base);
 		}
 	}
 
@@ -527,6 +544,19 @@ public final class TerrainFx {
 	private static void landSeam(Payloads.TaktFx fx, double t) {
 		int[] data = fx.data() == null ? new int[0] : fx.data();
 		if (data.length == 0) return;
+		// El aviso trae como mucho 512 celdas: de una pieza más grande, toda su cara de abajo (la entidad sigue ahí unos
+		// ticks); si no, la costura saldría partida por la mitad.
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (data.length >= 512 && mc.world != null && mc.world.getEntityById(fx.entityId()) instanceof PieceEntity pe && pe.blocks != null) {
+			List<BlockSet.Entry> under = pe.blocks.underside();
+			if (under.size() > data.length) {
+				data = new int[under.size()];
+				for (int i = 0; i < data.length; i++) {
+					BlockSet.Entry e = under.get(i);
+					data[i] = Payloads.TaktFx.pack(e.x(), e.z(), e.y());
+				}
+			}
+		}
 		int bx = (int) Math.floor(fx.x() + 0.5), by = (int) Math.floor(fx.y() + 0.5), bz = (int) Math.floor(fx.z() + 0.5);
 		Lines lines = columnLines(bx, by, bz, data, false, false, CRACK_MAX);
 		if (lines.isEmpty()) return;
