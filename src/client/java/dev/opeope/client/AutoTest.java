@@ -1106,28 +1106,34 @@ public final class AutoTest {
 		waitFor("revisión: choca medido", 20, null, () -> srvB >= 0, () ->
 			check(srvB == 1, "fuera del hueco el trozo vuelve a chocar con el mundo", srvB == 0 ? "sigue atravesando bloques" : "ya no está"));
 
-		// dentro del hueco cuando el trozo vuelve a su sitio (Unir todo): sube encima, no queda encerrado
+		// dentro del hueco cuando el trozo vuelve a su sitio (Unir todo): sube encima, no queda encerrado. El disco cambia en
+		// cada partida (el mundo de la prueba es otro cada vez): a veces lo arrancado alrededor de los pies es todo de un
+		// bloque de hondo, así que se baja al fondo de la columna más honda que haya (y, entre esas, la más cercana)
 		step(2, "revisión: al hueco", () -> {
 			srvA = -1;
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
+				dropped0 = PieceEntity.DROPPED;
+				relocated0 = PieceEntity.RELOCATED;
 				BlockSet.Entry best = null;
 				double bd = Double.MAX_VALUE;
 				if (w.getEntityById(chunkId) instanceof PieceEntity pe && pe.origin != null) {
 					for (BlockSet.Entry e : pe.blocks.entries) {
-						if (e.y() != 0 || !pe.blocks.contains(e.x(), 1, e.z())) continue;   // una columna del hueco de 2 de hondo
+						if (pe.blocks.contains(e.x(), e.y() - 1, e.z())) continue;   // solo el fondo de cada columna
 						if (pe.origin.getX() + e.x() == gx0 + 2 && pe.origin.getZ() + e.z() == gz0 - 6) continue;   // la del tronco no
 						double dx = pe.origin.getX() + e.x() + 0.5 - sp.getX(), dz = pe.origin.getZ() + e.z() + 0.5 - sp.getZ();
-						if (dx * dx + dz * dz < bd) {
-							bd = dx * dx + dz * dz;
+						double d = 1000.0 * e.y() + dx * dx + dz * dz;   // primero lo más hondo, luego lo más cerca
+						if (d < bd) {
+							bd = d;
 							best = e;
 						}
 					}
 					if (best != null) {
-						dropped0 = PieceEntity.DROPPED;
-						relocated0 = PieceEntity.RELOCATED;
-						sp.networkHandler.requestTeleport(pe.origin.getX() + best.x() + 0.5, pe.origin.getY(), pe.origin.getZ() + best.z() + 0.5,
-							180f, 15.1f);
+						int deep = 0;
+						while (pe.blocks.contains(best.x(), best.y() + deep, best.z())) deep++;
+						OpeOpeMod.LOG.info("AUTOTEST revisión al hueco: {} bloques, columna de {} de hondo", pe.blocks.size(), deep);
+						sp.networkHandler.requestTeleport(pe.origin.getX() + best.x() + 0.5, pe.origin.getY() + best.y(),
+							pe.origin.getZ() + best.z() + 0.5, 180f, 15.1f);
 					}
 				}
 				srvA = best != null ? 1 : 0;

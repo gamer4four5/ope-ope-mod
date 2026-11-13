@@ -270,8 +270,8 @@ public final class Takt {
 		pw.dirty = true;
 		sendTearStart(p, w, rip);
 		if (CutEngine.AUTOTEST) {
-			OpeOpeMod.LOG.info("AUTOTEST takt plan {} bloques, cerrado {}, cara {}, cortes {}, espera {}",
-				plan.size(), plan.closed, plan.face, plan.usedCuts.length, rip.detachAt - rip.startTick);
+			OpeOpeMod.LOG.info("AUTOTEST takt plan {} bloques, cerrado {}, cara {}, cortes {}, espera {}, mira {}",
+				plan.size(), plan.closed, plan.face, plan.usedCuts.length, rip.detachAt - rip.startTick, rip.aimSurface.toShortString());
 		}
 	}
 
