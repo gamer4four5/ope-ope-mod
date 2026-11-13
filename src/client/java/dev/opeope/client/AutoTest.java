@@ -1049,14 +1049,16 @@ public final class AutoTest {
 	}
 
 	/**
-	 * (k2) La rocota: una roca de 4×4×4 de andesita pulida (166 t) que se suelta a 30 bloques del suelo cae sola, revienta
+	 * (k2) La rocota: una roca de 4×4×4 de andesita pulida (166 t) que se suelta a 21 bloques del suelo cae sola, revienta
 	 * (nivel 3), abre un cráter de su tamaño y se queda metida en él; lo cavado acaba en el borde, de vuelta o en los
 	 * terrones que salen volando, y todo vuelve a ser bloques sin objetos. En el cliente, se la oye caer. Sobre el campo
 	 * recién rehecho llano, mirándola desde 22 bloques.
 	 */
 	private static void planRocota(MinecraftClient mc, IntegratedServer srv, UUID id) {
 		final int IMPACT = Payloads.TaktFx.IMPACT;
-		final int RX = -2, RY = 31, RZ = -32, SIDE = 4;   // la esquina de la roca desde la escena: cae sobre x 0, z −30
+		// la esquina de la roca desde la escena: cae sobre x 0, z −30 desde y +22..+25, dentro del aire que rehace patch
+		// (hasta y +26: más arriba puede haber una ladera o un árbol según el mundo)
+		final int RX = -2, RY = 22, RZ = -32, SIDE = 4;
 		step(5, "rocota: preparar", () -> {
 			srvA = -1;
 			srvB = -1;

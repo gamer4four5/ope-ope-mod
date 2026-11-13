@@ -994,7 +994,7 @@ public final class TerrainFx {
 					ring(buf, m, cam, rg.x(), rg.y(), rg.z(), rad, 0.12, ROOM, A(hc(flash(0.5 * k))));
 				}
 				case Payloads.TaktFx.IMPACT -> {
-					grow = rm ? 1 : easeOutCubic(age / 0.4);
+					grow = rm ? 1 : easeOutCubic(Math.min(1, age / life));   // se abre durante toda su vida (más larga si es grande)
 					double rad = 2.2 * Math.max(rg.a(), 1.5) * grow;
 					ring(buf, m, cam, rg.x(), rg.y(), rg.z(), rad, 0.25, DUST, A(hc(flash(0.5 * k))));
 				}

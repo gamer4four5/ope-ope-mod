@@ -473,7 +473,9 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (getY() < getWorld().getBottomY() - 64) {
-			discard();
+			// un terrón de un cráter que se fue al vacío vuelve a su celda cavada: el bloque no se pierde
+			if (debris && origin != null) settleAt(origin, false);
+			else discard();
 			return;
 		}
 		if (age % 10 == 0 && mode == Mode.CONTROLLED && weapon == null) watchdog();
@@ -1060,8 +1062,24 @@ public class PieceEntity extends Entity {
 	}
 
 	private DamageSource damageSource() {
-		ServerPlayerEntity p = ownerPlayer();
+		UUID mv = mover();
+		ServerPlayerEntity p = mv == null || !(getWorld() instanceof ServerWorld sw) ? null : sw.getServer().getPlayerManager().getPlayer(mv);
 		return p != null ? getDamageSources().thrown(this, p) : getDamageSources().fallingBlock(this);
+	}
+
+	/**
+	 * Quién la movió por última vez: quien la llevó con Takt y la soltó o la lanzó (lastHolder) o, si nadie la llevó,
+	 * su dueño (quien la cortó o la arrancó). Su golpe no le hace daño y a él se le cuentan las bajas.
+	 */
+	@Nullable
+	public UUID mover() {
+		return lastHolder != null ? lastHolder : owner;
+	}
+
+	/** ¿Es le quien la cortó o quien la movió por última vez? (a esos no les hace daño su golpe) */
+	private boolean spares(Entity le) {
+		UUID id = le.getUuid();
+		return id.equals(owner) || id.equals(lastHolder);
 	}
 
 	public ServerPlayerEntity ownerPlayer() {
@@ -1072,7 +1090,7 @@ public class PieceEntity extends Entity {
 	private void hitEntities(Vec3d v, boolean sparingOwner) {
 		double speed = v.length();
 		List<LivingEntity> list = getWorld().getEntitiesByClass(LivingEntity.class, getBoundingBox().expand(0.25),
-			e -> e.isAlive() && !(e.getUuid().equals(owner) && (sparingOwner || thrownTicks < 12)));
+			e -> e.isAlive() && !e.isSpectator() && !(spares(e) && (sparingOwner || thrownTicks < 12)));
 		for (LivingEntity le : list) {
 			Integer until = hitCooldown.get(le.getId());
 			if (until != null && until > age) continue;
@@ -1191,7 +1209,9 @@ public class PieceEntity extends Entity {
 		if (tier >= 1) shock(w, contact, k, tier, r);
 		int flags = chunkFx() | (r > OpeConfig.TAKT_BIG_RADIUS ? Payloads.TaktFx.F_BIG : 0);
 		int[] data = Payloads.TaktFx.impactData(r, dir, k, Block.getRawIdFromState(floor), plow, dug == null ? 0 : dug.removed());
-		sendFx(w, Payloads.TaktFx.IMPACT, contact.x, contact.y, contact.z, (float) R, (float) (e / 1e6), flags, tier, data, ownerOr());
+		UUID mv = mover();
+		sendFx(w, Payloads.TaktFx.IMPACT, contact.x, contact.y, contact.z, (float) R, (float) (e / 1e6), flags, tier, data,
+			mv != null ? mv : NOBODY);
 		if (AUTOTEST) {
 			OpeOpeMod.LOG.info("AUTOTEST takt impacto nivel {} cráter {} en {} {} {}, {} t, energía {} MJ, arado {}", tier,
 				String.format(Locale.ROOT, "%.2f", R), MathHelper.floor(contact.x), MathHelper.floor(contact.y), MathHelper.floor(contact.z),
@@ -1204,8 +1224,7 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (dug != null && dug.seated()) return;
-		if (dug != null && dug.removed() > 0) setPosition(getX(), getY() - Math.min(0.6 * dug.depth(), blocks.sy / 2.0), getZ());
-		settle(false);
+		settle(false);   // el cráter no le hizo sitio debajo: se posa donde está (bestFit)
 	}
 
 	/** ¿Hay suelo sólido justo debajo de la pieza (una o dos celdas por debajo de su base)? */
@@ -1242,7 +1261,7 @@ public class PieceEntity extends Entity {
 			if (d > reach) continue;
 			double f = 1 - d / reach, fk = knock > 0 ? Math.max(0, 1 - d / knock) : 0;
 			double h = Math.max(0.3, Math.hypot(dx, dz));
-			boolean own = owner != null && le.getUuid().equals(owner);
+			boolean own = spares(le);
 			double dv, up;
 			if (own) {
 				if (fk <= 0) continue;
@@ -1252,14 +1271,18 @@ public class PieceEntity extends Entity {
 				dv = ((1.5 + 3 * tier) * f * f + 5 * fk) / 20;
 				up = (0.7 + fk) * dv * 0.6;
 			}
-			le.addVelocity(dx / h * dv, up, dz / h * dv);
+			Vec3d before = le.getVelocity();
+			if (!own) {
+				double hurt = Math.max(fk, f * 0.3);
+				boolean crush = Math.hypot(dx, dz) < r * 0.9 && dy > -1.5 && dy < r * 1.6;
+				float dmg = (float) Math.min(30, dmax * hurt * (crush ? 1.6 : 1));
+				if (dmg > 0.5f) le.damage(src, dmg);
+				if (fk > 0.25) le.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, (int) (20 * (0.8 + 1.6 * fk)), 3));
+			}
+			// el empujón es el de la onda, después del daño y en lugar del retroceso normal del golpe (que lo cambiaría:
+			// lo reduce a la mitad y le pone su propio salto), igual con daño que sin él
+			le.setVelocity(before.add(dx / h * dv, up, dz / h * dv));
 			le.velocityModified = true;
-			if (own) continue;
-			double hurt = Math.max(fk, f * 0.3);
-			boolean crush = Math.hypot(dx, dz) < r * 0.9 && dy > -1.5 && dy < r * 1.6;
-			float dmg = (float) Math.min(30, dmax * hurt * (crush ? 1.6 : 1));
-			if (dmg > 0.5f) le.damage(src, dmg);
-			if (fk > 0.25) le.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, (int) (20 * (0.8 + 1.6 * fk)), 3));
 		}
 	}
 

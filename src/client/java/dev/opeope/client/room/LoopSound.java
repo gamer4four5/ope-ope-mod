@@ -2,7 +2,9 @@ package dev.opeope.client.room;
 
 import net.minecraft.client.sound.AbstractSoundInstance;
 import net.minecraft.client.sound.SoundInstance;
+import net.minecraft.client.sound.SoundManager;
 import net.minecraft.client.sound.TickableSoundInstance;
+import net.minecraft.client.sound.WeightedSoundSet;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
@@ -14,7 +16,8 @@ import java.util.function.Supplier;
 /**
  * Un sonido largo del ROOM (el zumbido mientras crece, el tono, el murmullo de dentro, el silbido del cometa). Su dueño
  * le pone volumen y tono cada tick; al pararlo se apaga en 150 ms en vez de cortarse en seco.
- * <p>Sin posición suena «en la cabeza» (relativo, sin atenuar); con posición sigue ese punto cada tick.
+ * <p>Sin posición suena «en la cabeza» (relativo, sin atenuar); con posición sigue ese punto cada tick y se oye hasta
+ * 16 bloques o hasta el alcance que se le dé con {@link #range} (sin subir el volumen: el primer tick no da un golpe).
  */
 public final class LoopSound extends AbstractSoundInstance implements TickableSoundInstance {
 	private static final long FADE_MS = 150;
@@ -25,6 +28,7 @@ public final class LoopSound extends AbstractSoundInstance implements TickableSo
 	private long stopAt;
 	private float fadeFrom;
 	private float wantVolume, wantPitch = 1f;
+	private int range;   // 0: el de sounds.json (16 bloques)
 
 	public LoopSound(Identifier id, boolean repeat, @Nullable Supplier<Vec3d> pos) {
 		super(id, SoundCategory.PLAYERS, SoundInstance.createRandom());
@@ -49,6 +53,19 @@ public final class LoopSound extends AbstractSoundInstance implements TickableSo
 		}
 		this.volume = 0f;
 		this.pitch = 1f;
+	}
+
+	/** Que se oiga hasta blocks bloques (con posición). Antes de tocarlo: el alcance se fija al empezar. */
+	public LoopSound range(double blocks) {
+		this.range = (int) Math.ceil(MathHelper.clamp(blocks, 1, 2048));
+		return this;
+	}
+
+	@Override
+	public WeightedSoundSet getSoundSet(SoundManager manager) {
+		WeightedSoundSet set = super.getSoundSet(manager);
+		if (range > 0 && pos != null) this.sound = TaktSounds.withRange(this.sound, range);
+		return set;
 	}
 
 	/** Lo que debe sonar ahora (lo aplica el siguiente tick del sistema de sonido). Tono siempre entre 0,5 y 2. */

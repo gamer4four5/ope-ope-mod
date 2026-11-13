@@ -132,6 +132,11 @@ Crear o mover el ROOM ahora se ve, se oye y se siente:
   sin enterrar a nadie.
 - **Lanzar**: cae donde apuntas. Si golpea fuerte abre un cráter, amontona la tierra en el borde y se queda clavado. No
   explota y no se pierde ningún bloque.
+- **Las rocotas**: lo grande cae como cae una montaña, casi sin frenar con el aire, y no hace falta lanzarlo: soltarlo
+  desde lo alto basta. Al llegar abre un cráter de su tamaño, se queda metida dentro, levanta el borde, hace saltar
+  terrones que vuelven a ser bloques y, si llega rasante, ara el suelo. La onda empuja y tumba a quien esté cerca (a
+  ti no te hace daño). De lejos primero tiembla el suelo y luego llega el estruendo, con su eco; mientras cae se oye el
+  aire, y si cae al agua salpica.
 - **Unir todo** (R + X): cada trozo vuelve en arco a su hueco, del más nuevo al más viejo, y se sella.
 - Los demás jugadores lo ven y lo oyen, y nadie puede quitarte de Takt lo que llevas. Todo respeta «Menos
   movimiento», «Sacudidas de cámara», «Destellos» y «Contraste».

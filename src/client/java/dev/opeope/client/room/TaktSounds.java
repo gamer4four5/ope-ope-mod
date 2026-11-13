@@ -3,8 +3,10 @@ package dev.opeope.client.room;
 import dev.opeope.OpeOpeMod;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.PositionedSoundInstance;
+import net.minecraft.client.sound.Sound;
 import net.minecraft.client.sound.SoundInstance;
 import net.minecraft.client.sound.SoundManager;
+import net.minecraft.client.sound.WeightedSoundSet;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Identifier;
@@ -20,6 +22,8 @@ import org.jetbrains.annotations.Nullable;
  * <li>«en el punto»: todos lo oyen en el punto del mundo, también el dueño (lo que pasa en el suelo, no en la mano).</li>
  * </ul>
  * Lo pesado suena más grave ({@link #massRate}); un grupo grande suena más fuerte ({@link #group}).
+ * <p>Un volumen de más de 1 solo alarga el alcance (Minecraft: 16 bloques × volumen): suena con volumen 1 y ese alcance
+ * ({@link Ranged}), así el control de volumen «Jugadores» cuenta siempre (Minecraft multiplica y luego corta en 1).
  */
 public final class TaktSounds {
 	private TaktSounds() {}
@@ -69,6 +73,10 @@ public final class TaktSounds {
 	/** Un sonido de Minecraft tal cual, en un punto del mundo. */
 	static void vanillaAt(@Nullable SoundEvent ev, double x, double y, double z, float pitch, float volume, int delayTicks) {
 		if (ev == null || !(volume > 0.001f)) return;
+		if (volume > 1f) {
+			send(new Ranged(ev.getId(), 1f, MathHelper.clamp(pitch, 0.5f, 2f), x, y, z, 16 * volume), delayTicks);
+			return;
+		}
 		// el constructor público de 8 argumentos (el de 11 con SoundEvent es privado en 1.21.1); equivale a
 		// repeat = false, repeatDelay = 0, atenuación LINEAR
 		PositionedSoundInstance s = new PositionedSoundInstance(ev, SoundCategory.PLAYERS, volume, MathHelper.clamp(pitch, 0.5f, 2f),
@@ -89,10 +97,44 @@ public final class TaktSounds {
 
 	private static void play(Identifier id, float volume, float pitch, int delayTicks, boolean relative, double x, double y, double z) {
 		if (!(volume > 0.001f)) return;
+		float p = MathHelper.clamp(pitch, 0.5f, 2f);
+		if (!relative && volume > 1f) {
+			send(new Ranged(id, 1f, p, x, y, z, 16 * volume), delayTicks);
+			return;
+		}
+		// «en la cabeza» no hay alcance: más de 1 sonaría igual con el volumen al máximo y más fuerte que el control
 		SoundInstance.AttenuationType att = relative ? SoundInstance.AttenuationType.NONE : SoundInstance.AttenuationType.LINEAR;
-		PositionedSoundInstance s = new PositionedSoundInstance(id, SoundCategory.PLAYERS, volume, MathHelper.clamp(pitch, 0.5f, 2f),
+		PositionedSoundInstance s = new PositionedSoundInstance(id, SoundCategory.PLAYERS, Math.min(1f, volume), p,
 			SoundInstance.createRandom(), false, 0, att, x, y, z, relative);
 		send(s, delayTicks);
+	}
+
+	/**
+	 * Un sonido en un punto que se oye hasta range bloques (el de sounds.json llega a 16): al elegir su variante, se queda
+	 * con una copia de ella con ese alcance. El volumen (como mucho 1) es el de cerca.
+	 */
+	static final class Ranged extends PositionedSoundInstance {
+		private final int range;
+
+		Ranged(Identifier id, float volume, float pitch, double x, double y, double z, double range) {
+			super(id, SoundCategory.PLAYERS, Math.min(1f, volume), pitch, SoundInstance.createRandom(), false, 0,
+				SoundInstance.AttenuationType.LINEAR, x, y, z, false);
+			this.range = (int) Math.ceil(MathHelper.clamp(range, 1, 2048));
+		}
+
+		@Override
+		public WeightedSoundSet getSoundSet(SoundManager manager) {
+			WeightedSoundSet set = super.getSoundSet(manager);
+			this.sound = withRange(this.sound, range);
+			return set;
+		}
+	}
+
+	/** Una copia de s que se oye hasta range bloques (la misma variante, volumen y tono); s si no es un sonido de verdad. */
+	static Sound withRange(@Nullable Sound s, int range) {
+		if (s == null || s == SoundManager.MISSING_SOUND || s == SoundManager.INTENTIONALLY_EMPTY_SOUND || s.getAttenuation() == range) return s;
+		return new Sound(s.getIdentifier(), s.getVolume(), s.getPitch(), s.getWeight(), s.getRegistrationType(), s.isStreamed(),
+			s.isPreloaded(), range);
 	}
 
 	private static void send(SoundInstance s, int delayTicks) {

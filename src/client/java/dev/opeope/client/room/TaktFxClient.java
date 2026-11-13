@@ -200,17 +200,38 @@ public final class TaktFxClient {
 		}
 	}
 
-	/** Una roca grande suelta: su velocidad (vista en el cliente), su rugido y si ya hizo el chapuzón o apartó el aire. */
+	/**
+	 * Una roca grande suelta: su velocidad vista en el cliente (la media de los últimos 4 ticks: las posiciones llegan a
+	 * saltos, 0 o 2 pasos por tick), su rugido y su tono, si estaba en el agua y si ya hizo el chapuzón o apartó el aire.
+	 */
 	private static final class Fall {
 		final PieceEntity pe;
-		Vec3d last;
+		final Vec3d[] seen = new Vec3d[4];
+		int at;
+		Vec3d vel = Vec3d.ZERO;
 		double v, vy;
-		boolean splashed, gusted;
+		float pitch;
+		boolean wet, splashed, gusted;
 		@Nullable LoopSound roar;
 
 		Fall(PieceEntity pe) {
 			this.pe = pe;
-			this.last = pe.getPos();
+			Arrays.fill(seen, pe.getPos());
+			this.wet = pe.getWorld().getFluidState(pe.getBlockPos()).isIn(FluidTags.WATER);
+		}
+
+		/** Apunta la posición de este tick y rehace la velocidad (un salto de más de 7 bloques por tick es un teletransporte). */
+		void track(Vec3d pos) {
+			Vec3d old = seen[at];
+			if (pos.squaredDistanceTo(old) > 28 * 28) {
+				Arrays.fill(seen, pos);
+			} else {
+				seen[at] = pos;
+				vel = pos.subtract(old).multiply(0.25);
+			}
+			at = (at + 1) % seen.length;
+			v = vel.length();
+			vy = vel.y;
 		}
 
 		void stopRoar() {
@@ -681,9 +702,10 @@ public final class TaktFxClient {
 
 	/**
 	 * La nube del golpe, con el tamaño de la roca (q = √sc) y el del cráter (R): polvo que corre por el suelo frenándose,
-	 * columnas de tierra en el borde, terrones en arco (hacia delante si iba rasante), una cúpula de polvo, nubes de polvo
-	 * en el borde, humo que sube (nivel 3, o 2 con una roca grande), una bruma baja, ráfagas de aire y polvo que vuelve a
-	 * caer. Lo de otro sale a la mitad, salvo lo colosal.
+	 * columnas de tierra en el borde, terrones en arco (hacia delante si iba rasante), una bruma baja, una cúpula de
+	 * polvo, nubes que revientan en el borde, ráfagas de aire, la nube grande que se queda unos segundos, la columna que
+	 * sube (nivel 3, o 2 con una roca grande) y polvo que vuelve a caer. Las bocanadas son grandes y claras: de lejos
+	 * una partícula normal es un punto. Lo de otro sale a la mitad, salvo lo colosal.
 	 */
 	private static void impactParticles(Hit h) {
 		Vec3d c = h.c();
@@ -698,7 +720,7 @@ public final class TaktFxClient {
 		for (int i = n((10 + 10 * tier) * q, own); i > 0; i--) {
 			double a = RNG.nextDouble() * 2 * Math.PI, s = surge * range(0.6, 1.0);
 			Vec3d p = around(h, a, R * range(0.6, 1.0));
-			add(low, p.x, c.y + range(0.2, 0.8), p.z, Math.cos(a) * s, range(0.005, 0.03), Math.sin(a) * s);
+			grow(add(low, p.x, c.y + range(0.2, 0.8), p.z, Math.cos(a) * s, range(0.005, 0.03), Math.sin(a) * s), 1.3 + 0.4 * q);
 		}
 		if (tier >= 1) {
 			// columnas de tierra en el borde (como las del mazo, del tamaño del cráter)
@@ -722,29 +744,36 @@ public final class TaktFxClient {
 			}
 			// bruma baja que se queda un rato y se abre despacio
 			for (int i = n((4 + 5 * tier) * q, own); i > 0; i--) {
-				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.02, 0.07) * q;
+				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.01, 0.04) * q;
 				Vec3d p = around(h, a, R * range(0.7, 1.5));
-				tint(add(ParticleTypes.CAMPFIRE_COSY_SMOKE, p.x, c.y + range(0.2, 1.2), p.z, Math.cos(a) * s,
-					range(0.004, 0.02), Math.sin(a) * s), col, 0.85);
+				puff(ParticleTypes.CAMPFIRE_COSY_SMOKE, p.x, c.y + range(0.2, 1.2), p.z, Math.cos(a) * s, range(0.004, 0.015),
+					Math.sin(a) * s, col, 1.6 + 0.6 * q + 0.6 * RNG.nextDouble());
 			}
 		}
 		// la cúpula: el polvo que levanta el golpe (núcleo oscuro, piel clara)
 		int dome = n((12 + 22 * tier) * q, own);
 		double dv = (0.12 + 0.06 * tier) * (0.8 + 0.3 * q);
-		dome(c, (dome * 3 + 4) / 5, dust(darker(col, 0.75), 4f), 0.5 * dv, dv, 0.4 * R);
-		dome(c, (dome * 2 + 4) / 5, dust(col, 4f), dv, 1.6 * dv, 0.6 * R);
+		dome(c, (dome * 3 + 4) / 5, dust(darker(col, 0.75), 4f), 0.5 * dv, dv, 0.4 * R, 1.3 + 0.4 * q);
+		dome(c, (dome * 2 + 4) / 5, dust(col, 4f), dv, 1.6 * dv, 0.6 * R, 1.3 + 0.4 * q);
 		if (tier >= 2) {
 			// nubes de polvo que revientan en el borde
 			for (int i = n((2 + 2 * tier) * q, own); i > 0; i--) {
 				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * range(0.0, 0.9));
 				Particle pt = add(ParticleTypes.EXPLOSION, p.x, c.y + range(0.5, 1.0 + 0.4 * R), p.z, 0, 0, 0);
-				tint(pt, col, 0.8);
-				if (pt != null) pt.scale((float) (0.8 + 0.4 * q));
+				tint(pt, col, 1.1);
+				grow(pt, 0.8 + 0.4 * q);
 			}
 			// ráfagas de aire alrededor
 			for (int i = n(3 + 2 * tier, own); i > 0; i--) {
 				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R + range(1, 3));
 				add(ParticleTypes.GUST, p.x, c.y + range(0.3, 1.2), p.z, 0, 0, 0);
+			}
+			// la nube grande: bocanadas de polvo que suben y se abren despacio y se quedan unos segundos
+			for (int i = n((8 + 10 * tier) * q, own); i > 0; i--) {
+				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.01, 0.05) * q;
+				Vec3d p = around(h, a, R * range(0.2, 1.2));
+				puff(ParticleTypes.CAMPFIRE_COSY_SMOKE, p.x, c.y + range(0.3, 1.0 + 0.5 * R), p.z, Math.cos(a) * s, range(0.01, 0.04),
+					Math.sin(a) * s, col, 2.0 + q + RNG.nextDouble());
 			}
 			// el polvo que vuelve a caer cuando la nube se abre
 			BlockStateParticleEffect settle = new BlockStateParticleEffect(ParticleTypes.FALLING_DUST, h.ground());
@@ -757,12 +786,12 @@ public final class TaktFxClient {
 				}
 			});
 		}
-		// la columna de polvo que sube despacio (y se queda en el cielo unos segundos)
+		// la columna de polvo que sube despacio y se queda en el cielo (unos 15 s)
 		if (tier == 3 || (tier == 2 && h.sc() >= 2)) {
-			for (int i = n(4 + 6 * q * (tier - 1), own); i > 0; i--) {
-				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * 0.6 * Math.sqrt(RNG.nextDouble()));
-				tint(add(ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, p.x, c.y + range(0.5, 2.0), p.z, rnd() * 0.015,
-					range(0.06, 0.14) * (0.8 + 0.2 * q), rnd() * 0.015), col, 0.7);
+			for (int i = n((6 + 8 * q) * (tier - 1), own); i > 0; i--) {
+				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * 0.5 * Math.sqrt(RNG.nextDouble()));
+				puff(ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, p.x, c.y + range(0.5, 1.0 + R), p.z, rnd() * 0.01,
+					range(0.03, 0.07) * (0.8 + 0.2 * q), rnd() * 0.01, col, 2.5 + q + RNG.nextDouble());
 			}
 		}
 		if (h.plow() >= 1) furrow(h, own);
@@ -798,15 +827,33 @@ public final class TaktFxClient {
 		return new Vec3d(h.c().x + h.dir().x * u + Math.cos(a) * rho, h.c().y, h.c().z + h.dir().z * u + Math.sin(a) * rho);
 	}
 
-	/** Una cúpula de polvo: n partículas desde un disco de radio spread, con velocidades entre lo y hi sobre media esfera. */
-	private static void dome(Vec3d c, int n, DustParticleEffect d, double lo, double hi, double spread) {
+	/**
+	 * Una cúpula de polvo: n partículas de tamaño size (× el normal) desde un disco de radio spread, con velocidades entre
+	 * lo y hi sobre media esfera.
+	 */
+	private static void dome(Vec3d c, int n, DustParticleEffect d, double lo, double hi, double spread, double size) {
 		double[] v = new double[3];
 		for (int i = 0; i < n; i++) {
 			unit(v);
 			v[1] = Math.abs(v[1]);
 			double s = range(lo, hi), ox = rnd() * spread, oz = rnd() * spread;
-			add(d, c.x + ox + v[0] * 0.3, c.y + v[1] * 0.3, c.z + oz + v[2] * 0.3, v[0] * s, v[1] * s, v[2] * s);
+			grow(add(d, c.x + ox + v[0] * 0.3, c.y + v[1] * 0.3, c.z + oz + v[2] * 0.3, v[0] * s, v[1] * s, v[2] * s), size);
 		}
+	}
+
+	/**
+	 * Una bocanada de humo de fogata (lenta: va siempre a la velocidad con la que sale) del color del polvo, aclarado como
+	 * lo ve el sol, y size veces más grande que el de una fogata.
+	 */
+	private static void puff(ParticleEffect type, double x, double y, double z, double vx, double vy, double vz, int[] col, double size) {
+		Particle p = add(type, x, y, z, vx, vy, vz);
+		tint(p, col, range(1.05, 1.3));
+		grow(p, size);
+	}
+
+	/** La hace size veces más grande (de lejos, una partícula normal es un punto). */
+	private static void grow(@Nullable Particle p, double size) {
+		if (p != null) p.scale((float) size);
 	}
 
 	/**
@@ -841,9 +888,10 @@ public final class TaktFxClient {
 		return new int[]{(int) (rgb[0] * f), (int) (rgb[1] * f), (int) (rgb[2] * f)};
 	}
 
-	/** Tiñe una partícula gris (humo, explosión) del color del polvo, oscurecido por f. */
+	/** Tiñe una partícula gris (humo, explosión) del color del polvo por f (menos de 1 la oscurece, más la aclara). */
 	private static void tint(@Nullable Particle p, int[] rgb, double f) {
-		if (p != null) p.setColor((float) (rgb[0] / 255.0 * f), (float) (rgb[1] / 255.0 * f), (float) (rgb[2] / 255.0 * f));
+		if (p != null) p.setColor((float) Math.min(1, rgb[0] / 255.0 * f), (float) Math.min(1, rgb[1] / 255.0 * f),
+			(float) Math.min(1, rgb[2] / 255.0 * f));
 	}
 
 	/** v partículas (como mucho 160) según la opción de partículas, la mitad si es de otro. */
@@ -1370,11 +1418,7 @@ public final class TaktFxClient {
 			Fall f = it.next();
 			PieceEntity pe = f.pe;
 			Vec3d pos = pe.getPos();
-			Vec3d step = pos.subtract(f.last);
-			f.last = pos;
-			if (step.lengthSquared() > 64) step = Vec3d.ZERO;   // un salto, no una velocidad
-			f.v = 0.5 * f.v + 0.5 * step.length();
-			f.vy = 0.5 * f.vy + 0.5 * step.y;
+			f.track(pos);
 			if (pe.isRemoved() || pe.getWorld() != mc.world || !loose(pe) || cam.squaredDistanceTo(pos) > FALL_KEEP * FALL_KEEP) {
 				if (f.roar != null) roaring--;
 				f.stopRoar();
@@ -1386,7 +1430,7 @@ public final class TaktFxClient {
 			splash(mc.world, f, sc);
 			downdraft(mc.world, f, sc);
 			boolean had = f.roar != null;
-			roar(mc, f, sc, cam, step, roaring < MAX_ROARS);
+			roar(mc, f, sc, cam, roaring < MAX_ROARS);
 			if (!had && f.roar != null) roaring++;
 			if (had && f.roar == null) roaring--;
 		}
@@ -1406,25 +1450,25 @@ public final class TaktFxClient {
 	 * El rugido del aire: empieza a 0,6 bloques por tick (12 m/s) y suena más fuerte y más agudo cuanto más rápido, con
 	 * efecto Doppler (más agudo mientras se acerca, más grave al alejarse). Se apaga si frena o queda lejos.
 	 */
-	private static void roar(MinecraftClient mc, Fall f, double sc, Vec3d cam, Vec3d step, boolean mayStart) {
+	private static void roar(MinecraftClient mc, Fall f, double sc, Vec3d cam, boolean mayStart) {
 		Vec3d at = f.pe.center();
 		double d = cam.distanceTo(at), reach = 24 + 10 * sc;
 		if (f.roar != null && (f.roar.isDone() || f.v < 0.4 || d > reach + 8)) f.stopRoar();
 		float vol = (float) Math.min(0.9, (0.2 + 0.3 * Math.min(1.0, f.v / 2.5)) * (0.8 + 0.2 * sc));
-		double closing = d > 1e-3 ? -step.dotProduct(at.subtract(cam)) / d : 0;
+		double closing = d > 1e-3 ? -f.vel.dotProduct(at.subtract(cam)) / d : 0;
 		double doppler = MathHelper.clamp(SOUND_SPEED / Math.max(1.0, SOUND_SPEED - closing), 0.8, 1.35);
-		float pitch = (float) ((0.55 + 0.3 * Math.min(1.0, f.v / 3) - 0.04 * sc) * doppler);
+		float want = (float) ((0.55 + 0.3 * Math.min(1.0, f.v / 3) - 0.04 * sc) * doppler);
+		f.pitch = f.roar == null ? want : f.pitch + 0.4f * (want - f.pitch);   // sin saltos de tono de un tick a otro
 		if (f.roar != null) {
-			f.roar.set(vol, pitch);
+			f.roar.set(vol, f.pitch);
 			return;
 		}
 		if (!mayStart || f.v <= 0.6 || d > reach) return;
 		SoundManager sm = mc.getSoundManager();
 		if (sm == null) return;
-		LoopSound s = new LoopSound(OpeOpeMod.id("takt.fall"), true, f.pe::center);
-		s.set((float) (reach / 16), pitch);   // el alcance (16 bloques × volumen) se fija al empezar
+		LoopSound s = new LoopSound(OpeOpeMod.id("takt.fall"), true, f.pe::center).range(reach);
+		s.set(vol, f.pitch);
 		sm.play(s);
-		s.set(vol, pitch);
 		f.roar = s;
 		ROARS++;
 	}
@@ -1436,12 +1480,16 @@ public final class TaktFxClient {
 		TRAILS.add(new Trail(pe, false, ticks));
 	}
 
-	/** Al entrar en el agua cayendo: una columna de agua y espuma del tamaño de la roca, y el chapuzón (una vez). */
+	/**
+	 * Al entrar en el agua cayendo (de estar fuera a estar dentro: soltada ya bajo el agua no salpica): una columna de
+	 * agua y espuma del tamaño de la roca, y el chapuzón (una vez).
+	 */
 	private static void splash(ClientWorld w, Fall f, double sc) {
-		if (f.splashed || f.vy > -0.3) return;
 		PieceEntity pe = f.pe;
 		BlockPos.Mutable m = new BlockPos.Mutable(MathHelper.floor(pe.getX()), MathHelper.floor(pe.getY()), MathHelper.floor(pe.getZ()));
-		if (!w.getFluidState(m).isIn(FluidTags.WATER)) return;
+		boolean wet = w.getFluidState(m).isIn(FluidTags.WATER), entered = wet && !f.wet;
+		f.wet = wet;
+		if (!entered || f.splashed || f.vy > -0.3) return;
 		f.splashed = true;
 		int y0 = m.getY(), top = y0;
 		while (top < y0 + 8 && w.getFluidState(m.setY(top + 1)).isIn(FluidTags.WATER)) top++;
@@ -1464,11 +1512,13 @@ public final class TaktFxClient {
 	private static void downdraft(ClientWorld w, Fall f, double sc) {
 		if (f.gusted || f.vy > -0.5) return;
 		PieceEntity pe = f.pe;
-		int top = w.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, MathHelper.floor(pe.getX()), MathHelper.floor(pe.getZ()));
+		// MOTION_BLOCKING: la de MOTION_BLOCKING_NO_LEAVES no llega al cliente (allí vale el fondo del mundo)
+		int top = w.getTopY(Heightmap.Type.MOTION_BLOCKING, MathHelper.floor(pe.getX()), MathHelper.floor(pe.getZ()));
 		double h = pe.getY() - top;
 		if (h > 1.5 + 0.8 * pe.radius() || h < -1) return;
 		f.gusted = true;
 		BlockState st = w.getBlockState(BlockPos.ofFloored(pe.getX(), top - 0.5, pe.getZ()));
+		if (!st.getFluidState().isEmpty()) return;   // sobre el agua salpica (splash), no levanta polvo
 		DustParticleEffect d = dust(dustColor(w, st, BlockPos.ofFloored(pe.getX(), top - 0.5, pe.getZ())), 3f);
 		double r = 0.5 * Math.max(pe.blocks.sx, pe.blocks.sz), q = Math.sqrt(sc);
 		for (int i = n(10 + 8 * q, true); i > 0; i--) {
