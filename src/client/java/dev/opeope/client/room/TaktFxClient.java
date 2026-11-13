@@ -23,12 +23,15 @@ import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
+import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.sound.SoundEvent;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.Heightmap;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 
@@ -48,11 +51,11 @@ import java.util.UUID;
 /**
  * Lo que se ve, se oye y se siente de Takt sobre el suelo (diseño §5.6, §5.7 y §6.3): partículas, sonidos y cámara de
  * cada momento que cuenta el servidor (TaktFx) y de cada corte (CutFx). Además, cada tick: los guijarros de la grieta,
- * la tierra que suelta un trozo recién arrancado, la estela de lo lanzado, el silbido de lo que pasa cerca, y el zumbido
- * y el temblor de lo que llevas.
- * <p>Lo de otro jugador a más de 96 bloques de la cámara no saca nada (un impacto, hasta 160). La cámara solo se mueve
- * con lo propio, salvo los impactos. Al cambiar de mundo (dimensión, reaparecer) se limpia sola. Los arrays de los
- * paquetes pueden ser los del servidor (un jugador): aquí solo se leen.
+ * la tierra que suelta un trozo recién arrancado, la estela de lo lanzado, el silbido de lo que pasa cerca, el rugido
+ * y el chapuzón de las rocas grandes que caen, y el zumbido y el temblor de lo que llevas.
+ * <p>Lo de otro jugador a más de 96 bloques de la cámara no saca nada (un impacto, hasta 160; el tuyo, siempre). La
+ * cámara solo se mueve con lo propio, salvo los impactos. Al cambiar de mundo (dimensión, reaparecer) se limpia sola.
+ * Los arrays de los paquetes pueden ser los del servidor (un jugador): aquí solo se leen.
  */
 public final class TaktFxClient {
 	private TaktFxClient() {}
@@ -61,6 +64,8 @@ public final class TaktFxClient {
 	public static final int[] COUNTS = new int[Payloads.TaktFx.KINDS];
 	public static final int[] LAST_TICK = new int[Payloads.TaktFx.KINDS];
 	public static final Payloads.TaktFx[] LAST = new Payloads.TaktFx[Payloads.TaktFx.KINDS];
+	/** Cuántos rugidos de roca que cae han empezado (las pruebas lo miran). */
+	public static int ROARS;
 
 	private static final boolean LOG = Boolean.getBoolean("opeope.autotest");
 	private static final double FAR = 96, FAR_IMPACT = 160;
@@ -73,7 +78,12 @@ public final class TaktFxClient {
 	private static final int SHED_TICKS = 40, TRAIL_TICKS = 80, PENDING_TICKS = 10;
 	private static final int NO_TAG = Integer.MIN_VALUE;
 	private static final float[] IMPACT_VOL = {0.5f, 0.8f, 1.0f, 1.0f};
-	private static final double[] IMPACT_TRAUMA = {0.05, 0.1, 0.25, 0.45};
+	private static final double[] IMPACT_TRAUMA = {0.05, 0.22, 0.45, 0.85};
+	/** La velocidad del sonido en bloques por tick (343 m/s). */
+	private static final double SOUND_SPEED = 17.15;
+	/** Rocas que caen: cuántas se siguen, cuántas rugen a la vez, desde qué radio, dónde se buscan y hasta dónde se siguen. */
+	private static final int MAX_FALLS = 16, MAX_ROARS = 3;
+	private static final double FALL_RADIUS = 2.0, FALL_SCAN = 80, FALL_KEEP = 96;
 	private static final float[] EMPTY = new float[0];
 	private static final int[] NONE = new int[0];
 
@@ -190,6 +200,25 @@ public final class TaktFxClient {
 		}
 	}
 
+	/** Una roca grande suelta: su velocidad (vista en el cliente), su rugido y si ya hizo el chapuzón o apartó el aire. */
+	private static final class Fall {
+		final PieceEntity pe;
+		Vec3d last;
+		double v, vy;
+		boolean splashed, gusted;
+		@Nullable LoopSound roar;
+
+		Fall(PieceEntity pe) {
+			this.pe = pe;
+			this.last = pe.getPos();
+		}
+
+		void stopRoar() {
+			if (roar != null) roar.stop();
+			roar = null;
+		}
+	}
+
 	private static int ticks;
 	@Nullable private static ClientWorld lastWorld;
 	private static boolean warned;
@@ -199,6 +228,7 @@ public final class TaktFxClient {
 	private static final LinkedHashMap<Integer, Crack> CRACKS = new LinkedHashMap<>();
 	private static final List<Shed> SHEDS = new ArrayList<>();
 	private static final List<Trail> TRAILS = new ArrayList<>();
+	private static final Map<Integer, Fall> FALLS = new HashMap<>();
 	/** Por dueño: los agarres en grupo seguidos (cuántos, tick del último) y las llegadas a casa desde su último REWIND. */
 	private static final Map<UUID, int[]> CHORDS = new HashMap<>();
 	private static final Map<UUID, Integer> HOMES = new HashMap<>();
@@ -260,6 +290,7 @@ public final class TaktFxClient {
 			tickPending(mc);
 			tickSheds();
 			tickTrails();
+			tickFalls(mc);
 			tickFlybys(mc);
 			tickHold(mc);
 		} catch (RuntimeException e) {
@@ -274,6 +305,8 @@ public final class TaktFxClient {
 		holdRetry = 0;
 		for (Trail t : TRAILS) t.stopFly();
 		TRAILS.clear();
+		for (Fall f : FALLS.values()) f.stopRoar();
+		FALLS.clear();
 		SHEDS.clear();
 		PENDING.clear();
 		LATER.clear();
@@ -314,7 +347,7 @@ public final class TaktFxClient {
 				if (near) settle(mc, fx, own);
 			}
 			case Payloads.TaktFx.IMPACT -> {
-				if (dist <= FAR_IMPACT) impact(mc, fx, own, dist);
+				if (dist <= FAR_IMPACT || own) impact(mc, fx, own, dist);
 			}
 			case Payloads.TaktFx.REWIND -> rewind(fx, own, near);
 			case Payloads.TaktFx.HOME -> home(fx, own, near);
@@ -517,7 +550,8 @@ public final class TaktFxClient {
 	private static void settle(MinecraftClient mc, Payloads.TaktFx fx, boolean own) {
 		Vec3d at = fx.pos();
 		if ((fx.flags() & Payloads.TaktFx.F_SEALED) == 0) {
-			TaktSounds.point("takt.land", at, TaktSounds.massRate(1000.0 * fx.b()), 0.7f, 0);
+			// lo pequeño (los terrones de un cráter) suena más bajo: no tapa el golpe
+			TaktSounds.point("takt.land", at, TaktSounds.massRate(1000.0 * fx.b()), 0.35f + 0.35f * Math.min(1f, fx.b() / 20f), 0);
 			return;
 		}
 		TaktSounds.point("takt.seal", at, 1.2f, 0.5f, 0);
@@ -530,65 +564,291 @@ public final class TaktFxClient {
 		}
 	}
 
-	/** Impacto: golpe (con el retraso del sonido por la distancia), temblor para quien esté cerca y una nube según el nivel. */
+	/**
+	 * Lo que cuenta un IMPACT, ya leído: dónde, nivel, fuerza dentro del nivel (k, 0..1), tamaño de la roca (r y sc = r/3
+	 * entre 0,5 y 4), radio del cráter (0 sin cráter), arado y hacia dónde iba, el suelo y su color de polvo, el peso, si
+	 * es tuyo y a qué distancia está la cámara.
+	 */
+	private record Hit(Vec3d c, int tier, double k, double r, double sc, double crater, double plow, Vec3d dir,
+					   BlockState ground, int[] color, double kg, boolean own, double dist) {}
+
+	/**
+	 * Impacto. Todo crece con el tamaño de la roca y la fuerza del golpe, y baja con la distancia. Como en la realidad, de
+	 * lejos primero tiembla el suelo y después llega el estruendo (el sonido va a 343 m/s): el golpe seco, la explosión
+	 * sorda, el retumbo largo, el eco y la lluvia de terrones. Y la nube: polvo que corre por el suelo, una cúpula,
+	 * columnas de tierra en el borde, terrones en arco, humo que sube y polvo que vuelve a caer.
+	 */
 	private static void impact(MinecraftClient mc, Payloads.TaktFx fx, boolean own, double dist) {
 		int tier = MathHelper.clamp(fx.state(), 0, 3);
 		Vec3d c = fx.pos();
-		int delay = (int) Math.round(Math.max(0.0, dist - 17.0) / 17.0);
+		double r = Math.max(0.5, fx.datum(Payloads.TaktFx.I_RADIUS, 100) / 100.0);
+		double k = MathHelper.clamp(fx.datum(Payloads.TaktFx.I_K, 500) / 1000.0, 0, 1);
+		Vec3d dir = new Vec3d(fx.datum(Payloads.TaktFx.I_DIRX, 0) / 1000.0, 0, fx.datum(Payloads.TaktFx.I_DIRZ, 0) / 1000.0);
+		BlockState ground = Block.getStateFromRawId(fx.datum(Payloads.TaktFx.I_GROUND, 0));
+		if (ground.isAir() || !ground.getFluidState().isEmpty()) ground = Blocks.DIRT.getDefaultState();
 		Entity e = mc.world.getEntityById(fx.entityId());
-		double tonnes = e instanceof PieceEntity pe ? massOf(pe) / 1000.0 : 1000.0 * tier;
-		float rate = TaktSounds.massRate(1000.0 * tonnes) * (tier >= 2 ? 0.8f : 1f);
-		TaktSounds.point("takt.impact", c, rate, IMPACT_VOL[tier], delay);
-		if (tier >= 2) TaktSounds.point("takt.impact_far", c, 0.6f, tier == 2 ? 2.0f : 3.5f, delay);
-		if (dist <= 64) CameraFx.trauma((float) Math.min(0.6, IMPACT_TRAUMA[tier] * 30.0 / (30.0 + dist)));
-		if (tier == 3 && dist <= 24) {
-			CameraFx.fov(2f, 0.05f, 0.4f);
-			ScreenFx.flash(0.08f, 0.2f);
-		}
-		impactParticles(mc.world, c, tier, Math.max(fx.a(), 1.0), own);
+		double kg = e instanceof PieceEntity pe ? massOf(pe) : 3000 * r * r * r;
+		Hit h = new Hit(c, tier, k, r, MathHelper.clamp(r / 3, 0.5, 4), Math.max(0, fx.a()),
+			Math.max(0, fx.datum(Payloads.TaktFx.I_PLOW, 0) / 100.0), dir, ground,
+			dustColor(mc.world, ground, BlockPos.ofFloored(c.x, c.y - 0.5, c.z)), kg, own, dist);
+		int delay = soundDelay(dist);
+		quake(h, delay);
+		impactSounds(h, delay);
+		if (dist <= FAR_IMPACT + h.crater()) impactParticles(h);
 	}
 
-	private static void impactParticles(ClientWorld w, Vec3d c, int tier, double r, boolean own) {
-		DustParticleEffect landed = dust(LANDED, 2.5f);
-		for (int i = RoomParticles.count(6, own); i > 0; i--) {
-			double a = RNG.nextDouble() * 2 * Math.PI, d = range(0.2, 0.6) * r, s = range(0.04, 0.1);
-			add(landed, c.x + Math.cos(a) * d, c.y + 0.2, c.z + Math.sin(a) * d, Math.cos(a) * s, 0.02, Math.sin(a) * s);
+	/** Los ticks que tarda el ruido en llegar (343 m/s: 17 bloques por tick); en los primeros 4 bloques, ninguno. */
+	private static int soundDelay(double dist) {
+		return (int) Math.round(Math.max(0.0, dist - 4.0) / SOUND_SPEED);
+	}
+
+	/**
+	 * El suelo tiembla: por la roca la onda va mucho más rápida que por el aire, así que llega enseguida. Temblor (más
+	 * fuerte y más lejos cuanto más grande), de cerca un golpe hacia abajo y el campo de visión, y un retumbo que sigue un
+	 * segundo. Cuando llega el estruendo, la onda del aire da otro empujón.
+	 */
+	private static void quake(Hit h, int delay) {
+		int tier = h.tier();
+		double range = (18 + 22 * tier) * (0.8 + 0.3 * Math.sqrt(h.sc()));
+		double fall = MathHelper.clamp(1 - h.dist() / range, 0, 1);
+		if (fall <= 0) return;
+		double amp = IMPACT_TRAUMA[tier] * (0.8 + 0.4 * h.k());
+		CameraFx.trauma((float) Math.min(0.9, amp * fall * fall + 0.04 * fall));
+		double near = MathHelper.clamp(1 - h.dist() / (40.0 + 30 * tier), 0, 1);
+		if (tier >= 2 && near > 0) {
+			CameraFx.kick((float) ((0.6 + 0.8 * tier) * near), 0f, (float) (rnd() * 1.2 * near));
+			CameraFx.fov((float) ((tier == 3 ? 5.0 : 2.5) * near), 0.07f, 0.55f);
+		}
+		if (tier == 3 && h.dist() <= 40) ScreenFx.flash((float) (0.05 + 0.07 * (1 - h.dist() / 40)), 0.2f);
+		if (tier < 2) return;
+		// el retumbo: sigue temblando un rato, cada vez menos
+		for (int i = 1, n = tier == 3 ? 4 : 2; i <= n; i++) {
+			float add = (float) (0.2 * amp * fall / i);
+			later(5 * i, NO_TAG, () -> CameraFx.trauma(add));
+		}
+		// la onda del aire llega con el estruendo (de cerca ya llegó con el golpe)
+		if (delay >= 2) {
+			float push = (float) (0.4 * tier * fall), shake = (float) (0.15 * amp * fall);
+			later(delay, NO_TAG, () -> {
+				CameraFx.kick(-0.5f * push, 0f, (float) (rnd() * push));
+				CameraFx.trauma(shake);
+			});
+		}
+	}
+
+	/**
+	 * Las capas del estruendo, cada una con su alcance (un golpe colosal se oye a cientos de bloques; uno pequeño, cerca):
+	 * el golpe seco, la tierra que cruje al abrirse el cráter (y al ararla), la explosión sorda, el retumbo largo (nivel 3,
+	 * o 2 con una roca grande), el eco que vuelve de otro lado y los terrones que llueven alrededor.
+	 */
+	private static void impactSounds(Hit h, int delay) {
+		Vec3d c = h.c();
+		int tier = h.tier();
+		double sc = h.sc(), k = h.k(), d = h.dist();
+		float rate = TaktSounds.massRate(h.kg()) * (tier >= 2 ? 0.8f : 1f);
+		double nearReach = (16 + 10 * tier) * (0.8 + 0.2 * sc);
+		heard("takt.impact", c, rate, IMPACT_VOL[tier] * fade(d, nearReach, 1.0), delay);
+		if (h.crater() > 0) {
+			heard("takt.rumble", c, (float) (0.6 + 0.15 * (1 - k)), 0.7 * fade(d, nearReach, 1.0), delay + 1);
+			if (h.plow() >= 1) heard("takt.rumble", c.add(h.dir().multiply(h.plow())), 0.5f, 0.8 * fade(d, nearReach, 1.0), delay + 4);
+		}
+		if (tier < 2) return;
+		double farReach = (40 + 35 * tier) * (0.8 + 0.25 * sc) * (0.85 + 0.3 * k);
+		float boom = (float) MathHelper.clamp(1.0 - 0.12 * tier - 0.08 * k - 0.05 * sc, 0.5, 1.0);
+		double far = fade(d, farReach, 0.8);
+		heard("takt.impact_far", c, boom, far, delay);
+		if (tier == 3 || sc >= 1.5) {
+			heard("takt.rumble_far", c, (float) MathHelper.clamp(0.72 - 0.04 * sc, 0.5, 0.72), 0.85 * fade(d, farReach * 1.25, 0.7), delay + 3);
+		}
+		// el eco: vuelve de lejos y de otro lado
+		if (d >= 12) {
+			double a = RNG.nextDouble() * 2 * Math.PI;
+			heard("takt.impact_far", c.add(Math.cos(a) * 60, 6, Math.sin(a) * 60), boom * 0.9f, 0.3 * far, delay + 9 + RNG.nextInt(4));
+			if (tier == 3) {
+				heard("takt.impact_far", c.add(-Math.cos(a) * 80, 8, -Math.sin(a) * 80), boom * 0.85f, 0.15 * far, delay + 22 + RNG.nextInt(5));
+			}
+		}
+		// lo que salió volando vuelve a caer alrededor
+		if (h.crater() > 0) {
+			double reach = 28 + 8 * sc;
+			for (int i = 3 + 2 * tier + (int) Math.round(sc); i > 0; i--) {
+				double a = RNG.nextDouble() * 2 * Math.PI, rho = h.crater() * range(1.1, 2.4) + 1;
+				Vec3d p = c.add(Math.cos(a) * rho, 0.5, Math.sin(a) * rho);
+				heard("takt.debris", p, (float) range(0.8, 1.1), 0.55 * fade(cameraDist(p), reach, 1.0), delay + 10 + RNG.nextInt(25));
+			}
+		}
+	}
+
+	/**
+	 * La nube del golpe, con el tamaño de la roca (q = √sc) y el del cráter (R): polvo que corre por el suelo frenándose,
+	 * columnas de tierra en el borde, terrones en arco (hacia delante si iba rasante), una cúpula de polvo, nubes de polvo
+	 * en el borde, humo que sube (nivel 3, o 2 con una roca grande), una bruma baja, ráfagas de aire y polvo que vuelve a
+	 * caer. Lo de otro sale a la mitad, salvo lo colosal.
+	 */
+	private static void impactParticles(Hit h) {
+		Vec3d c = h.c();
+		int tier = h.tier();
+		double q = Math.sqrt(h.sc()), k = h.k();
+		double R = Math.max(h.crater(), 0.6 * h.r() + 0.4);
+		boolean own = h.own() || tier == 3;
+		int[] col = h.color();
+		// el aire que aparta la roca: polvo pegado al suelo que sale rápido y se frena
+		DustParticleEffect low = dust(col, 3.5f);
+		double surge = (0.25 + 0.3 * k) * (0.6 + 0.4 * q) * (tier >= 2 ? 1.0 : 0.6);
+		for (int i = n((10 + 10 * tier) * q, own); i > 0; i--) {
+			double a = RNG.nextDouble() * 2 * Math.PI, s = surge * range(0.6, 1.0);
+			Vec3d p = around(h, a, R * range(0.6, 1.0));
+			add(low, p.x, c.y + range(0.2, 0.8), p.z, Math.cos(a) * s, range(0.005, 0.03), Math.sin(a) * s);
 		}
 		if (tier >= 1) {
-			BlockState st = w.getBlockState(BlockPos.ofFloored(c.x, c.y - 0.5, c.z));
-			if (st.isAir()) st = Blocks.DIRT.getDefaultState();
-			BlockStateParticleEffect eff = new BlockStateParticleEffect(ParticleTypes.BLOCK, st);
-			for (int i = RoomParticles.count(20, own); i > 0; i--) {
-				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.1, 0.2);
-				add(eff, c.x + 0.3 * rnd(), c.y + 0.1, c.z + 0.3 * rnd(), Math.cos(a) * s, range(0.2, 0.4), Math.sin(a) * s);
+			// columnas de tierra en el borde (como las del mazo, del tamaño del cráter)
+			BlockStateParticleEffect pillar = new BlockStateParticleEffect(ParticleTypes.DUST_PILLAR, h.ground());
+			double up = Math.min(1.1, 0.35 + 0.15 * tier + 0.1 * q);
+			for (int i = n(6 + 4 * R + 6 * tier, own); i > 0; i--) {
+				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.03, 0.12);
+				Vec3d p = around(h, a, R * range(0.85, 1.15));
+				add(pillar, p.x, c.y + 0.1, p.z, Math.cos(a) * s, up * range(0.6, 1.0), Math.sin(a) * s);
+			}
+			// terrones en arco: salen del cráter y caen alrededor (la mitad hacia delante si araba)
+			BlockStateParticleEffect clod = new BlockStateParticleEffect(ParticleTypes.BLOCK, h.ground());
+			boolean plowing = h.plow() >= 1;
+			double fwd = Math.atan2(h.dir().z, h.dir().x);
+			for (int i = n((10 + 14 * tier) * q, own); i > 0; i--) {
+				double a = plowing && RNG.nextBoolean() ? fwd + rnd() * 0.9 : RNG.nextDouble() * 2 * Math.PI;
+				double vh = range(0.12, 0.4) * (0.7 + 0.3 * q), vy = Math.min(1.2, range(0.4, 0.85) * (0.8 + 0.2 * q));
+				Vec3d p = around(h, a, R * range(0.2, 0.7));
+				Particle pt = add(clod, p.x, c.y + 0.4, p.z, Math.cos(a) * vh, vy, Math.sin(a) * vh);
+				if (pt != null) pt.setMaxAge(40 + RNG.nextInt(30));
+			}
+			// bruma baja que se queda un rato y se abre despacio
+			for (int i = n((4 + 5 * tier) * q, own); i > 0; i--) {
+				double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.02, 0.07) * q;
+				Vec3d p = around(h, a, R * range(0.7, 1.5));
+				tint(add(ParticleTypes.CAMPFIRE_COSY_SMOKE, p.x, c.y + range(0.2, 1.2), p.z, Math.cos(a) * s,
+					range(0.004, 0.02), Math.sin(a) * s), col, 0.85);
 			}
 		}
+		// la cúpula: el polvo que levanta el golpe (núcleo oscuro, piel clara)
+		int dome = n((12 + 22 * tier) * q, own);
+		double dv = (0.12 + 0.06 * tier) * (0.8 + 0.3 * q);
+		dome(c, (dome * 3 + 4) / 5, dust(darker(col, 0.75), 4f), 0.5 * dv, dv, 0.4 * R);
+		dome(c, (dome * 2 + 4) / 5, dust(col, 4f), dv, 1.6 * dv, 0.6 * R);
 		if (tier >= 2) {
-			dome(c, RoomParticles.count(40, own));
-			for (int i = RoomParticles.count(3, own); i > 0; i--) {
-				add(ParticleTypes.EXPLOSION, c.x + rnd() * r, c.y + Math.abs(rnd()) * r * 0.5, c.z + rnd() * r, 0, 0, 0);
+			// nubes de polvo que revientan en el borde
+			for (int i = n((2 + 2 * tier) * q, own); i > 0; i--) {
+				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * range(0.0, 0.9));
+				Particle pt = add(ParticleTypes.EXPLOSION, p.x, c.y + range(0.5, 1.0 + 0.4 * R), p.z, 0, 0, 0);
+				tint(pt, col, 0.8);
+				if (pt != null) pt.scale((float) (0.8 + 0.4 * q));
+			}
+			// ráfagas de aire alrededor
+			for (int i = n(3 + 2 * tier, own); i > 0; i--) {
+				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R + range(1, 3));
+				add(ParticleTypes.GUST, p.x, c.y + range(0.3, 1.2), p.z, 0, 0, 0);
+			}
+			// el polvo que vuelve a caer cuando la nube se abre
+			BlockStateParticleEffect settle = new BlockStateParticleEffect(ParticleTypes.FALLING_DUST, h.ground());
+			int m = n((6 + 6 * tier) * q, own);
+			double top = 3 + 3 * q;
+			later(12, NO_TAG, () -> {
+				for (int i = m; i > 0; i--) {
+					Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * 1.8 * Math.sqrt(RNG.nextDouble()));
+					add(settle, p.x, c.y + range(2, top), p.z, 0, 0, 0);
+				}
+			});
+		}
+		// la columna de polvo que sube despacio (y se queda en el cielo unos segundos)
+		if (tier == 3 || (tier == 2 && h.sc() >= 2)) {
+			for (int i = n(4 + 6 * q * (tier - 1), own); i > 0; i--) {
+				Vec3d p = around(h, RNG.nextDouble() * 2 * Math.PI, R * 0.6 * Math.sqrt(RNG.nextDouble()));
+				tint(add(ParticleTypes.CAMPFIRE_SIGNAL_SMOKE, p.x, c.y + range(0.5, 2.0), p.z, rnd() * 0.015,
+					range(0.06, 0.14) * (0.8 + 0.2 * q), rnd() * 0.015), col, 0.7);
 			}
 		}
-		if (tier >= 3) {
-			DustParticleEffect smoke = dust(SMOKE, 3.0f);
-			for (int i = RoomParticles.count(24, own); i > 0; i--) {
-				add(smoke, c.x + rnd() * 0.5 * r, c.y + RNG.nextDouble(), c.z + rnd() * 0.5 * r, 0, range(0.06, 0.12), 0);
-			}
-			dome(c, RoomParticles.count(80, own));
-			if (OpeSettings.flashLevel() == 2) add(ParticleTypes.FLASH, c.x, c.y + 1, c.z, 0, 0, 0);
+		if (h.plow() >= 1) furrow(h, own);
+		if (tier == 3 && OpeSettings.flashLevel() == 2) add(ParticleTypes.FLASH, c.x, c.y + 1, c.z, 0, 0, 0);
+	}
+
+	/** Iba rasante: la ola de tierra a los lados del surco, que avanza hasta donde se paró la roca. */
+	private static void furrow(Hit h, boolean own) {
+		Vec3d c = h.c(), dir = h.dir(), side = new Vec3d(-dir.z, 0, dir.x);
+		BlockStateParticleEffect clod = new BlockStateParticleEffect(ParticleTypes.BLOCK, h.ground());
+		DustParticleEffect d = dust(h.color(), 3f);
+		int steps = Math.min(30, (int) Math.ceil(h.plow()));
+		double half = Math.max(1, 0.5 * Math.min(1.4 * h.r(), Math.max(h.crater(), 1)));
+		int per = RoomParticles.count(4, own);
+		for (int j = 0; j <= steps; j++) {
+			Vec3d p = c.add(dir.multiply(h.plow() * j / steps));
+			later(j / 2, NO_TAG, () -> {
+				for (int i = 0; i < per; i++) {
+					double sgn = (i & 1) == 0 ? 1 : -1, s = range(0.12, 0.3);
+					double x = p.x + side.x * half * sgn, z = p.z + side.z * half * sgn;
+					Particle pt = add(clod, x, p.y + 0.3, z, side.x * sgn * s + dir.x * 0.08, range(0.25, 0.45),
+						side.z * sgn * s + dir.z * 0.08);
+					if (pt != null) pt.setMaxAge(30 + RNG.nextInt(20));
+					add(d, x, p.y + 0.4, z, side.x * sgn * s * 0.5, 0.03, side.z * sgn * s * 0.5);
+				}
+			});
 		}
 	}
 
-	/** Una cúpula de polvo: velocidades al azar sobre media esfera, entre 0,15 y 0,3. */
-	private static void dome(Vec3d c, int n) {
-		DustParticleEffect d = dust(ZONEDUST, 4.0f);
+	/** Un punto a rho del eje del cráter (del golpe hasta donde paró la roca, si araba), en el ángulo a, a la altura del golpe. */
+	private static Vec3d around(Hit h, double a, double rho) {
+		double u = h.plow() > 0 ? RNG.nextDouble() * h.plow() : 0;
+		return new Vec3d(h.c().x + h.dir().x * u + Math.cos(a) * rho, h.c().y, h.c().z + h.dir().z * u + Math.sin(a) * rho);
+	}
+
+	/** Una cúpula de polvo: n partículas desde un disco de radio spread, con velocidades entre lo y hi sobre media esfera. */
+	private static void dome(Vec3d c, int n, DustParticleEffect d, double lo, double hi, double spread) {
 		double[] v = new double[3];
 		for (int i = 0; i < n; i++) {
 			unit(v);
 			v[1] = Math.abs(v[1]);
-			double s = range(0.15, 0.3);
-			add(d, c.x + v[0] * 0.3, c.y + v[1] * 0.3, c.z + v[2] * 0.3, v[0] * s, v[1] * s, v[2] * s);
+			double s = range(lo, hi), ox = rnd() * spread, oz = rnd() * spread;
+			add(d, c.x + ox + v[0] * 0.3, c.y + v[1] * 0.3, c.z + oz + v[2] * 0.3, v[0] * s, v[1] * s, v[2] * s);
 		}
+	}
+
+	/**
+	 * Un sonido en p que este oyente oye con fuerza g (0..1). Minecraft lo apaga en línea recta hasta 16 bloques ×
+	 * volumen y nunca lo sube de 1: de cerca basta con bajar el volumen; de lejos se elige para que el alcance llegue hasta
+	 * aquí con fuerza g. Así lo enorme se oye desde muy lejos sin sonar más fuerte de cerca.
+	 */
+	private static void heard(String id, Vec3d p, float pitch, double g, int delay) {
+		if (!(g > 0.01)) return;
+		g = Math.min(1.0, g);
+		double d = cameraDist(p), lin = 1 - d / 16.0;
+		double vol = lin > 0 && g <= lin ? g / lin : Math.min(48.0, d / (1 - Math.min(g, 0.97)) / 16.0);
+		TaktSounds.point(id, p, pitch, (float) vol, delay);
+	}
+
+	/** (1 − d/reach)^pow entre 0 y 1: lo que queda de algo a la distancia d si se apaga a reach. */
+	private static double fade(double d, double reach, double pow) {
+		double f = MathHelper.clamp(1 - d / Math.max(1e-3, reach), 0, 1);
+		return pow == 1.0 ? f : Math.pow(f, pow);
+	}
+
+	/** El color del polvo de un suelo: tierra para la tierra y las plantas, blanco para la nieve; lo demás, su color de mapa mezclado con tierra clara. */
+	private static int[] dustColor(ClientWorld w, BlockState st, BlockPos at) {
+		int fam = GroundRules.family(st);
+		if (fam == GroundRules.SOIL || fam == GroundRules.PLANT) return SOIL;
+		if (fam == GroundRules.SNOW) return SNOW;
+		int rgb = st.getMapColor(w, at).color;
+		return new int[]{(((rgb >> 16) & 0xFF) + LANDED[0]) / 2, (((rgb >> 8) & 0xFF) + LANDED[1]) / 2, ((rgb & 0xFF) + LANDED[2]) / 2};
+	}
+
+	private static int[] darker(int[] rgb, double f) {
+		return new int[]{(int) (rgb[0] * f), (int) (rgb[1] * f), (int) (rgb[2] * f)};
+	}
+
+	/** Tiñe una partícula gris (humo, explosión) del color del polvo, oscurecido por f. */
+	private static void tint(@Nullable Particle p, int[] rgb, double f) {
+		if (p != null) p.setColor((float) (rgb[0] / 255.0 * f), (float) (rgb[1] / 255.0 * f), (float) (rgb[2] / 255.0 * f));
+	}
+
+	/** v partículas (como mucho 160) según la opción de partículas, la mitad si es de otro. */
+	private static int n(double v, boolean own) {
+		return RoomParticles.count((int) Math.round(MathHelper.clamp(v, 1, 160)), own);
 	}
 
 	/** Unir todo: el rebobinado y el acorde; al final del viaje, golpe y destello. */
@@ -1056,7 +1316,7 @@ public final class TaktFxClient {
 		for (Trail t : TRAILS) {
 			if (t.fly == null) continue;
 			double d = cam.distanceTo(t.pe.getLerpedPos(1f));
-			if (t.fly.isDone() || t.v < 0.4 || d > 14) {
+			if (t.fly.isDone() || t.v < 0.4 || d > 14 || roaring(t.pe)) {
 				t.stopFly();
 				continue;
 			}
@@ -1066,7 +1326,7 @@ public final class TaktFxClient {
 		SoundManager sm = mc.getSoundManager();
 		for (Trail t : TRAILS) {
 			if (playing >= MAX_FLYBY || sm == null) return;
-			if (t.fly != null || t.v <= 0.8) continue;
+			if (t.fly != null || t.v <= 0.8 || roaring(t.pe)) continue;
 			double d = cam.distanceTo(t.pe.getLerpedPos(1f));
 			if (d > 12) continue;
 			PieceEntity pe = t.pe;
@@ -1084,6 +1344,137 @@ public final class TaktFxClient {
 
 	private static float flyPitch(double v) {
 		return (float) (0.8 + 0.3 * Math.min(1.0, v / 2));
+	}
+
+	// ------------------------------------------------------------------ rocas que caen
+
+	/**
+	 * Rocas grandes sueltas cerca de la cámara (soltadas, lanzadas o resbalando), mirado cada 4 ticks. Mientras van
+	 * deprisa: el rugido del aire (como mucho 3 a la vez), la estela de polvo aunque nadie la lanzara, el chapuzón si
+	 * entran en el agua y el aire que aparta justo antes de tocar el suelo.
+	 */
+	private static void tickFalls(MinecraftClient mc) {
+		Vec3d cam = cameraPos(mc);
+		if (ticks % 4 == 0 && FALLS.size() < MAX_FALLS) {
+			for (PieceEntity pe : mc.world.getEntitiesByClass(PieceEntity.class, new Box(cam, cam).expand(FALL_SCAN),
+				e -> e.radius() >= FALL_RADIUS && loose(e))) {
+				if (FALLS.size() >= MAX_FALLS) break;
+				FALLS.computeIfAbsent(pe.getId(), id -> new Fall(pe));
+			}
+		}
+		if (FALLS.isEmpty()) return;
+		int roaring = 0;
+		for (Fall f : FALLS.values()) if (f.roar != null) roaring++;
+		Iterator<Fall> it = FALLS.values().iterator();
+		while (it.hasNext()) {
+			Fall f = it.next();
+			PieceEntity pe = f.pe;
+			Vec3d pos = pe.getPos();
+			Vec3d step = pos.subtract(f.last);
+			f.last = pos;
+			if (step.lengthSquared() > 64) step = Vec3d.ZERO;   // un salto, no una velocidad
+			f.v = 0.5 * f.v + 0.5 * step.length();
+			f.vy = 0.5 * f.vy + 0.5 * step.y;
+			if (pe.isRemoved() || pe.getWorld() != mc.world || !loose(pe) || cam.squaredDistanceTo(pos) > FALL_KEEP * FALL_KEEP) {
+				if (f.roar != null) roaring--;
+				f.stopRoar();
+				it.remove();
+				continue;
+			}
+			double sc = MathHelper.clamp(pe.radius() / 3, 0.5, 4);
+			if (f.v > 0.5) keepTrail(pe);
+			splash(mc.world, f, sc);
+			downdraft(mc.world, f, sc);
+			boolean had = f.roar != null;
+			roar(mc, f, sc, cam, step, roaring < MAX_ROARS);
+			if (!had && f.roar != null) roaring++;
+			if (had && f.roar == null) roaring--;
+		}
+	}
+
+	/** Suelta: ni la lleva nadie, ni se está posando, arrancando o flotando tras un corte. */
+	private static boolean loose(PieceEntity pe) {
+		return (pe.flags() & (PieceEntity.F_HELD | PieceEntity.F_LANDED | PieceEntity.F_TEAR | PieceEntity.F_SUSPENDED)) == 0;
+	}
+
+	private static boolean roaring(PieceEntity pe) {
+		Fall f = FALLS.get(pe.getId());
+		return f != null && f.roar != null;
+	}
+
+	/**
+	 * El rugido del aire: empieza a 0,6 bloques por tick (12 m/s) y suena más fuerte y más agudo cuanto más rápido, con
+	 * efecto Doppler (más agudo mientras se acerca, más grave al alejarse). Se apaga si frena o queda lejos.
+	 */
+	private static void roar(MinecraftClient mc, Fall f, double sc, Vec3d cam, Vec3d step, boolean mayStart) {
+		Vec3d at = f.pe.center();
+		double d = cam.distanceTo(at), reach = 24 + 10 * sc;
+		if (f.roar != null && (f.roar.isDone() || f.v < 0.4 || d > reach + 8)) f.stopRoar();
+		float vol = (float) Math.min(0.9, (0.2 + 0.3 * Math.min(1.0, f.v / 2.5)) * (0.8 + 0.2 * sc));
+		double closing = d > 1e-3 ? -step.dotProduct(at.subtract(cam)) / d : 0;
+		double doppler = MathHelper.clamp(SOUND_SPEED / Math.max(1.0, SOUND_SPEED - closing), 0.8, 1.35);
+		float pitch = (float) ((0.55 + 0.3 * Math.min(1.0, f.v / 3) - 0.04 * sc) * doppler);
+		if (f.roar != null) {
+			f.roar.set(vol, pitch);
+			return;
+		}
+		if (!mayStart || f.v <= 0.6 || d > reach) return;
+		SoundManager sm = mc.getSoundManager();
+		if (sm == null) return;
+		LoopSound s = new LoopSound(OpeOpeMod.id("takt.fall"), true, f.pe::center);
+		s.set((float) (reach / 16), pitch);   // el alcance (16 bloques × volumen) se fija al empezar
+		sm.play(s);
+		s.set(vol, pitch);
+		f.roar = s;
+		ROARS++;
+	}
+
+	/** La estela de polvo también para lo que cae sin que nadie lo lanzara (sin THROW no la empieza nadie más). */
+	private static void keepTrail(PieceEntity pe) {
+		for (Trail t : TRAILS) if (t.pe == pe) return;
+		if (TRAILS.size() >= MAX_TRAILS) TRAILS.remove(0).stopFly();
+		TRAILS.add(new Trail(pe, false, ticks));
+	}
+
+	/** Al entrar en el agua cayendo: una columna de agua y espuma del tamaño de la roca, y el chapuzón (una vez). */
+	private static void splash(ClientWorld w, Fall f, double sc) {
+		if (f.splashed || f.vy > -0.3) return;
+		PieceEntity pe = f.pe;
+		BlockPos.Mutable m = new BlockPos.Mutable(MathHelper.floor(pe.getX()), MathHelper.floor(pe.getY()), MathHelper.floor(pe.getZ()));
+		if (!w.getFluidState(m).isIn(FluidTags.WATER)) return;
+		f.splashed = true;
+		int y0 = m.getY(), top = y0;
+		while (top < y0 + 8 && w.getFluidState(m.setY(top + 1)).isIn(FluidTags.WATER)) top++;
+		double x = pe.getX(), y = top + 0.9, z = pe.getZ(), q = Math.sqrt(sc), r = 0.5 * Math.max(pe.blocks.sx, pe.blocks.sz);
+		double speed = Math.min(1.0, -f.vy / 2.5);
+		for (int i = n((20 + 20 * q) * (0.5 + speed), true); i > 0; i--) {
+			double a = RNG.nextDouble() * 2 * Math.PI, rho = r * range(0.6, 1.1), s = range(0.05, 0.25) * q;
+			add(ParticleTypes.SPLASH, x + Math.cos(a) * rho, y, z + Math.sin(a) * rho, Math.cos(a) * s,
+				range(0.4, 0.9) * (0.7 + 0.3 * q) * (0.6 + 0.4 * speed), Math.sin(a) * s);
+		}
+		for (int i = n(6 + 8 * q, true); i > 0; i--) {
+			double a = RNG.nextDouble() * 2 * Math.PI, rho = r * range(0.3, 1.2);
+			add(ParticleTypes.CLOUD, x + Math.cos(a) * rho, y + range(0, 1.5), z + Math.sin(a) * rho, Math.cos(a) * 0.08, range(0.05, 0.2), Math.sin(a) * 0.08);
+		}
+		TaktSounds.vanillaAt(SoundEvents.ENTITY_GENERIC_SPLASH, x, y, z, (float) Math.max(0.5, 0.8 - 0.07 * sc), (float) (1.5 + sc), 0);
+		TaktSounds.vanillaAt(SoundEvents.ENTITY_PLAYER_SPLASH_HIGH_SPEED, x, y, z, (float) Math.max(0.5, 0.75 - 0.05 * sc), (float) (1.0 + 0.5 * sc), 1);
+	}
+
+	/** Justo antes de tocar el suelo, el aire que empuja la roca levanta polvo hacia fuera por debajo (una vez). */
+	private static void downdraft(ClientWorld w, Fall f, double sc) {
+		if (f.gusted || f.vy > -0.5) return;
+		PieceEntity pe = f.pe;
+		int top = w.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, MathHelper.floor(pe.getX()), MathHelper.floor(pe.getZ()));
+		double h = pe.getY() - top;
+		if (h > 1.5 + 0.8 * pe.radius() || h < -1) return;
+		f.gusted = true;
+		BlockState st = w.getBlockState(BlockPos.ofFloored(pe.getX(), top - 0.5, pe.getZ()));
+		DustParticleEffect d = dust(dustColor(w, st, BlockPos.ofFloored(pe.getX(), top - 0.5, pe.getZ())), 3f);
+		double r = 0.5 * Math.max(pe.blocks.sx, pe.blocks.sz), q = Math.sqrt(sc);
+		for (int i = n(10 + 8 * q, true); i > 0; i--) {
+			double a = RNG.nextDouble() * 2 * Math.PI, s = range(0.25, 0.5) * q;
+			add(d, pe.getX() + Math.cos(a) * r, top + 0.2, pe.getZ() + Math.sin(a) * r, Math.cos(a) * s, 0.02, Math.sin(a) * s);
+		}
 	}
 
 	// ------------------------------------------------------------------ lo que llevas
@@ -1212,6 +1603,10 @@ public final class TaktFxClient {
 		if (mc.gameRenderer != null && mc.gameRenderer.getCamera().isReady()) return mc.gameRenderer.getCamera().getPos();
 		if (mc.player != null) return mc.player.getEyePos();
 		return Vec3d.ZERO;
+	}
+
+	private static double cameraDist(Vec3d p) {
+		return Math.sqrt(cameraPos(MinecraftClient.getInstance()).squaredDistanceTo(p));
 	}
 
 	/** Copia de RoomParticles.add: la velocidad se pone después de nacer (si no, Minecraft la cambia por una al azar). */

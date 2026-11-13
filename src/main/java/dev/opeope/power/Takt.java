@@ -994,13 +994,13 @@ public final class Takt {
 		float mass = 0f;
 		if (e instanceof PieceEntity pe) {
 			double r = pe.radius();
-			double gmul = 1 + 0.55 * MathHelper.clamp((r - 2.2) / 8, 0, 1);
-			double g = 0.06 * gmul;
+			double gmul = PieceEntity.heavyGravity(r);
+			double g = 0.06 * gmul, drag = PieceEntity.airDrag(r);
 			Vec3d aimC = aim;
 			for (int k = 0; k < 2; k++) {
 				double dist = aimC.distanceTo(c);
-				double q = 0.02 * dist / speed;
-				double t = q < 0.9 ? Math.log(1 - q) / Math.log(0.98) : dist / speed;   // ticks, con el roce del aire
+				double q = (1 - drag) * dist / speed;
+				double t = q > 1e-9 && q < 0.9 ? Math.log(1 - q) / Math.log(drag) : dist / speed;   // ticks, con el roce del aire
 				aimC = aim.add(0, Math.min(0.5 * g * t * t, 0.3 * dist), 0);
 			}
 			Vec3d dir = aimC.subtract(c);

@@ -24,12 +24,12 @@ import org.jetbrains.annotations.Nullable;
 public final class TaktSounds {
 	private TaktSounds() {}
 
-	/** Los 25 sonidos del corte y de Takt (sin el espacio de nombres), en el orden de {@code sounds.json}. */
+	/** Los 28 sonidos del corte y de Takt (sin el espacio de nombres), en el orden de {@code sounds.json}. */
 	public static final String[] IDS = {
 		"cut.sweep", "cut.ring", "cut.glint", "cut.thump", "cut.split", "takt.reach", "takt.crack", "takt.tear",
 		"takt.rumble", "takt.grab", "takt.grab_low", "takt.chord", "takt.shed", "takt.hold", "takt.throw",
 		"takt.throw_big", "takt.flyby", "takt.impact", "takt.impact_far", "takt.setdown", "takt.land", "takt.seal",
-		"takt.zone", "takt.rewind", "takt.tick"
+		"takt.zone", "takt.rewind", "takt.tick", "takt.debris", "takt.rumble_far", "takt.fall"
 	};
 
 	/** Los demás oyen lo de otro jugador algo más bajo. */

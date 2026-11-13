@@ -78,7 +78,14 @@ public final class OpeConfig {
 	public static final int GROUND_CUT_FADE_TICKS = 200;   // cliente: las marcas se apagan en sus últimos 10 s
 	// Impactos
 	public static final double IMPACT_TIER1 = 6e4, IMPACT_TIER2 = 1.2e6, IMPACT_TIER3 = 1.2e7;   // julios
-	public static final int CRATER_MAX_BLOCKS = 600;
+	public static final double FALL_MAX_SPEED = 5.0;       // b/t: tope de la velocidad en vuelo libre (100 m/s)
+	public static final double IMPACT_FALL_SPEED = 0.8;    // b/t: lo que cae solo (sin lanzar) revienta desde esto (unos 5 bloques de caída)...
+	public static final double IMPACT_FALL_KG = 8000;      // ...si pesa al menos esto (tres bloques de roca)
+	public static final int CRATER_MAX_BLOCKS = 3000;      // lo que un cráter cava como mucho
+	public static final int CRATER_TICK_BUDGET = 9000;     // lo que cavan entre todos los cráteres de un mismo tick
+	public static final double CRATER_MAX_RADIUS = 22;
+	public static final int EJECTA_MAX = 36;               // terrones que salen volando de un cráter
+	public static final int EJECTA_LIVE_MAX = 120;         // terrones en el aire a la vez, cerca del golpe
 
 	// Shambles
 	public static final int SHAMBLES_MARK_TICKS = 20 * 6;

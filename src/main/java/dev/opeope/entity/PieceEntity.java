@@ -26,6 +26,7 @@ import net.minecraft.entity.data.DataTracker;
 import net.minecraft.entity.data.TrackedData;
 import net.minecraft.entity.data.TrackedDataHandlerRegistry;
 import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.listener.ClientPlayPacketListener;
@@ -100,7 +101,8 @@ public class PieceEntity extends Entity {
 
 	public Vec3d targetVel = Vec3d.ZERO;   // velocidad del sitio que sigue, en bloques por segundo (la pone Takt.tick)
 	public int drive = DRIVE_HAND;          // qué muelle (lo pone Takt.tick)
-	public double gravityMul = 1.0;         // gravedad de más de los trozos grandes lanzados (Takt al lanzar; vuelve a 1 al posarse)
+	public double gravityMul = 1.0;         // gravedad de más de lo grande en vuelo libre (heavyGravity al soltarlo; vuelve a 1 al posarse)
+	public boolean debris;                  // un terrón que salió volando de un cráter: no revienta al caer y no da a su dueño
 	@Nullable public Object renderState;    // solo en el cliente (C/render/PieceVisuals); el servidor nunca lo toca
 
 	public Weapon weapon;
@@ -113,6 +115,8 @@ public class PieceEntity extends Entity {
 	public int stuckTicks;
 
 	private int restTicks, freeTicks;
+	private int lastImpactAge = -1000;     // el último impacto (age) y su energía: no revienta dos veces seguidas
+	private double lastImpactE;
 	private final Map<Integer, Integer> hitCooldown = new HashMap<>();
 
 	// El corte: plano (normal hacia la pieza) por el que resbala
@@ -665,6 +669,7 @@ public class PieceEntity extends Entity {
 		freeTicks = 0;
 		noClip = false;
 		setNoGravity(false);
+		gravityMul = heavyGravity(radius());
 		resetMotion();
 		setFlags(0, F_SUSPENDED | F_HELD);
 		if (!getWorld().isClient) Takt.forget(getId());
@@ -679,6 +684,7 @@ public class PieceEntity extends Entity {
 		noClip = false;
 		setNoGravity(false);
 		gravityMul = 1.0;
+		debris = false;
 	}
 
 	/**
@@ -802,19 +808,24 @@ public class PieceEntity extends Entity {
 		if (perTick.length() > 0.7) hitEntities(perTick, true);
 	}
 
+	/**
+	 * En vuelo libre (lanzada, soltada o cayendo sola): la gravedad (más fuerte en lo enorme), el aire (que casi no frena
+	 * lo grande) y, al chocar, el impacto si lo hay (strikes); si no, roce con el suelo hasta pararse y posarse.
+	 */
 	private void freeTick() {
 		freeTicks++;
 		thrownTicks++;
 		Vec3d v = getVelocity();
-		double speedBefore = v.length();
 		if (!hasNoGravity()) v = v.add(0, slowFall ? -0.012 : -0.06 * gravityMul, 0);
 		if (slowFall && v.y < -0.12) v = new Vec3d(v.x, -0.12, v.z);
+		double max = OpeConfig.FALL_MAX_SPEED;
+		if (v.lengthSquared() > max * max) v = v.multiply(max / v.length());
 		setVelocity(v);
 		move(MovementType.SELF, v);
 		boolean collided = horizontalCollision || verticalCollision;
-		if (speedBefore > 0.5) hitEntities(v, false);
-		if (thrown && collided && speedBefore > 1.0 && thrownTicks > 2) {
-			impact(speedBefore, v);
+		if (v.length() > 0.5) hitEntities(v, debris);
+		if (collided && strikes(v)) {
+			impact(v);
 			return;
 		}
 		if (sewOnContact && collided) {
@@ -822,8 +833,9 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		Vec3d after = getVelocity();
-		double f = isOnGround() ? 0.55 : 0.98;
-		setVelocity(after.x * f, after.y * 0.98, after.z * f);
+		double air = airDrag(radius());
+		double f = isOnGround() ? 0.55 : air;
+		setVelocity(after.x * f, after.y * air, after.z * f);
 		if (isOnGround() && getVelocity().lengthSquared() < 0.004) restTicks++;
 		else restTicks = 0;
 		if (restTicks > 6 || freeTicks > 20 * 30) settle(false);
@@ -1075,43 +1087,124 @@ public class PieceEntity extends Entity {
 
 	// ------------------------------------------------------------------ impacto (4.8)
 
+	/** El aire frena lo pequeño y casi nada lo grande (el área crece con r², la masa con r³). Multiplica la velocidad cada tick. */
+	public static double airDrag(double r) {
+		return 1 - 0.02 * Math.min(1.0, Math.pow(1.2 / Math.max(r, 0.1), 1.5));
+	}
+
+	/** La gravedad de más de lo enorme en vuelo, como en el juego («lo enorme no flota»): ×1 hasta radio 2,2 y ×1,55 desde 10,2. */
+	public static double heavyGravity(double r) {
+		return 1 + 0.55 * MathHelper.clamp((r - 2.2) / 8, 0, 1);
+	}
+
 	/**
-	 * Un trozo lanzado que choca (vel: su velocidad justo antes del choque). Con suelo debajo y energía de nivel 2 o más
-	 * abre un cráter y se hunde en él; contra una pared, un tronco o un techo no cava nada: pierde casi toda la velocidad
-	 * y cae al suelo. Desde el nivel 1 hace daño y empuja a lo que haya cerca. Nunca explota ni suelta objetos.
+	 * El nivel de un golpe de e julios (0 nada, 1 muro, 2 casa, 3 colosal), con el tope del juego por tamaño y masa: lo
+	 * pequeño y ligero no revienta como lo colosal, pero lo que pesa sí, aunque sea compacto.
 	 */
-	private void impact(double speed, Vec3d vel) {
+	public static int tierOf(double e, double r, double kg) {
+		int t = e >= OpeConfig.IMPACT_TIER3 ? 3 : e >= OpeConfig.IMPACT_TIER2 ? 2 : e >= OpeConfig.IMPACT_TIER1 ? 1 : 0;
+		if (r < 1.2 && kg < 8000) return Math.min(t, 1);
+		if (r < 3.0 && kg < 30000) return Math.min(t, 2);
+		return t;
+	}
+
+	/** La medida continua del golpe (0 a 1) que escala todo dentro de su nivel (kOf del juego). */
+	public static double kOf(double e) {
+		double top = OpeConfig.IMPACT_TIER3 * 12 / OpeConfig.IMPACT_TIER1;
+		return MathHelper.clamp(Math.log10(Math.max(1, e / OpeConfig.IMPACT_TIER1)) / Math.log10(top), 0, 1);
+	}
+
+	/** Lo que el suelo deja seguir de la velocidad de lado al clavarse (el juego: lo que pesa más de 160 t casi no sigue). */
+	private double keepOnGround() {
+		return MathHelper.clamp(1.05 - massKg() / 1.6e5, 0.15, 1);
+	}
+
+	/**
+	 * La energía del golpe (julios) de un choque a velocidad v (b/t). Contra el suelo se clava: pierde toda la de caer y
+	 * casi toda la de lado (lo pesado; lo ligero sigue resbalando). Contra una pared o un techo, lo que pierde al pararse.
+	 */
+	private double blowEnergy(Vec3d v) {
+		double m = massKg();
+		if (verticalCollision && v.y < 0) {
+			double kh = keepOnGround(), h2 = v.x * v.x + v.z * v.z;
+			return 0.5 * m * 400 * (v.y * v.y + h2 * (1 - kh * kh));
+		}
+		return 0.5 * m * 400 * Math.max(0, v.lengthSquared() - getVelocity().lengthSquared());
+	}
+
+	/**
+	 * ¿Es un impacto este choque (v: la velocidad con la que se movió)? Lo lanzado, si iba rápido. Lo que cae solo (soltado,
+	 * cortado, resbalado), si pesa, iba rápido y el golpe es de nivel 1 o más. El mismo trozo no revienta dos veces seguidas
+	 * (9 ticks) salvo con un golpe tres veces mayor. Ni un terrón de cráter, ni lo que baja despacio, ni lo que va a coserse.
+	 */
+	private boolean strikes(Vec3d v) {
+		if (sewOnContact) return false;
+		double s = v.length();
+		if (thrown) return thrownTicks > 2 && s > 1.0;
+		if (debris || slowFall || s < OpeConfig.IMPACT_FALL_SPEED || massKg() < OpeConfig.IMPACT_FALL_KG) return false;
+		double e = blowEnergy(v);
+		if (age - lastImpactAge < 9 && e < 3 * lastImpactE) return false;
+		return tierOf(e, radius(), massKg()) >= 1;
+	}
+
+	/**
+	 * Un trozo que choca fuerte (vel: su velocidad justo antes del choque). Con terreno debajo y nivel 2 o más abre un
+	 * cráter de su tamaño (Crater.dig): se mete dentro hasta apoyarse, saltan terrones y lo cavado queda alrededor; si
+	 * llegó rasante ara el suelo unos metros antes de pararse. Contra una pared, un tronco o un techo no cava nada: pierde
+	 * casi toda la velocidad y cae al suelo. Desde el nivel 1, la onda (shock). Nunca explota ni suelta objetos.
+	 */
+	private void impact(Vec3d vel) {
 		thrown = false;
 		if (!(getWorld() instanceof ServerWorld w)) return;
-		double energy = 0.5 * massKg() * (20 * speed) * (20 * speed);
-		int tier = energy >= OpeConfig.IMPACT_TIER3 ? 3 : energy >= OpeConfig.IMPACT_TIER2 ? 2 : energy >= OpeConfig.IMPACT_TIER1 ? 1 : 0;
+		BlockView view = GroundRules.loaded(w);
+		double m = massKg(), r = radius();
+		double e = blowEnergy(vel);
+		int tier = tierOf(e, r, m);
+		double k = kOf(e);
+		lastImpactAge = age;
+		lastImpactE = e;
 		boolean ceiling = verticalCollision && vel.y > 0;
+		boolean ground = verticalCollision && vel.y < 0;
 		Vec3d contact;
 		if (ceiling) contact = new Vec3d(getX(), getY() + blocks.sy, getZ());
 		else if (verticalCollision) contact = getPos();
 		else contact = center().add(vel.normalize().multiply(0.5 * Math.min(blocks.sx, blocks.sz)));
-		boolean side = ceiling || (horizontalCollision && !verticalCollision && !groundUnder(GroundRules.loaded(w)));
-		double R = 0, k = 0;
-		if (!side && tier >= 2) {
-			double lo = tier == 2 ? OpeConfig.IMPACT_TIER2 : OpeConfig.IMPACT_TIER3;
-			double hi = tier == 2 ? OpeConfig.IMPACT_TIER3 : 10 * OpeConfig.IMPACT_TIER3;
-			k = MathHelper.clamp(Math.log10(energy / lo) / Math.log10(hi / lo), 0, 1);
-			double r = radius();
-			R = tier == 2 ? MathHelper.clamp(0.55 * r, 1.4, 4) : MathHelper.clamp(0.85 * r, 3, 9);
-			double depth = (tier == 2 ? 0.35 + 0.15 * R : 0.9 + 0.22 * R) * (0.7 + 0.6 * k);
-			Crater.Result dug = Crater.dig(w, contact, R, depth, OpeConfig.CRATER_MAX_BLOCKS);
-			if (dug.removed() > 0) setPosition(getX(), getY() - Math.min(0.6 * depth, blocks.sy / 2.0), getZ());   // se hunde en el cráter
+		boolean side = ceiling || (horizontalCollision && !verticalCollision && !groundUnder(view));
+		BlockState floor = view.getBlockState(BlockPos.ofFloored(contact.x, contact.y - 0.5, contact.z));
+		double vh = Math.hypot(vel.x, vel.z);
+		Vec3d dir = vh > 1e-3 ? new Vec3d(vel.x / vh, 0, vel.z / vh) : Vec3d.ZERO;
+		double R = 0, plow = 0;
+		Crater.Result dug = null;
+		if (!side && tier >= 2 && GroundRules.terrain(floor)) {
+			double rf = 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sz * blocks.sz);
+			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k), 1.4, OpeConfig.CRATER_MAX_RADIUS);
+			double depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k), 1, 10);
+			if (ground && vh > 0.3 * Math.abs(vel.y)) {
+				// rasante: lo que el suelo le deja seguir lo frena el roce (μ 0,6) en unos metros
+				double sv = keepOnGround() * vh * 20;
+				plow = Math.min(sv * sv / (2 * 0.6 * 9.81), 1.5 * R);
+			}
+			dug = Crater.dig(w, this, contact, dir, plow, R, depth, tier);
+			R = dug.radius();
+			plow = dug.plow();
 		}
-		if (tier >= 1) shock(w, contact, R, k, tier);
-		sendFx(w, Payloads.TaktFx.IMPACT, contact.x, contact.y, contact.z, (float) R, (float) (energy / 1e6), chunkFx(), tier,
-			new int[0], ownerOr());
-		if (AUTOTEST) OpeOpeMod.LOG.info("AUTOTEST takt impacto nivel {} cráter {}", tier, String.format(Locale.ROOT, "%.2f", R));
+		if (tier >= 1) shock(w, contact, k, tier, r);
+		int flags = chunkFx() | (r > OpeConfig.TAKT_BIG_RADIUS ? Payloads.TaktFx.F_BIG : 0);
+		int[] data = Payloads.TaktFx.impactData(r, dir, k, Block.getRawIdFromState(floor), plow, dug == null ? 0 : dug.removed());
+		sendFx(w, Payloads.TaktFx.IMPACT, contact.x, contact.y, contact.z, (float) R, (float) (e / 1e6), flags, tier, data, ownerOr());
+		if (AUTOTEST) {
+			OpeOpeMod.LOG.info("AUTOTEST takt impacto nivel {} cráter {} en {} {} {}, {} t, energía {} MJ, arado {}", tier,
+				String.format(Locale.ROOT, "%.2f", R), MathHelper.floor(contact.x), MathHelper.floor(contact.y), MathHelper.floor(contact.z),
+				String.format(Locale.ROOT, "%.1f", m / 1000), String.format(Locale.ROOT, "%.1f", e / 1e6), String.format(Locale.ROOT, "%.1f", plow));
+		}
 		if (side) {
 			// Sin cráter ni bloques pegados a la pared: una pieza suelta normal que cae y se posa en el suelo de abajo.
 			Vec3d v = getVelocity();
 			setVelocity(v.x * 0.3, Math.min(v.y, 0), v.z * 0.3);
 			return;
 		}
+		if (dug != null && dug.seated()) return;
+		if (dug != null && dug.removed() > 0) setPosition(getX(), getY() - Math.min(0.6 * dug.depth(), blocks.sy / 2.0), getZ());
 		settle(false);
 	}
 
@@ -1122,19 +1215,51 @@ public class PieceEntity extends Entity {
 		return solidAt(view, m, x, y - 1, z) || solidAt(view, m, x, y - 2, z);
 	}
 
-	/** La onda del golpe: daño y empujón a lo vivo a menos de R + 2 del punto de contacto (no al dueño). */
-	private void shock(ServerWorld w, Vec3d contact, double R, double k, int tier) {
-		double reach = R + 2;
+	/** El cráter le hizo sitio: queda posada con su esquina mínima en base (sus celdas ya están libres). */
+	public void seat(BlockPos base) {
+		setPosition(base.getX() + blocks.sx / 2.0, base.getY(), base.getZ() + blocks.sz / 2.0);
+		setVelocity(Vec3d.ZERO);
+		place(base, false, true, false);
+	}
+
+	/** Radio de la onda y de lo que tumba, por nivel (el juego: shockRadius y knockdown). */
+	private static final double[] SHOCK_R = {0, 5, 11, 26}, KNOCK_R = {0, 0, 6, 13};
+
+	/**
+	 * La onda del golpe (blast del juego), más grande cuanto más grande el trozo (r): empuja hacia fuera y hacia arriba a
+	 * lo vivo de alrededor y le hace daño, más cerca y más debajo de lo que cae; a los muy cercanos los deja tumbados un
+	 * rato (lentitud). A quien lo lanzó no le hace daño: solo lo aparta si está muy cerca.
+	 */
+	private void shock(ServerWorld w, Vec3d at, double k, int tier, double r) {
+		double s = Math.sqrt(MathHelper.clamp(r / 3, 0.5, 4));
+		double reach = SHOCK_R[tier] * (0.8 + 0.25 * s), knock = KNOCK_R[tier] * (0.8 + 0.25 * s);
+		double dmax = (6 + 80 * Math.pow(k, 1.3)) * OpeConfig.DMG;
 		DamageSource src = damageSource();
-		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(contact, contact).expand(reach),
-			e -> e.isAlive() && !e.isSpectator() && !e.getUuid().equals(owner))) {
-			double d = le.getPos().distanceTo(contact);
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(at, at).expand(reach),
+			e -> e.isAlive() && !e.isSpectator())) {
+			double dx = le.getX() - at.x, dy = le.getY() - at.y, dz = le.getZ() - at.z;
+			double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
 			if (d > reach) continue;
-			double f = 1 - d / reach;
-			le.damage(src, (float) Math.min(24, (2 + 3 * tier) * f * (0.6 + 0.4 * k)));
-			Vec3d push = le.getPos().subtract(contact).normalize().multiply((0.6 + 0.4 * tier) * f).add(0, 0.35, 0);
-			le.addVelocity(push.x, push.y, push.z);
+			double f = 1 - d / reach, fk = knock > 0 ? Math.max(0, 1 - d / knock) : 0;
+			double h = Math.max(0.3, Math.hypot(dx, dz));
+			boolean own = owner != null && le.getUuid().equals(owner);
+			double dv, up;
+			if (own) {
+				if (fk <= 0) continue;
+				dv = 0.3 * fk;
+				up = 0.15 * fk;
+			} else {
+				dv = ((1.5 + 3 * tier) * f * f + 5 * fk) / 20;
+				up = (0.7 + fk) * dv * 0.6;
+			}
+			le.addVelocity(dx / h * dv, up, dz / h * dv);
 			le.velocityModified = true;
+			if (own) continue;
+			double hurt = Math.max(fk, f * 0.3);
+			boolean crush = Math.hypot(dx, dz) < r * 0.9 && dy > -1.5 && dy < r * 1.6;
+			float dmg = (float) Math.min(30, dmax * hurt * (crush ? 1.6 : 1));
+			if (dmg > 0.5f) le.damage(src, dmg);
+			if (fk > 0.25) le.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, (int) (20 * (0.8 + 1.6 * fk)), 3));
 		}
 	}
 

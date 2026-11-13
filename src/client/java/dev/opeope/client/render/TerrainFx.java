@@ -512,7 +512,7 @@ public final class TerrainFx {
 	private static void ageOut(double t) {
 		CRACKS.removeIf(c -> crackFade(c, t) <= 0);
 		boolean rm = OpeSettings.reducedMotion();
-		RINGS.removeIf(r -> t - r.t0() > ringLife(r.kind(), rm));
+		RINGS.removeIf(r -> t - r.t0() > ringLife(r, rm));
 		SEAMS.removeIf(s -> t - s.t0() > 1.2);
 	}
 
@@ -568,6 +568,12 @@ public final class TerrainFx {
 	private static void ring(Ring r) {
 		RINGS.add(r);
 		while (RINGS.size() > RINGS_MAX) RINGS.remove(0);
+	}
+
+	/** La de un impacto dura más cuanto más grande es el cráter (a): la onda de un cráter de 20 bloques no cabe en 0,4 s. */
+	private static double ringLife(Ring r, boolean rm) {
+		double life = ringLife(r.kind(), rm);
+		return r.kind() == Payloads.TaktFx.IMPACT && !rm ? life + 0.02 * Math.max(0, r.a()) : life;
 	}
 
 	private static double ringLife(int kind, boolean rm) {
@@ -970,7 +976,7 @@ public final class TerrainFx {
 		boolean rm = OpeSettings.reducedMotion();
 		for (Ring rg : RINGS) {
 			double age = t - rg.t0();
-			double life = ringLife(rg.kind(), rm);
+			double life = ringLife(rg, rm);
 			if (age < 0 || age > life) continue;
 			double k = 1 - age / life;   // lo que queda de luz
 			double grow;                 // 0..1 del radio

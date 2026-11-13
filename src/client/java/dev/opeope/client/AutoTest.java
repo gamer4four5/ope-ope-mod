@@ -43,6 +43,7 @@ import net.minecraft.client.util.Window;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.passive.PigEntity;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -256,6 +257,8 @@ public final class AutoTest {
 	/** Solo en el hilo del servidor. */
 	private static int dropped0, relocated0;
 	private static Crater.Result crater0;
+	/** Los rugidos de roca que cae que había antes de soltar la rocota (cliente). */
+	private static int roars0;
 	private static BlockPos ghost, ghostB;
 	private static List<BlockSet.Entry> ghostSet = List.of(), ghostSetB = List.of();
 	/** Solo en el hilo del servidor. */
@@ -764,8 +767,8 @@ public final class AutoTest {
 	 * (k2) Cortes recordados, vista previa, arrancar, R R, fantasma, posar, lanzar, cráter y cueva; y (k3) los casos que
 	 * encontró la revisión: un trozo que sube aunque tenga algo encima, lo que pisas no se arranca, nadie queda encerrado
 	 * al devolver un trozo y dos trozos posados a la vez. Rehace su propio trozo de suelo (x gx0−16..gx0+16,
-	 * z gz0−34..gz0+2) con su propio ROOM y al final deja el ROOM de (k) como estaba, para (l). El jugador está en
-	 * supervivencia desde (a).
+	 * z gz0−34..gz0+2) con su propio ROOM (y, para los impactos, todo el campo de alrededor: x gx0−30..gx0+30,
+	 * z gz0−62..gz0+2) y al final deja el ROOM de (k) como estaba, para (l). El jugador está en supervivencia desde (a).
 	 */
 	private static void planSuelo(MinecraftClient mc, IntegratedServer srv, UUID id) {
 		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
@@ -937,19 +940,22 @@ public final class AutoTest {
 					+ srvA + " bloques distintos");
 		});
 
-		// lanzar: cráter, sin objetos, sin perder bloques y con las cuentas del servidor
+		// lanzar: cráter, sin objetos, sin perder bloques y con las cuentas del servidor. El cráter, su borde y los terrones
+		// que salen volando llegan más allá de la parcela de (k2): se mide en todo el campo, rehecho llano alrededor
 		step(5, "suelo: lanzar mide", () -> {
 			srvA = -1;
 			srvB = -1;
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
+				patchFieldRing(w);
+				clearField(w, true);
 				dropped0 = PieceEntity.DROPPED;
 				crater0 = Crater.last;
-				srvB = items(w, new Box(gx0 - 14, gfy - 10, gz0 - 32, gx0 + 15, gfy + 15, gz0 + 1));
-				srvA = count(w, gx0 - 14, gfy - 10, gz0 - 32, gx0 + 14, gfy + 14, gz0, false);
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
 			});
 		});
-		waitFor("suelo: lanzar medido", 20, null, () -> srvA >= 0 && srvB >= 0, () -> {
+		waitFor("suelo: lanzar medido", 40, null, () -> srvA >= 0 && srvB >= 0, () -> {
 			solid0 = srvA;
 			items0 = srvB;
 		});
@@ -978,35 +984,40 @@ public final class AutoTest {
 		waitFor("suelo: impacto", 80, "el trozo no impactó", () -> tgot(IMPACT), () -> {
 			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
 			if (!tgot(IMPACT) || f == null) return;   // el FALLO ya está apuntado
-			OpeOpeMod.LOG.info("AUTOTEST suelo impacto nivel {} cráter {}", f.state(), fmt(f.a()));
+			OpeOpeMod.LOG.info("AUTOTEST suelo impacto nivel {} cráter {} en {} {} {} (desde la escena), arado {}", f.state(), fmt(f.a()),
+				fmt(f.x() - gx0), fmt(f.y() - gfy), fmt(f.z() - gz0), fmt(f.datum(Payloads.TaktFx.I_PLOW, 0) / 100.0));
 			check(tgot(THROW) && f.state() >= 2 && f.a() > 0, "un trozo lanzado abre un cráter", "nivel " + f.state() + ", radio " + fmt(f.a()));
 		});
 		step(4, "14b-suelo-i", () -> shot(mc, "14b-suelo-i-crater"));
-		step(40, "suelo: cráter mide", () -> {
+		settleField(srv, id, "suelo: terrones");
+		step(0, "suelo: cráter mide", () -> {
 			srvA = -1;
 			srvB = -1;
 			srvC = -1;
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
 				Crater.Result c = Crater.last;
-				srvC = (c != crater0 && c.removed() == c.piled() + c.putBack() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0);
-				OpeOpeMod.LOG.info("AUTOTEST suelo cráter {} cavados, {} al borde, {} devueltos", c.removed(), c.piled(), c.putBack());
-				srvB = items(w, new Box(gx0 - 14, gfy - 10, gz0 - 32, gx0 + 15, gfy + 15, gz0 + 1));
-				srvA = count(w, gx0 - 14, gfy - 10, gz0 - 32, gx0 + 14, gfy + 14, gz0, false);
+				srvC = (c != null && c != crater0 && c.balanced() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0);
+				logCrater(c);
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
 			});
 		});
 		waitFor("suelo: cráter medido", 20, null, () -> srvA >= 0 && srvB >= 0 && srvC >= 0, () -> {
+			shot(mc, "14b-suelo-j-crater-posado");
 			check(srvB == items0, "el impacto no suelta objetos", (srvB - items0) + " objetos nuevos");
 			check(srvA == solid0, "el impacto no pierde bloques", solid0 + " → " + srvA);
-			check((srvC & 1) != 0, "el cráter amontona o devuelve todo lo que cava", "cuentas del cráter distintas");
+			check((srvC & 1) != 0, "el cráter amontona, devuelve o lanza todo lo que cava", "cuentas del cráter distintas");
 			check((srvC & 2) != 0, "ningún bloque cae como objeto al asentarse", "PieceEntity.DROPPED cambió");
 		});
 
-		// cueva: con techo encima, el plan sigue el suelo de la cueva (solo el cálculo del cliente; no se arranca nada)
+		// cueva: con techo encima, el plan sigue el suelo de la cueva (solo el cálculo del cliente; no se arranca nada). La
+		// parcela se rehace antes: el borde del cráter de antes puede llegar hasta aquí
 		step(2, "suelo: cueva", () -> {
 			srvA = -1;
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
 				BlockPos.Mutable m = new BlockPos.Mutable();
 				for (int x = gx0 + 4; x <= gx0 + 8; x++)
 					for (int z = gz0 - 14; z <= gz0 - 10; z++)
@@ -1025,6 +1036,8 @@ public final class AutoTest {
 					p.size() + " bloques, cara " + p.face + ", el más alto en " + (p.blocks.length == 0 ? "-" : String.valueOf(top - gfy)));
 			});
 
+		planRocota(mc, srv, id);
+
 		planRevision(mc, srv, id);
 
 		// dejarlo como estaba para (l)
@@ -1033,6 +1046,140 @@ public final class AutoTest {
 			PowerManager.broadcastRoom(sp, 0, savedRoom);
 			if (savedPos != null) sp.networkHandler.requestTeleport(savedPos.x, savedPos.y, savedPos.z, 0f, 10f);
 		}));
+	}
+
+	/**
+	 * (k2) La rocota: una roca de 4×4×4 de andesita pulida (166 t) que se suelta a 30 bloques del suelo cae sola, revienta
+	 * (nivel 3), abre un cráter de su tamaño y se queda metida en él; lo cavado acaba en el borde, de vuelta o en los
+	 * terrones que salen volando, y todo vuelve a ser bloques sin objetos. En el cliente, se la oye caer. Sobre el campo
+	 * recién rehecho llano, mirándola desde 22 bloques.
+	 */
+	private static void planRocota(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int IMPACT = Payloads.TaktFx.IMPACT;
+		final int RX = -2, RY = 31, RZ = -32, SIDE = 4;   // la esquina de la roca desde la escena: cae sobre x 0, z −30
+		step(5, "rocota: preparar", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				patchFieldRing(w);
+				clearField(w, true);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 7.5, 180f, -8f);
+				dropped0 = PieceEntity.DROPPED;
+				crater0 = Crater.last;
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("rocota: preparado", 60, "el cliente no ve el campo rehecho", () -> srvA >= 0 && srvB >= 0
+			&& mc.world.getBlockState(new BlockPos(gx0, gfy, gz0 - 30)).isOf(Blocks.GRASS_BLOCK) && mc.player.getZ() < gz0 - 6, () -> {
+			solid0 = srvA + SIDE * SIDE * SIDE;   // la roca viene de fuera del campo
+			items0 = srvB;
+		});
+		step(4, "rocota: suelta", () -> {
+			tsnap(IMPACT);
+			roars0 = TaktFxClient.ROARS;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				BlockSet set = new BlockSet();
+				for (int x = 0; x < SIDE; x++)
+					for (int y = 0; y < SIDE; y++)
+						for (int z = 0; z < SIDE; z++) set.add(x, y, z, Blocks.POLISHED_ANDESITE.getDefaultState(), null);
+				set.normalize();
+				PieceEntity pe = PieceEntity.spawn(sp.getServerWorld(), set, new Vec3d(gx0 + RX, gfy + RY, gz0 + RZ), null, sp.getUuid());
+				pe.release(Vec3d.ZERO, false);
+				srvC = pe.getId();
+			});
+		});
+		step(18, "14b-suelo-k", () -> shot(mc, "14b-suelo-k-rocota-cae"));
+		waitFor("rocota: impacto", 100, "la rocota no reventó al caer", () -> tgot(IMPACT), () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
+			if (!tgot(IMPACT) || f == null) return;
+			OpeOpeMod.LOG.info("AUTOTEST rocota impacto nivel {} cráter {} en {} {} {} (desde la escena), energía {} MJ", f.state(), fmt(f.a()),
+				fmt(f.x() - gx0), fmt(f.y() - gfy), fmt(f.z() - gz0), fmt(f.b()));
+			check(f.entityId() == srvC && f.state() == 3 && f.a() >= 3, "una rocota soltada desde lo alto revienta y abre un cráter de su tamaño",
+				"pieza " + f.entityId() + " (la rocota es " + srvC + "), nivel " + f.state() + ", radio " + fmt(f.a()));
+			check(TaktFxClient.ROARS > roars0, "se oye caer la rocota (el rugido del aire)", "no empezó ningún rugido");
+		});
+		step(2, "14b-suelo-l", () -> shot(mc, "14b-suelo-l-rocota-golpe"));
+		step(20, "14b-suelo-m", () -> shot(mc, "14b-suelo-m-rocota-nube"));
+		settleField(srv, id, "rocota: terrones");
+		step(0, "rocota: mide", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Crater.Result c = Crater.last;
+				logCrater(c);
+				int sunk = 0;
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 - 8; x <= gx0 + 8; x++)
+					for (int z = gz0 - 38; z <= gz0 - 22; z++)
+						for (int y = gfy - 10; y <= gfy; y++) if (w.getBlockState(m.set(x, y, z)).isOf(Blocks.POLISHED_ANDESITE)) sunk++;
+				OpeOpeMod.LOG.info("AUTOTEST rocota: {} bloques de la roca por debajo del suelo de antes", sunk);
+				srvC = (c != null && c != crater0 && c.balanced() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0) | (c != null && c.seated() ? 4 : 0)
+					| (sunk >= SIDE * SIDE ? 8 : 0);
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("rocota: medido", 20, null, () -> srvA >= 0 && srvB >= 0 && srvC >= 0, () -> {
+			shot(mc, "14b-suelo-n-rocota-crater");
+			check(srvB == items0, "la rocota no suelta objetos", (srvB - items0) + " objetos nuevos");
+			check(srvA == solid0, "la rocota no pierde ni inventa bloques", solid0 + " → " + srvA);
+			check((srvC & 1) != 0, "su cráter amontona, devuelve o lanza todo lo que cava", "cuentas del cráter distintas");
+			check((srvC & 2) != 0, "ningún bloque de la rocota ni del cráter cae como objeto", "PieceEntity.DROPPED cambió");
+			check((srvC & 12) == 12, "la rocota se queda metida en su cráter", "asentada " + ((srvC & 4) != 0) + ", al menos una capa hundida "
+				+ ((srvC & 8) != 0));
+		});
+	}
+
+	/** El campo de los impactos: x gx0−30..gx0+30, z gz0−62..gz0+2, y como patch (gfy−14..gfy+26). */
+	private static Box fieldBox() {
+		return new Box(gx0 - 30, gfy - 14, gz0 - 62, gx0 + 31, gfy + 27, gz0 + 3);
+	}
+
+	/** En el hilo del servidor: los bloques que no son aire en el campo. */
+	private static int fieldCount(ServerWorld w) {
+		return count(w, gx0 - 30, gfy - 14, gz0 - 62, gx0 + 30, gfy + 26, gz0 + 2, false);
+	}
+
+	/** En el hilo del servidor: los objetos tirados en el campo. */
+	private static int fieldItems(ServerWorld w) {
+		return items(w, fieldBox());
+	}
+
+	/** En el hilo del servidor: rehace llano lo del campo que queda fuera de la parcela de (k2) (x ±16, z gz0−34..gz0+2). */
+	private static void patchFieldRing(ServerWorld w) {
+		patch(w, gx0 - 30, gx0 - 17, gz0 - 62, gz0 + 2, gfy);
+		patch(w, gx0 + 17, gx0 + 30, gz0 - 62, gz0 + 2, gfy);
+		patch(w, gx0 - 16, gx0 + 16, gz0 - 62, gz0 - 35, gfy);
+	}
+
+	/**
+	 * En el hilo del servidor: fuera del campo los objetos y los animales (la onda del golpe no mata a nadie que suelte
+	 * nada) y, con pieces, también las piezas sueltas.
+	 */
+	private static void clearField(ServerWorld w, boolean pieces) {
+		for (Entity e : w.getEntitiesByClass(Entity.class, fieldBox(),
+			en -> en instanceof ItemEntity || en instanceof MobEntity || (pieces && en instanceof PieceEntity))) e.discard();
+	}
+
+	/** Espera (como mucho 15 s) a que no quede ninguna pieza suelta en el campo: los terrones de un cráter aún vuelan. */
+	private static void settleField(IntegratedServer srv, UUID id, String name) {
+		step(0, name, () -> srvC = -1);
+		repeatUntil(name + " posados", 5, 300, () -> server(srv, id, (sp, pw) ->
+			srvC = sp.getServerWorld().getEntitiesByClass(PieceEntity.class, fieldBox(), e -> true).size()), () -> srvC == 0);
+	}
+
+	/** En el hilo del servidor: las cuentas del último cráter. */
+	private static void logCrater(Crater.Result c) {
+		if (c == null) return;
+		OpeOpeMod.LOG.info("AUTOTEST cráter radio {} hondo {} arado {}: {} cavados = {} al borde + {} devueltos + {} bajo la roca + {} volando; asentada {}",
+			fmt(c.radius()), fmt(c.depth()), fmt(c.plow()), c.removed(), c.piled(), c.putBack(), c.backfill(), c.ejected(), c.seated());
 	}
 
 	/**

@@ -442,6 +442,22 @@ public final class Payloads {
 			return ((p >> 20) & 1023) - 512;
 		}
 
+		/**
+		 * Los datos de IMPACT: el radio del trozo y los metros arados (por 100), hacia dónde iba (x, z por 1000), la medida
+		 * del golpe k (por 1000), el bloque del suelo (su id crudo) y los bloques que cavó el cráter. Se leen con los I_*.
+		 */
+		public static int[] impactData(double radius, Vec3d dir, double k, int groundId, double plow, int dug) {
+			return new int[]{(int) Math.round(radius * 100), (int) Math.round(dir.x * 1000), (int) Math.round(dir.z * 1000),
+				(int) Math.round(k * 1000), groundId, (int) Math.round(plow * 100), dug};
+		}
+
+		public static final int I_RADIUS = 0, I_DIRX = 1, I_DIRZ = 2, I_K = 3, I_GROUND = 4, I_PLOW = 5, I_DUG = 6;
+
+		/** El dato i de IMPACT, o def si no viene (un servidor más viejo). */
+		public int datum(int i, int def) {
+			return data != null && i >= 0 && i < data.length ? data[i] : def;
+		}
+
 		@Override
 		public Id<? extends CustomPayload> getId() {
 			return ID;

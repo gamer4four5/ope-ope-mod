@@ -1,7 +1,9 @@
 package dev.opeope.entity;
 
+import dev.opeope.OpeConfig;
 import dev.opeope.terrain.GroundRules;
 import dev.opeope.terrain.Landing;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -13,142 +15,425 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.BlockView;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
+import java.util.UUID;
 
 /**
- * El cráter de un trozo lanzado que golpea fuerte: cava un cuenco en el terreno, amontona lo cavado en el borde y, si no
- * cabe, lo devuelve a su sitio. Nunca se pierde ni se duplica un bloque, y nunca se amontona tierra donde hay un ser vivo.
+ * El cráter de un trozo que golpea fuerte (nivel 2 o 3) sobre terreno, a su medida. Cava un cuenco (alargado en un surco
+ * si llegó rasante: ara el suelo unos metros), deja caer el trozo dentro hasta que se apoya y rellena con lo cavado el
+ * hueco que le quede debajo, lanza unos terrones por el aire (piezas de un bloque que se posan donde caen) y reparte el
+ * resto alrededor: un borde levantado que adelgaza hacia fuera, más hacia donde iba (el manto de lo que salta). Lo
+ * colosal además agrieta el suelo en rayos y oscurece la hierba de alrededor. Lo que no cabe vuelve a una celda cavada.
+ * <p>Nunca se pierde ni se duplica un bloque, nunca suelta objetos, nunca se amontona tierra donde hay un ser vivo y
+ * nunca cava bajo algo que no sea terreno o una planta (una casa, un árbol, un cofre se quedan como están).
  */
 public final class Crater {
 	private Crater() {}
 
-	/** Bloques cavados, amontonados en el borde y devueltos a su sitio (siempre removed == piled + putBack). */
-	public record Result(int removed, int piled, int putBack) {}
+	/**
+	 * Lo cavado y adónde fue: al manto (piled), de vuelta a una celda cavada (putBack), bajo el trozo (backfill) o por el
+	 * aire (ejected). seated: el trozo quedó posado dentro. radius, depth y plow: las medidas con las que se cavó.
+	 */
+	public record Result(int removed, int piled, int putBack, int backfill, int ejected, boolean seated,
+						 double radius, double depth, double plow) {
+		/** Todo lo cavado fue a alguna parte. */
+		public boolean balanced() {
+			return removed == piled + putBack + backfill + ejected;
+		}
+	}
 
 	/** El último cráter (solo en el hilo del servidor; lo mira la prueba automática). */
-	public static Result last = new Result(0, 0, 0);
+	public static Result last = new Result(0, 0, 0, 0, 0, false, 0, 0, 0);
 
-	/** Una columna del borde: dónde está, su suelo (calculado antes de amontonar nada) y su ángulo y distancia al centro. */
-	private record Rim(int x, int z, int base, double angle, double rho) {}
+	// lo que llevan cavado los cráteres de este tick (CRATER_TICK_BUDGET)
+	private static long budgetTick = Long.MIN_VALUE;
+	private static int budgetUsed;
+
+	/** Un bloque cavado: dónde estaba, qué era y a cuántos bloques bajo la superficie de su columna (0 = la de arriba). */
+	private record Dug(BlockPos pos, BlockState state, int depth) {}
+
+	/** Una columna del manto: dónde, su suelo (antes de amontonar), su distancia al cuenco y su parte del manto. */
+	private static final class Col {
+		final int x, z, base;
+		final double rho, weight;
+		int target, h;
+		boolean blocked;
+
+		Col(int x, int z, int base, double rho, double weight) {
+			this.x = x;
+			this.z = z;
+			this.base = base;
+			this.rho = rho;
+			this.weight = weight;
+		}
+	}
 
 	/**
-	 * Cava el cráter en contact (radio R en horizontal, hondo depth en el centro, a lo sumo maxBlocks bloques) y amontona lo
-	 * cavado en el borde, entre R y R + 1,5. Lo que no cabe en el borde vuelve a su celda.
+	 * Cava el cráter de rock (o solo el cráter, si es null) que golpea en contact: radio R en horizontal y hondo depth en
+	 * el centro; si dir no es cero y plow &gt; 0, alargado plow bloques hacia dir y el trozo acaba al final del surco. Si
+	 * no cabe en lo que queda de cavar en este tick (CRATER_MAX_BLOCKS, CRATER_TICK_BUDGET), todo más pequeño en
+	 * proporción. Si el trozo encuentra sitio dentro, queda posado (Result.seated); si no, lo posa quien llama.
 	 */
-	public static Result dig(ServerWorld w, Vec3d contact, double R, double depth, int maxBlocks) {
-		BlockView view = GroundRules.loaded(w);
-		// En vertical, todo lo que el borde puede tocar: su suelo está a ±4 de yRef y se amontona hasta 4 encima.
-		List<Box> bl = Landing.blockers(w, new Box(contact, contact).expand(R + 3, 10, R + 3));
-		int yRef = MathHelper.floor(contact.y) - 1;
-		List<BlockPos> cells = new ArrayList<>();
-		List<BlockState> states = new ArrayList<>();
-		if (R > 0 && depth > 0 && maxBlocks > 0) carve(w, view, contact, R, depth, yRef, maxBlocks, cells, states);
-		for (BlockPos p : cells) w.updateNeighbors(p, Blocks.AIR);
-		boolean[] done = new boolean[cells.size()];
-		int piled = cells.isEmpty() ? 0 : pile(w, view, bl, rim(view, contact, R, yRef), states, done);
-		int putBack = 0;
-		for (int i = 0; i < cells.size(); i++) {
-			if (done[i]) continue;
-			w.setBlockState(cells.get(i), states.get(i), Block.NOTIFY_ALL);
-			putBack++;
+	public static Result dig(ServerWorld w, @Nullable PieceEntity rock, Vec3d contact, Vec3d dir, double plow, double R,
+							 double depth, int tier) {
+		long now = w.getTime();
+		if (now != budgetTick) {
+			budgetTick = now;
+			budgetUsed = 0;
 		}
-		dust(w, cells, states);
-		last = new Result(cells.size(), piled, putBack);
+		int cap = Math.min(OpeConfig.CRATER_MAX_BLOCKS, Math.max(150, OpeConfig.CRATER_TICK_BUDGET - budgetUsed));
+		if (dir.lengthSquared() < 1e-6) plow = 0;
+		double vol = Math.PI / 2 * R * R * depth + 4.0 / 3 * R * depth * plow;
+		if (vol > cap) {
+			double s = Math.cbrt(cap / vol);
+			R *= s;
+			depth *= s;
+			plow *= s;
+		}
+		R = Math.max(1.0, R);
+		depth = Math.max(0.6, depth);
+		BlockView view = GroundRules.loaded(w);
+		Random rnd = new Random(BlockPos.ofFloored(contact).asLong() * 31 + now);
+		double ax = contact.x, az = contact.z, bx = ax + dir.x * plow, bz = az + dir.z * plow;
+		int yRef = MathHelper.floor(contact.y) - 1;
+		double outer = R + Math.max(2.0, 0.9 * R);   // el manto llega hasta aquí, medido desde el surco
+		List<Box> bl = Landing.blockers(w, new Box(Math.min(ax, bx) - outer - 1, contact.y - 16, Math.min(az, bz) - outer - 1,
+			Math.max(ax, bx) + outer + 1, contact.y + 16, Math.max(az, bz) + outer + 1));
+
+		List<Dug> dug = new ArrayList<>();
+		LongOpenHashSet dugSet = new LongOpenHashSet();
+		carve(w, view, ax, az, bx, bz, R, depth, yRef, cap, dug, dugSet);
+		budgetUsed += 2 * dug.size();
+		for (Dug d : dug) w.updateNeighbors(d.pos(), Blocks.AIR);
+
+		// el trozo baja dentro del cuenco (al final del surco; si ahí no cabe, donde golpeó) hasta apoyarse
+		BlockPos seat = null;
+		if (rock != null && !dug.isEmpty()) {
+			BlockSet set = rock.blocks;
+			seat = Landing.find(view, set, new Vec3d(bx - set.sx / 2.0, rock.getY(), bz - set.sz / 2.0), bl);
+			if (seat == null && plow > 0) seat = Landing.find(view, set, rock.corner(), bl);
+		}
+		ArrayDeque<Dug> pool = new ArrayDeque<>(dug.size());
+		List<Dug> sorted = new ArrayList<>(dug);
+		sorted.sort(Comparator.comparingInt(Dug::depth).reversed());   // lo más hondo primero
+		pool.addAll(sorted);
+		int backfill = 0;
+		double cx = bx, cz = bz;
+		if (seat != null) {
+			backfill = backfill(w, view, rock.blocks, seat, dugSet, bl, pool);
+			rock.seat(seat);
+			cx = seat.getX() + rock.blocks.sx / 2.0;
+			cz = seat.getZ() + rock.blocks.sz / 2.0;
+		}
+		int ejected = pool.isEmpty() ? 0 : eject(w, rock, pool, cx, contact.y, cz, R, dir, tier, rnd);
+		List<Col> cols = rim(view, ax, az, bx, bz, R, outer, yRef, dir);
+		int piled = pile(w, view, bl, cols, pool, R, rnd);
+		int putBack = putBack(w, view, bl, dug, pool, cols);
+		scorch(w, view, cols, R, rnd);
+		if (tier >= 3) cracks(w, view, bx, bz, R, yRef, rnd);
+		dust(w, dug);
+		last = new Result(dug.size(), piled, putBack, backfill, ejected, seat != null, R, depth, plow);
 		return last;
 	}
 
-	/** El cuenco: columnas por x y luego z; en cada una, desde su superficie hacia abajo hasta la hondura de esa columna. */
-	private static void carve(ServerWorld w, BlockView view, Vec3d c, double R, double depth, int yRef, int maxBlocks,
-			List<BlockPos> cells, List<BlockState> states) {
-		BlockPos.Mutable m = new BlockPos.Mutable();
-		double r2 = R * R;
-		int x0 = MathHelper.floor(c.x - R), x1 = MathHelper.floor(c.x + R);
-		int z0 = MathHelper.floor(c.z - R), z1 = MathHelper.floor(c.z + R);
+	/** Distancia horizontal de (x, z) al segmento a–b. */
+	private static double seg(double x, double z, double ax, double az, double bx, double bz) {
+		double ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+		double u = l2 < 1e-9 ? 0 : MathHelper.clamp(((x - ax) * ex + (z - az) * ez) / l2, 0, 1);
+		return Math.hypot(x - ax - ex * u, z - az - ez * u);
+	}
+
+	/**
+	 * El cuenco: las columnas a menos de R del surco, de la más cercana a la más lejana (si se llega al tope, el cráter
+	 * queda redondo); en cada una, desde su superficie hacia abajo hasta la hondura de esa columna. Las plantas de
+	 * encima se van con el golpe (sin soltar nada); una columna con algo encima que no es una planta no se cava.
+	 */
+	private static void carve(ServerWorld w, BlockView view, double ax, double az, double bx, double bz, double R, double depth,
+							  int yRef, int cap, List<Dug> out, LongOpenHashSet set) {
+		int x0 = MathHelper.floor(Math.min(ax, bx) - R), x1 = MathHelper.floor(Math.max(ax, bx) + R);
+		int z0 = MathHelper.floor(Math.min(az, bz) - R), z1 = MathHelper.floor(Math.max(az, bz) + R);
+		List<double[]> cols = new ArrayList<>();
 		for (int x = x0; x <= x1; x++) {
 			for (int z = z0; z <= z1; z++) {
-				double dx = x + 0.5 - c.x, dz = z + 0.5 - c.z, rho2 = dx * dx + dz * dz;
-				if (rho2 > r2) continue;
-				double d = depth * (1 - rho2 / r2);
-				int top = GroundRules.surfaceNear(view, x, z, yRef, 4);
-				if (top == GroundRules.NONE) continue;
-				for (int y = top; y + 0.5 >= top + 1 - d; y--) {
-					m.set(x, y, z);
-					BlockState st = view.getBlockState(m);
-					if (!GroundRules.cuttable(st, view, m) || st.hasBlockEntity() || st.getHardness(view, m) >= 50) break;
-					BlockPos p = m.toImmutable();
-					cells.add(p);
-					states.add(st);
-					w.setBlockState(p, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE | Block.SKIP_DROPS);
-					if (cells.size() >= maxBlocks) return;
-				}
+				double rho = seg(x + 0.5, z + 0.5, ax, az, bx, bz);
+				if (rho <= R) cols.add(new double[]{x, z, rho});
+			}
+		}
+		cols.sort(Comparator.comparingDouble(c -> c[2]));
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		double r2 = R * R;
+		for (double[] c : cols) {
+			int x = (int) c[0], z = (int) c[1];
+			double d = depth * (1 - c[2] * c[2] / r2);
+			if (d < 0.5) continue;
+			int top = GroundRules.surfaceNear(view, x, z, yRef, 4);
+			if (top == GroundRules.NONE || !clearAbove(w, view, m, x, top + 1, z)) continue;
+			for (int y = top, k = 0; y + 0.5 >= top + 1 - d; y--, k++) {
+				m.set(x, y, z);
+				BlockState st = view.getBlockState(m);
+				if (!GroundRules.cuttable(st, view, m) || st.hasBlockEntity() || st.getHardness(view, m) >= 50) break;
+				BlockPos p = m.toImmutable();
+				out.add(new Dug(p, st, k));
+				set.add(p.asLong());
+				w.setBlockState(p, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE | Block.SKIP_DROPS);
+				if (out.size() >= cap) return;
 			}
 		}
 	}
 
-	/** Las columnas del borde con suelo, ordenadas por ángulo y luego por distancia. */
-	private static List<Rim> rim(BlockView view, Vec3d c, double R, int yRef) {
-		List<Rim> out = new ArrayList<>();
-		double outer = R + 1.5;
-		int x0 = MathHelper.floor(c.x - outer), x1 = MathHelper.floor(c.x + outer);
-		int z0 = MathHelper.floor(c.z - outer), z1 = MathHelper.floor(c.z + outer);
-		for (int x = x0; x <= x1; x++) {
-			for (int z = z0; z <= z1; z++) {
-				double dx = x + 0.5 - c.x, dz = z + 0.5 - c.z, rho = Math.sqrt(dx * dx + dz * dz);
-				if (rho <= R || rho > outer) continue;
-				int s = GroundRules.surfaceNear(view, x, z, yRef, 4);
-				if (s == GroundRules.NONE) continue;
-				out.add(new Rim(x, z, s, Math.atan2(dz, dx), rho));
+	/**
+	 * Lo que hay encima de la superficie de una columna (desde y, dos celdas): aire, o plantas y nieve fina que el golpe
+	 * se lleva (se quitan sin soltar nada). false si hay otra cosa (un muro, un tronco, un cofre): esa columna no se cava.
+	 */
+	private static boolean clearAbove(ServerWorld w, BlockView view, BlockPos.Mutable m, int x, int y, int z) {
+		for (int k = 0; k < 2; k++) {
+			m.set(x, y + k, z);
+			BlockState st = view.getBlockState(m);
+			if (st.isAir() || !st.getFluidState().isEmpty()) return true;
+			boolean plant = (GroundRules.plantLike(st, view, m) || st.isOf(Blocks.SNOW)) && !st.hasBlockEntity();
+			if (!plant) return k > 0;
+			w.setBlockState(m.toImmutable(), Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE | Block.SKIP_DROPS);
+		}
+		return true;
+	}
+
+	/**
+	 * Rellena con lo cavado (lo más hondo primero) las celdas cavadas que quedan libres bajo la cara de abajo del trozo
+	 * posado en seat: queda apoyado en tierra apretada, sin un hueco escondido debajo. Devuelve cuántos puso.
+	 */
+	private static int backfill(ServerWorld w, BlockView view, BlockSet set, BlockPos seat, LongOpenHashSet dugSet, List<Box> bl,
+								ArrayDeque<Dug> pool) {
+		int n = 0;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (BlockSet.Entry e : set.entries) {
+			if (set.contains(e.x(), e.y() - 1, e.z())) continue;
+			int x = seat.getX() + e.x(), z = seat.getZ() + e.z();
+			for (int y = seat.getY() + e.y() - 1; !pool.isEmpty(); y--) {
+				m.set(x, y, z);
+				if (!dugSet.contains(m.asLong()) || !Landing.free(view, m, bl)) break;
+				w.setBlockState(m.toImmutable(), pool.pollFirst().state(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE);
+				n++;
 			}
 		}
-		out.sort(Comparator.comparingDouble(Rim::angle).thenComparingDouble(Rim::rho));
+		return n;
+	}
+
+	/**
+	 * Unos terrones salen volando (lo de la superficie: hierba, tierra) y caen alrededor, entre 1,15 y 2,75 radios, más
+	 * hacia donde iba si llegó con fuerza de lado. Son piezas de un bloque (debris) que se posan donde caen; como mucho
+	 * EJECTA_MAX por cráter y EJECTA_LIVE_MAX en el aire cerca. Salen del borde del trozo, a ras del suelo de antes.
+	 */
+	private static int eject(ServerWorld w, @Nullable PieceEntity rock, ArrayDeque<Dug> pool, double cx, double cy, double cz,
+							 double R, Vec3d dir, int tier, Random rnd) {
+		int want = MathHelper.clamp((int) Math.round(pool.size() * 0.08), tier >= 3 ? 6 : 3, OpeConfig.EJECTA_MAX);
+		Box near = new Box(cx - 96, cy - 64, cz - 96, cx + 96, cy + 64, cz + 96);
+		int live = w.getEntitiesByClass(PieceEntity.class, near, pe -> pe.debris && !pe.isRemoved()).size();
+		int n = Math.min(Math.min(want, pool.size()), OpeConfig.EJECTA_LIVE_MAX - live);
+		if (n <= 0) return 0;
+		double rr = rock == null ? 0.6 : 0.5 * Math.sqrt((double) rock.blocks.sx * rock.blocks.sx + (double) rock.blocks.sz * rock.blocks.sz) + 0.6;
+		UUID owner = rock == null ? null : rock.owner;
+		boolean aimed = dir.lengthSquared() > 1e-6;
+		double heading = aimed ? Math.atan2(dir.z, dir.x) : 0;
+		for (int i = 0; i < n; i++) {
+			Dug d = pool.pollLast();
+			double a = aimed && rnd.nextDouble() < 0.6 ? heading + rnd.nextGaussian() * 0.9 : rnd.nextDouble() * 2 * Math.PI;
+			double dist = Math.max(1.5, R * (1.15 + 1.6 * Math.pow(rnd.nextDouble(), 1.4)) - rr);
+			double el = Math.toRadians(48 + 20 * rnd.nextDouble());
+			double sp = Math.min(2.2, Math.sqrt(0.06 * dist / Math.sin(2 * el)) * 1.12);   // un poco más por el aire
+			double ca = Math.cos(a), sa = Math.sin(a), ce = Math.cos(el);
+			double px = cx + ca * rr, pz = cz + sa * rr, py = cy + 0.3 + 0.4 * rnd.nextDouble();
+			BlockSet set = new BlockSet();
+			set.add(0, 0, 0, d.state(), null);
+			PieceEntity e = PieceEntity.spawn(w, set, new Vec3d(px - 0.5, py, pz - 0.5), d.pos(), owner);
+			e.debris = true;
+			e.release(new Vec3d(ca * ce * sp, Math.sin(el) * sp, sa * ce * sp), false);
+		}
+		return n;
+	}
+
+	/**
+	 * Las columnas del manto (entre R y outer del surco) con suelo, de la más cercana a la más lejana, cada una con su
+	 * parte: (R/ρ)³, más hacia donde iba y menos hacia atrás.
+	 */
+	private static List<Col> rim(BlockView view, double ax, double az, double bx, double bz, double R, double outer, int yRef, Vec3d dir) {
+		List<Col> out = new ArrayList<>();
+		int x0 = MathHelper.floor(Math.min(ax, bx) - outer), x1 = MathHelper.floor(Math.max(ax, bx) + outer);
+		int z0 = MathHelper.floor(Math.min(az, bz) - outer), z1 = MathHelper.floor(Math.max(az, bz) + outer);
+		boolean aimed = dir.lengthSquared() > 1e-6;
+		for (int x = x0; x <= x1; x++) {
+			for (int z = z0; z <= z1; z++) {
+				double rho = seg(x + 0.5, z + 0.5, ax, az, bx, bz);
+				if (rho <= R || rho > outer) continue;
+				int s = GroundRules.surfaceNear(view, x, z, yRef, 5);
+				if (s == GroundRules.NONE) continue;
+				double wgt = Math.pow(R / rho, 3);
+				if (aimed) {
+					double ex = x + 0.5 - bx, ez = z + 0.5 - bz, el = Math.hypot(ex, ez);
+					if (el > 1e-3) {
+						double c = (ex * dir.x + ez * dir.z) / el;
+						wgt *= 1 + 0.7 * Math.max(0, c) - 0.45 * Math.max(0, -c);
+					}
+				}
+				out.add(new Col(x, z, s, rho, wgt));
+			}
+		}
+		out.sort(Comparator.comparingDouble(c -> c.rho));
 		return out;
 	}
 
 	/**
-	 * Amontona en el borde: primero hasta 2 de alto, luego 3, luego 4. Cada bloque cavado prueba las columnas a partir de la
-	 * suya (i % columnas) y se queda en la primera que tenga sitio libre (sin bloque y sin ser vivo). Devuelve cuántos puso.
+	 * Amontona en el manto lo que queda (lo más hondo en las columnas más cercanas: la roca de abajo acaba en el borde y
+	 * la hierba de arriba, lejos). Cada columna crece hasta su parte del manto (como mucho 0,22·R + 1,5 de alto); si
+	 * sobra, capas de una en una, de la más cercana a la más lejana. Solo en celdas libres (sin bloque y sin ser vivo).
 	 */
-	private static int pile(ServerWorld w, BlockView view, List<Box> bl, List<Rim> rim, List<BlockState> states, boolean[] done) {
-		int n = rim.size();
-		if (n == 0) return 0;
-		int[] height = new int[n];
-		boolean[] blocked = new boolean[n];   // la celda siguiente de esa columna está ocupada: ya no crece
-		BlockPos.Mutable q = new BlockPos.Mutable();
+	private static int pile(ServerWorld w, BlockView view, List<Box> bl, List<Col> cols, ArrayDeque<Dug> pool, double R, Random rnd) {
+		if (cols.isEmpty() || pool.isEmpty()) return 0;
+		double sum = 0;
+		for (Col c : cols) sum += c.weight;
+		double t = pool.size() / Math.max(sum, 1e-9);
+		int hmax = Math.max(2, (int) Math.round(0.22 * R + 1.5));
+		for (Col c : cols) {
+			double want = Math.min(hmax, t * c.weight);
+			int h = (int) Math.floor(want);
+			if (rnd.nextDouble() < want - h) h++;
+			c.target = h;
+		}
 		int piled = 0;
-		for (int cap = 2; cap <= 4; cap++) {
-			for (int i = 0; i < states.size(); i++) {
-				if (done[i]) continue;
-				for (int t = 0; t < n; t++) {
-					int j = (i + t) % n;
-					if (blocked[j] || height[j] >= cap) continue;
-					Rim col = rim.get(j);
-					q.set(col.x(), col.base() + 1 + height[j], col.z());
+		BlockPos.Mutable q = new BlockPos.Mutable();
+		for (int pass = 0; pass < 10 && !pool.isEmpty(); pass++) {
+			boolean grew = false;
+			for (Col c : cols) {
+				if (pool.isEmpty()) break;
+				if (c.blocked) continue;
+				int goal = pass == 0 ? c.target : Math.min(c.h + 1, hmax + pass);
+				while (c.h < goal && !pool.isEmpty()) {
+					q.set(c.x, c.base + 1 + c.h, c.z);
 					if (!Landing.free(view, q, bl)) {
-						blocked[j] = true;
-						continue;
+						c.blocked = true;
+						break;
 					}
-					w.setBlockState(q.toImmutable(), states.get(i), Block.NOTIFY_ALL);
-					height[j]++;
+					w.setBlockState(q.toImmutable(), pool.pollFirst().state(), Block.NOTIFY_ALL);
+					c.h++;
 					piled++;
-					done[i] = true;
-					break;
+					grew = true;
 				}
 			}
+			if (pass > 0 && !grew) break;
 		}
 		return piled;
 	}
 
-	/** Polvo del material: 3 partículas en uno de cada ⌈cavados/80⌉ bloques cavados. */
-	private static void dust(ServerWorld w, List<BlockPos> cells, List<BlockState> states) {
-		int n = cells.size();
+	/**
+	 * Lo que no cupo en el manto vuelve a las celdas cavadas que sigan libres, de abajo arriba (nada queda en el aire).
+	 * Si ni así (todo ocupado por el trozo), encima de su columna del manto más cercana o, en último caso, en la primera
+	 * celda libre sobre la suya: nunca se pierde.
+	 */
+	private static int putBack(ServerWorld w, BlockView view, List<Box> bl, List<Dug> dug, ArrayDeque<Dug> pool, List<Col> cols) {
+		if (pool.isEmpty()) return 0;
+		int n = 0;
+		List<BlockPos> cells = new ArrayList<>(dug.size());
+		for (Dug d : dug) cells.add(d.pos());
+		cells.sort(Comparator.comparingInt(BlockPos::getY));
+		for (BlockPos p : cells) {
+			if (pool.isEmpty()) return n;
+			if (!Landing.free(view, p, bl)) continue;
+			w.setBlockState(p, pool.pollFirst().state(), Block.NOTIFY_ALL);
+			n++;
+		}
+		BlockPos.Mutable q = new BlockPos.Mutable();
+		for (Col c : cols) {
+			while (!pool.isEmpty() && c.h < 32) {
+				q.set(c.x, c.base + 1 + c.h, c.z);
+				if (!Landing.free(view, q, bl)) break;
+				w.setBlockState(q.toImmutable(), pool.pollFirst().state(), Block.NOTIFY_ALL);
+				c.h++;
+				n++;
+			}
+			if (pool.isEmpty()) return n;
+		}
+		while (!pool.isEmpty()) {
+			Dug d = pool.pollFirst();
+			BlockPos p = d.pos();
+			for (int y = p.getY(); y < w.getTopY(); y++) {
+				q.set(p.getX(), y, p.getZ());
+				if (!Landing.free(view, q, bl)) continue;
+				w.setBlockState(q.toImmutable(), d.state(), Block.NOTIFY_ALL);
+				n++;
+				break;
+			}
+		}
+		return n;
+	}
+
+	/** Alrededor, la hierba que no tapó el manto se queda en tierra a trozos (más cerca, más): el golpe la arrancó. */
+	private static void scorch(ServerWorld w, BlockView view, List<Col> cols, double R, Random rnd) {
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (Col c : cols) {
+			if (c.h > 0) continue;
+			double k = R / c.rho;
+			if (rnd.nextDouble() >= 0.55 * k * k) continue;
+			m.set(c.x, c.base, c.z);
+			BlockState st = view.getBlockState(m);
+			if (!st.isOf(Blocks.GRASS_BLOCK) && !st.isOf(Blocks.PODZOL) && !st.isOf(Blocks.MYCELIUM)) continue;
+			w.setBlockState(m.toImmutable(), (rnd.nextDouble() < 0.35 ? Blocks.COARSE_DIRT : Blocks.DIRT).getDefaultState(), Block.NOTIFY_LISTENERS);
+		}
+	}
+
+	/** Lo colosal agrieta el suelo: de 6 a 9 rayos quebrados que salen del borde (tierra suelta en la tierra, grava de roca en la roca). */
+	private static void cracks(ServerWorld w, BlockView view, double cx, double cz, double R, int yRef, Random rnd) {
+		int n = 6 + rnd.nextInt(4);
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int i = 0; i < n; i++) {
+			double a = (i + rnd.nextDouble() * 0.5) / n * 2 * Math.PI;
+			double len = R * (0.6 + rnd.nextDouble());
+			double x = cx + Math.cos(a) * R * 0.95, z = cz + Math.sin(a) * R * 0.95;
+			int steps = Math.max(4, (int) Math.ceil(len / 0.7));
+			for (int j = 0; j < steps; j++) {
+				if (j % 3 == 0) a += (rnd.nextDouble() - 0.5) * 0.7;
+				x += Math.cos(a) * len / steps;
+				z += Math.sin(a) * len / steps;
+				crack(w, view, m, MathHelper.floor(x), MathHelper.floor(z), yRef);
+				if (j < steps / 2) crack(w, view, m, MathHelper.floor(x + Math.sin(a) * 0.7), MathHelper.floor(z - Math.cos(a) * 0.7), yRef);
+			}
+		}
+	}
+
+	private static void crack(ServerWorld w, BlockView view, BlockPos.Mutable m, int x, int z, int yRef) {
+		int top = GroundRules.surfaceNear(view, x, z, yRef, 6);
+		if (top == GroundRules.NONE) return;
+		m.set(x, top, z);
+		BlockState to = cracked(view.getBlockState(m));
+		if (to != null) w.setBlockState(m.toImmutable(), to, Block.NOTIFY_LISTENERS);
+	}
+
+	@Nullable
+	private static BlockState cracked(BlockState st) {
+		Block b = st.getBlock();
+		if (b == Blocks.GRASS_BLOCK || b == Blocks.DIRT || b == Blocks.PODZOL || b == Blocks.MYCELIUM || b == Blocks.ROOTED_DIRT) {
+			return Blocks.COARSE_DIRT.getDefaultState();
+		}
+		if (b == Blocks.STONE || b == Blocks.ANDESITE || b == Blocks.DIORITE || b == Blocks.GRANITE || b == Blocks.TUFF) {
+			return Blocks.COBBLESTONE.getDefaultState();
+		}
+		if (b == Blocks.DEEPSLATE) return Blocks.COBBLED_DEEPSLATE.getDefaultState();
+		return null;
+	}
+
+	/** Polvo del material: 3 partículas en uno de cada ⌈cavados/60⌉ bloques cavados (el resto lo pone el cliente). */
+	private static void dust(ServerWorld w, List<Dug> dug) {
+		int n = dug.size();
 		if (n == 0) return;
-		int stride = Math.max(1, (int) Math.ceil(n / 80.0));
+		int stride = Math.max(1, (int) Math.ceil(n / 60.0));
 		for (int i = 0; i < n; i += stride) {
-			BlockPos p = cells.get(i);
-			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, states.get(i)), p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5,
+			Dug d = dug.get(i);
+			BlockPos p = d.pos();
+			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, d.state()), p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5,
 				3, 0.3, 0.3, 0.3, 0.15);
 		}
 	}

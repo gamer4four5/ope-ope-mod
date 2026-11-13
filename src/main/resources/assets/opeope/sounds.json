@@ -205,5 +205,18 @@
   },
   "takt.tick": {
     "sounds": [{"name": "minecraft:block.comparator.click", "type": "event"}]
+  },
+  "takt.debris": {
+    "subtitle": "subtitles.opeope.takt.debris",
+    "sounds": [{"name": "minecraft:block.gravel.break", "type": "event"}, {"name": "minecraft:block.stone.break", "type": "event"},
+      {"name": "minecraft:block.rooted_dirt.break", "type": "event"}]
+  },
+  "takt.rumble_far": {
+    "subtitle": "subtitles.opeope.takt.rumble_far",
+    "sounds": [{"name": "minecraft:entity.lightning_bolt.thunder", "type": "event"}]
+  },
+  "takt.fall": {
+    "subtitle": "subtitles.opeope.takt.fall",
+    "sounds": [{"name": "minecraft:item.elytra.flying", "type": "event"}]
   }
 }
