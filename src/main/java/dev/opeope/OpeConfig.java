@@ -56,6 +56,7 @@ public final class OpeConfig {
 	public static final int TAKT_TAP_WINDOW_DEFAULT = 8;   // espera de un toque apuntado por el servidor (Actions.TAKT_TAP): ceil(350 / 50) + 1
 	public static final int TAKT_TAP_WINDOW_MAX = 13;      // la espera más larga que se acepta de un cliente: ceil(600 / 50) + 1
 	public static final int TAKT_TREMBLE_TICKS = 5, TAKT_TREMBLE_TICKS_BIG = 8;
+	public static final int TAKT_CLIP_SPARE_TICKS = 40;   // la subida sin choques dura como mucho su subida más esto (red: sale antes)
 	public static final double TAKT_BIG_RADIUS = 6.0;      // PieceEntity.radius() por encima de esto = trozo grande
 	public static final int TAKT_UNDO_MAX_TICKS = 40;      // R R deshace el arranque del toque anterior si empezó hace como mucho esto
 	public static final int TAKT_TAP_MIN_TICKS = 2;        // los toques de un jugador más seguidos que esto no cuentan

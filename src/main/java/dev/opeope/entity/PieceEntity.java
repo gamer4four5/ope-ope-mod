@@ -131,6 +131,9 @@ public class PieceEntity extends Entity {
 	private int tearTicks, liftTicks, liftT;
 	private double liftH, hover;
 	private Vec3d liftStart = Vec3d.ZERO;
+	// La subida sin choques (liftThrough): acaba cuando su base sale por encima de su hueco (clipTopY)
+	private double clipTopY;
+	private int clipTicks;
 	@Nullable private UUID lastHolder;   // quién la llevó por última vez (dueño del aviso LAND)
 
 	// Posar: la espera de su turno y la bajada hasta su sitio
@@ -275,12 +278,47 @@ public class PieceEntity extends Entity {
 	}
 
 	/**
-	 * Como lift, pero sin chocar con el mundo mientras sube y hasta que su caja queda libre de bloques: un trozo recién
-	 * arrancado sale de su hueco aunque encima haya un árbol, una cuesta, un techo o la columna que pisa quien lo arranca.
+	 * Como lift, pero sin chocar con el mundo hasta que su base sale por encima de su hueco (holeDepth bloques más
+	 * arriba): un trozo recién arrancado sale aunque encima haya un árbol, una cuesta o la columna que pisa quien lo
+	 * arranca. Mientras no choca sigue recta hacia arriba y nunca hacia la mano: no se mete en la roca. height tiene que
+	 * ser mayor que holeDepth.
 	 */
-	public void liftThrough(int liftTicks, double height) {
+	public void liftThrough(int liftTicks, double height, double holeDepth) {
 		lift(liftTicks, height);
+		clipTopY = getY() + Math.max(0, holeDepth);
+		clipTicks = 0;
 		noClip = true;
+	}
+
+	/**
+	 * Una parte de una pieza que aún salía de su hueco sin chocar (se cortó mientras subía): sigue la misma subida, en
+	 * su sitio, y vuelve a chocar cuando su propia base sale por encima del hueco.
+	 */
+	public void leaveLike(PieceEntity from) {
+		if (!from.noClip || isWeaponShape()) return;
+		liftTicks = from.liftTicks;
+		liftT = from.liftT;
+		liftH = from.liftH;
+		liftStart = from.liftStart.add(center().subtract(from.center()));
+		clipTopY = from.clipTopY;
+		clipTicks = from.clipTicks;
+		noClip = true;
+	}
+
+	/**
+	 * Tras cada paso de la subida sin choques: si su base ya salió por encima del hueco (o, por si acaso, pasado el
+	 * tiempo de sobra), vuelve a chocar. Si al salir quedó metida en un techo que está justo encima, baja hasta enrasar
+	 * con el hueco cuando ahí cabe (una cueva bajita: se queda en la cueva, no dentro de la roca).
+	 */
+	private void endClip() {
+		if (getY() < clipTopY - 1e-4 && ++clipTicks <= liftTicks + OpeConfig.TAKT_CLIP_SPARE_TICKS) return;
+		noClip = false;
+		double over = getY() - clipTopY;   // lo que se pasó en el último paso (menos de un bloque)
+		if (over > 0 && over < 1 && !getWorld().isBlockSpaceEmpty(this, getBoundingBox())
+			&& getWorld().isBlockSpaceEmpty(this, getBoundingBox().offset(0, -over, 0))) {
+			setPosition(getX(), clipTopY, getZ());
+			setVelocity(getVelocity().multiply(1, 0, 1));
+		}
 	}
 
 	@Override
@@ -628,16 +666,17 @@ public class PieceEntity extends Entity {
 			liftT++;
 			t = liftStart.add(0, liftH * smoothstep((double) liftT / liftTicks), 0);
 			vt = Vec3d.ZERO;
-		} else {
-			// la subida sin choques (liftThrough) acaba cuando su caja ya no toca ningún bloque: desde ahí choca como siempre
-			if (noClip && getWorld().isBlockSpaceEmpty(this, getBoundingBox())) noClip = false;
-			if (held && drive != DRIVE_PARK && (r > 2.5 || (f & F_CHUNK) != 0)) {
-				double need = groundBelow(t, r) + below() + 1.6 + 0.22 * r - t.y;
-				hover += (Math.max(0, need) - hover) * 0.32;
-				t = t.add(0, hover, 0);
-			}
+		} else if (noClip) {
+			// aún dentro de su hueco sin chocar (liftThrough): sigue recta hacia arriba, nunca hacia la mano
+			t = liftStart.add(0, liftH, 0);
+			vt = Vec3d.ZERO;
+		} else if (held && drive != DRIVE_PARK && (r > 2.5 || (f & F_CHUNK) != 0)) {
+			double need = groundBelow(t, r) + below() + 1.6 + 0.22 * r - t.y;
+			hover += (Math.max(0, need) - hover) * 0.32;
+			t = t.add(0, hover, 0);
 		}
 		spring(t, vt, r);
+		if (noClip && mode == Mode.CONTROLLED && !placed && !isRemoved()) endClip();
 	}
 
 	/**
@@ -1207,8 +1246,9 @@ public class PieceEntity extends Entity {
 
 	/**
 	 * Lo vivo que está donde va a quedar la pieza sube encima de ella antes de poner los bloques (hasta 8 bloques por
-	 * encima de su cara de arriba): nadie queda encerrado en un hueco, ni se queda sin sitio el bloque de su celda. Si
-	 * arriba no hay dónde, se queda donde está y sus celdas se quedan sin bloque, como siempre.
+	 * encima de su cara de arriba), con quien lo monte: nadie queda encerrado en un hueco, ni se queda sin sitio el bloque
+	 * de su celda. Si arriba no hay dónde, o va montado en algo (una barca, un carrito: su montura lo volvería a poner en
+	 * su asiento), se queda donde está y sus celdas se quedan sin bloque, como siempre.
 	 */
 	private void liftLiving(ServerWorld w, BlockPos base) {
 		List<LivingEntity> in = w.getEntitiesByClass(LivingEntity.class, cellsBox(base), e -> e.isAlive() && !e.isSpectator());
@@ -1217,16 +1257,28 @@ public class PieceEntity extends Entity {
 		for (BlockSet.Entry e : blocks.entries) foot.add(BlockPos.asLong(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z()));
 		int top = base.getY() + blocks.sy;
 		for (LivingEntity le : in) {
+			if (le.hasVehicle()) continue;
 			Box bb = le.getBoundingBox().expand(-1e-4);
 			if (!overlaps(bb, foot)) continue;
 			for (int y2 = MathHelper.floor(le.getY()) + 1; y2 <= top + 8; y2++) {
-				Box at = bb.offset(0, y2 - le.getY(), 0);
-				if (overlaps(at, foot) || !w.isSpaceEmpty(le, at)) continue;
-				le.requestTeleport(le.getX(), y2, le.getZ());
+				double dy = y2 - le.getY();
+				Box at = bb.offset(0, dy, 0);
+				if (overlaps(at, foot) || !w.isSpaceEmpty(le, at) || !ridersFit(w, le, dy, foot)) continue;
+				le.requestTeleport(le.getX(), y2, le.getZ());   // lleva consigo a quien lo monta
 				le.fallDistance = 0;
+				for (Entity r : le.getPassengersDeep()) r.fallDistance = 0;
 				break;
 			}
 		}
+	}
+
+	/** ¿Caben quienes montan a e (y quienes montan a esos) subidos dy: fuera de la pieza y sin bloques? */
+	private static boolean ridersFit(ServerWorld w, Entity e, double dy, LongOpenHashSet foot) {
+		for (Entity r : e.getPassengersDeep()) {
+			Box b = r.getBoundingBox().expand(-1e-4).offset(0, dy, 0);
+			if (overlaps(b, foot) || !w.isSpaceEmpty(r, b)) return false;
+		}
+		return true;
 	}
 
 	/** Sonido del material y, en los asentamientos de siempre, sus partículas. */

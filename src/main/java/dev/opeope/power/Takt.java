@@ -13,6 +13,7 @@ import dev.opeope.terrain.GroundCut;
 import dev.opeope.terrain.GroundRules;
 import dev.opeope.terrain.Landing;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -378,8 +379,10 @@ public final class Takt {
 		if (!rip.plan.face) {   // un pedazo de pared o techo no sube: el muelle lo saca hacia la mano
 			double s = Math.max(1, r / 2.5);
 			int ticks = (int) Math.round(20 * Math.min(1.44, 0.45 + 0.3 * log2(s)));
-			// sin chocar hasta quedar libre: su caja abarca terreno que no es suyo (un árbol al lado, una cuesta, un techo)
-			pe.liftThrough(ticks, Math.max(2.6, (rip.plan.topMax + 1 - pe.corner().y) + 1.4));
+			// sin chocar hasta que su base sale del hueco: su caja abarca terreno que no es suyo (un árbol al lado, una
+			// cuesta, la columna que pisa quien arranca); después choca como siempre (bajo un techo se queda debajo)
+			double depth = rip.plan.topMax + 1 - pe.corner().y;
+			pe.liftThrough(ticks, Math.max(2.6, depth + 1.4), depth);
 		}
 		adopt(pw, p.getUuid(), pe);
 		pw.dirty = true;
@@ -819,7 +822,7 @@ public final class Takt {
 		ServerWorld w = p.getServerWorld();
 		// Cada pieza aparta su sitio: la siguiente se posa encima o al lado, nunca dentro, y llega después de las que le
 		// quedan debajo (el cliente hace lo mismo con los fantasmas, en el mismo orden)
-		LongOpenHashSet taken = new LongOpenHashSet();
+		Long2ObjectOpenHashMap<BlockState> taken = new Long2ObjectOpenHashMap<>();
 		BlockView view = Landing.reserving(GroundRules.loaded(w), taken);
 		List<int[]> landings = new ArrayList<>();   // {x0, z0, x1, z1, tick de llegada}
 		for (Entity e : resolve(p, pw)) {

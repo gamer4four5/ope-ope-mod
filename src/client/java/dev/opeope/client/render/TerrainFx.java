@@ -19,6 +19,7 @@ import dev.opeope.terrain.Landing;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.block.BlockState;
@@ -436,7 +437,7 @@ public final class TerrainFx {
 		// que hará el servidor al posar (Takt.setDown). Si uno cambia, se rehacen los que van detrás.
 		boolean redo = !Arrays.equals(held, ghostHeld);
 		ghostHeld = held;
-		LongOpenHashSet taken = new LongOpenHashSet();
+		Long2ObjectOpenHashMap<BlockState> taken = new Long2ObjectOpenHashMap<>();
 		BlockView view = Landing.reserving(mc.world, taken);
 		for (int id : held) {
 			Entity en = mc.world.getEntityById(id);

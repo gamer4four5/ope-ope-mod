@@ -2,9 +2,8 @@ package dev.opeope.terrain;
 
 import dev.opeope.OpeConfig;
 import dev.opeope.entity.BlockSet;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.fluid.FluidState;
@@ -118,21 +117,22 @@ public final class Landing {
 	// ------------------------------------------------------------------ varias piezas a la vez
 
 	/**
-	 * La misma vista, pero las celdas de taken cuentan como piedra: los sitios que ya eligieron las piezas anteriores de
-	 * una misma orden de posar (Takt.setDown en el servidor, los fantasmas en el cliente, en el mismo orden). Así la
-	 * siguiente se queda encima o al lado, nunca dentro. Lee taken en vivo: lo que se aparte después también cuenta.
+	 * La misma vista, pero en las celdas de taken ya está el bloque que va a poner ahí una pieza anterior de la misma
+	 * orden de posar (Takt.setDown en el servidor, los fantasmas en el cliente, en el mismo orden): el mundo tal como
+	 * quedará. Así la siguiente se queda encima o al lado, nunca dentro, y no se apoya en la hierba o la nieve de la otra
+	 * (las pisa, como al posarse en el suelo). Lee taken en vivo: lo que se aparte después también cuenta.
 	 */
-	public static BlockView reserving(BlockView v, LongOpenHashSet taken) {
+	public static BlockView reserving(BlockView v, Long2ObjectOpenHashMap<BlockState> taken) {
 		return new Reserving(v, taken);
 	}
 
-	/** Aparta en taken las celdas de set con su (0,0,0) en base. */
-	public static void reserve(LongOpenHashSet taken, BlockSet set, BlockPos base) {
+	/** Aparta en taken las celdas de set con su (0,0,0) en base, cada una con su bloque. */
+	public static void reserve(Long2ObjectOpenHashMap<BlockState> taken, BlockSet set, BlockPos base) {
 		int bx = base.getX(), by = base.getY(), bz = base.getZ();
-		for (BlockSet.Entry e : set.entries) taken.add(BlockPos.asLong(bx + e.x(), by + e.y(), bz + e.z()));
+		for (BlockSet.Entry e : set.entries) taken.put(BlockPos.asLong(bx + e.x(), by + e.y(), bz + e.z()), e.state());
 	}
 
-	private record Reserving(BlockView v, LongOpenHashSet taken) implements BlockView {
+	private record Reserving(BlockView v, Long2ObjectOpenHashMap<BlockState> taken) implements BlockView {
 		@Nullable
 		@Override
 		public BlockEntity getBlockEntity(BlockPos pos) {
@@ -141,7 +141,11 @@ public final class Landing {
 
 		@Override
 		public BlockState getBlockState(BlockPos pos) {
-			return !taken.isEmpty() && taken.contains(pos.asLong()) ? Blocks.STONE.getDefaultState() : v.getBlockState(pos);
+			if (!taken.isEmpty()) {
+				BlockState s = taken.get(pos.asLong());
+				if (s != null) return s;
+			}
+			return v.getBlockState(pos);
 		}
 
 		@Override

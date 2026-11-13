@@ -1227,6 +1227,79 @@ public final class AutoTest {
 			check(srvA == 0, "dos trozos posados a la vez quedan cada uno en su fantasma", srvA + " bloques distintos");
 			check(srvB == 0, "al posar dos trozos no se recoloca ni se suelta ningún bloque", srvB + " bloques");
 		});
+
+		// un túnel de 2 de alto: el trozo sale de su hueco y se queda en el túnel (no se mete en la roca del techo ni la
+		// atraviesa hacia la mano); al posarlo no se pierde ni se suelta nada
+		step(5, "revisión: túnel, preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
+					en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
+				GroundCuts.clearOwner(sp.getUuid());
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 - 5; x <= gx0 + 5; x++)
+					for (int z = gz0 - 16; z <= gz0 - 2; z++)
+						for (int y = gfy - 6; y <= gfy - 5; y++) w.setBlockState(m.set(x, y, z), Blocks.AIR.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy - 6, gz0 - 4.5, 180f, 22f);
+				srvC = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy, gz0 + 1, false);
+				dropped0 = PieceEntity.DROPPED;
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: túnel, preparado", 60, "el cliente no ve el túnel",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0, gfy - 5, gz0 - 9)).isAir()
+				&& mc.world.getBlockState(new BlockPos(gx0, gfy - 7, gz0 - 9)).isOf(Blocks.STONE)
+				&& Math.abs(mc.player.getY() - (gfy - 6)) < 0.1 && ClientState.heldIds.length == 0, null);
+		step(10, "revisión: túnel, toque", () -> {
+			tsnap(DETACH);
+			key(R, PRESS);
+		});
+		step(2, "revisión: túnel, toque suelta", () -> key(R, RELEASE));
+		waitFor("revisión: túnel, suelto", 40, "no llegó DETACH en el túnel", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		step(60, "revisión: túnel, fuera del hueco", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				int r = 0;
+				if (sp.getServerWorld().getEntityById(chunkId) instanceof PieceEntity pe) {
+					Box b = pe.getBoundingBox();
+					boolean in = b.minY >= gfy - 6 - 0.05 && b.maxY <= gfy - 4 + 0.05;
+					OpeOpeMod.LOG.info("AUTOTEST revisión túnel: {} bloques, base en y {}, arriba en y {}, atraviesa {}", pe.blocks.size(),
+						fmt(b.minY - gfy), fmt(b.maxY - gfy), pe.noClip);
+					r = 4 | (in ? 1 : 0) | (pe.noClip ? 0 : 2);
+				}
+				srvA = r;
+			});
+		});
+		waitFor("revisión: túnel, medido", 20, null, () -> srvA >= 0, () -> {
+			shot(mc, "14c-revision-d-tunel");
+			check(srvA == 7, "en un túnel bajito el trozo sale de su hueco y se queda en el túnel, sin meterse en la roca",
+				(srvA & 4) == 0 ? "ya no está" : "dentro del túnel " + ((srvA & 1) != 0) + ", choca " + ((srvA & 2) != 0));
+		});
+		step(2, "revisión: túnel, posar R", () -> key(R, PRESS));
+		step(5, "revisión: túnel, posar", () -> key(V, PRESS));
+		step(1, "revisión: túnel, posar suelta", () -> {
+			key(V, RELEASE);
+			key(R, RELEASE);
+		});
+		waitFor("revisión: túnel, posado", 200, "el trozo no se posó en el túnel", () -> mc.world.getEntityById(chunkId) == null,
+			() -> shot(mc, "14c-revision-e-tunel-posado"));
+		step(5, "revisión: túnel, cuenta", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int solid = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy, gz0 + 1, false);
+				int loose = items(w, new Box(gx0 - 9, gfy - 14, gz0 - 21, gx0 + 9, gfy + 2, gz0 + 2));
+				int dropped = PieceEntity.DROPPED - dropped0;
+				OpeOpeMod.LOG.info("AUTOTEST revisión túnel posado: bloques {} y {}, {} objetos, {} soltados", srvC, solid, loose, dropped);
+				srvA = (solid == srvC ? 1 : 0) | (loose == 0 ? 2 : 0) | (dropped == 0 ? 4 : 0);
+			});
+		});
+		waitFor("revisión: túnel, contado", 20, null, () -> srvA >= 0, () ->
+			check(srvA == 7, "al posarlo en el túnel no se pierde ni se suelta ningún bloque",
+				"mismos bloques " + ((srvA & 1) != 0) + ", sin objetos " + ((srvA & 2) != 0) + ", nada soltado " + ((srvA & 4) != 0)));
 	}
 
 	/** Los bloques de esa pieza, tal como los ve el cliente; vacío si no está. */

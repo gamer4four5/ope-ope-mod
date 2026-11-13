@@ -652,7 +652,7 @@ public final class CutEngine {
 			}
 			if (wasHeld) {
 				np.control(np.center().add(sep.multiply(4)));
-				np.noClip = pe.noClip;   // partida mientras salía de su hueco sin chocar: las partes salen igual
+				np.leaveLike(pe);   // partida mientras salía de su hueco sin chocar: cada parte termina esa subida
 				made.add(np);
 			} else if (suspend || wasSuspended) {
 				np.control(np.center().add(sep.multiply(4)));
