@@ -50,6 +50,7 @@
   "opeope.msg.no_ground": "Ahí no hay suelo que levantar.",
   "opeope.msg.zone_empty": "No hay nada suelto alrededor.",
   "opeope.msg.takt_busy": "Espera un poco: Takt aún está arrancando lo anterior.",
+  "opeope.msg.takt_no_space": "No hay sitio encima para sacar ese trozo: vuelve a su hueco.",
   "opeope.weapon.0": "Lanza",
   "opeope.weapon.1": "Hoja colosal",
   "opeope.weapon.2": "Martillo",

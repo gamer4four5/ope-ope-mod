@@ -463,6 +463,33 @@ public final class Takt {
 		if (CutEngine.AUTOTEST) OpeOpeMod.LOG.info("AUTOTEST takt deshace {}", rip.id);
 	}
 
+	/**
+	 * Un trozo que, al salir de su hueco, quedó bajo un techo más bajo que él (un túnel con un trozo grande o con una
+	 * antorcha encima) y no puede moverse hacia ningún lado: vuelve a su hueco como con R R y quien lo arrancó lo sabe.
+	 */
+	public static void trapped(PieceEntity pe) {
+		if (!(pe.getWorld() instanceof ServerWorld w)) return;
+		UUID h = HOLDERS.get(pe.getId());
+		ServerPlayerEntity p = h == null ? null : w.getServer().getPlayerManager().getPlayer(h);
+		PlayerPower pw = p == null ? null : PowerManager.peek(h);
+		if (CutEngine.AUTOTEST) OpeOpeMod.LOG.info("AUTOTEST takt no cabe {}", pe.getId());
+		if (p != null && pw != null) {
+			msg(p, "takt_no_space");
+			deny(p, TaktFx.NO_SPACE, pe.center());
+			for (Rip rip : pw.rips) {
+				if (rip.detached && rip.entityId == pe.getId()) {
+					cancel(p, pw, rip);
+					return;
+				}
+			}
+			pw.takt.remove((Integer) pe.getId());
+			pw.parked.remove(pe.getId());
+			pw.dirty = true;
+		}
+		forget(pe.getId());
+		pe.restoreHome();
+	}
+
 	/** R R: deshace el arranque del toque justo anterior (si es reciente) y levanta lo suelto alrededor. Nunca arranca suelo. */
 	public static void doubleTap(ServerPlayerEntity p, PlayerPower pw, @Nullable Payloads.TaktTap tap) {
 		Rip rip = null;

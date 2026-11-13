@@ -1043,6 +1043,7 @@ public final class AutoTest {
 	private static void planRevision(MinecraftClient mc, IntegratedServer srv, UUID id) {
 		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
 		final int TEAR_START = Payloads.TaktFx.TEAR_START, DETACH = Payloads.TaktFx.DETACH, HOME = Payloads.TaktFx.HOME;
+		final int DENY = Payloads.TaktFx.DENY;
 
 		// terreno nuevo y un tronco flotando sobre una columna que se va a arrancar (no toca el suelo: no va con el trozo)
 		step(5, "revisión: preparar", () -> {
@@ -1300,6 +1301,62 @@ public final class AutoTest {
 		waitFor("revisión: túnel, contado", 20, null, () -> srvA >= 0, () ->
 			check(srvA == 7, "al posarlo en el túnel no se pierde ni se suelta ningún bloque",
 				"mismos bloques " + ((srvA & 1) != 0) + ", sin objetos " + ((srvA & 2) != 0) + ", nada soltado " + ((srvA & 4) != 0)));
+
+		// el mismo túnel con una antorcha en el suelo: el trozo (con la antorcha encima) es más alto que el túnel; no cabe
+		// por ningún lado, así que vuelve a su hueco con su antorcha y avisa, en vez de quedarse encajado en el techo
+		step(5, "revisión: túnel alto, preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
+					en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
+				GroundCuts.clearOwner(sp.getUuid());
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 - 5; x <= gx0 + 5; x++)
+					for (int z = gz0 - 16; z <= gz0 - 2; z++)
+						for (int y = gfy - 6; y <= gfy - 5; y++) w.setBlockState(m.set(x, y, z), Blocks.AIR.getDefaultState(), 2 | 16);
+				w.setBlockState(new BlockPos(gx0 + 1, gfy - 6, gz0 - 9), Blocks.TORCH.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy - 6, gz0 - 4.5, 180f, 22f);
+				srvC = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy, gz0 + 1, false);
+				dropped0 = PieceEntity.DROPPED;
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: túnel alto, preparado", 60, "el cliente no ve la antorcha del túnel",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0 + 1, gfy - 6, gz0 - 9)).isOf(Blocks.TORCH)
+				&& mc.world.getBlockState(new BlockPos(gx0, gfy - 7, gz0 - 9)).isOf(Blocks.STONE)
+				&& Math.abs(mc.player.getY() - (gfy - 6)) < 0.1 && ClientState.heldIds.length == 0, null);
+		step(10, "revisión: túnel alto, toque", () -> {
+			tsnap(DENY);
+			key(R, PRESS);
+		});
+		step(2, "revisión: túnel alto, toque suelta", () -> key(R, RELEASE));
+		waitFor("revisión: túnel alto, no cabe", 120, "no llegó el aviso de que no cabe", () -> tgot(DENY), () -> {
+			Payloads.TaktFx d = TaktFxClient.LAST[DENY];
+			check(d != null && d.state() == Payloads.TaktFx.NO_SPACE, "si no hay sitio encima, Takt lo dice",
+				"aviso " + (d == null ? "-" : String.valueOf(d.state())));
+		});
+		step(40, "revisión: túnel alto, mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int solid = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy, gz0 + 1, false);
+				Box area = new Box(gx0 - 9, gfy - 14, gz0 - 21, gx0 + 9, gfy + 2, gz0 + 2);
+				int pieces = w.getEntitiesByClass(PieceEntity.class, area, e -> true).size();
+				int loose = items(w, area);
+				boolean torch = w.getBlockState(new BlockPos(gx0 + 1, gfy - 6, gz0 - 9)).isOf(Blocks.TORCH);
+				int dropped = PieceEntity.DROPPED - dropped0;
+				OpeOpeMod.LOG.info("AUTOTEST revisión túnel alto: bloques {} y {}, {} piezas, {} objetos, antorcha {}, {} soltados",
+					srvC, solid, pieces, loose, torch, dropped);
+				srvA = (solid == srvC ? 1 : 0) | (pieces == 0 ? 2 : 0) | (loose == 0 && dropped == 0 ? 4 : 0) | (torch ? 8 : 0);
+			});
+		});
+		waitFor("revisión: túnel alto, medido", 20, null, () -> srvA >= 0, () ->
+			check(srvA == 15, "un trozo más alto que el túnel vuelve a su hueco con su antorcha, sin encajarse en el techo",
+				"mismos bloques " + ((srvA & 1) != 0) + ", sin piezas " + ((srvA & 2) != 0) + ", nada suelto " + ((srvA & 4) != 0)
+					+ ", antorcha " + ((srvA & 8) != 0)));
 	}
 
 	/** Los bloques de esa pieza, tal como los ve el cliente; vacío si no está. */

@@ -380,7 +380,7 @@ public final class Payloads {
 		public static final String[] NAMES = {"TEAR_START", "DETACH", "CANCEL", "GRAB", "ZONE", "SWEEP", "THROW", "LAND",
 			"SETTLE", "IMPACT", "REWIND", "HOME", "DENY"};
 		public static final int F_CLOSED = 1, F_BIG = 2, F_AREA = 4, F_CHUNK = 8, F_ALL = 16, F_SEALED = 32, F_FACE = 64;
-		public static final int NO_ROOM = 0, FULL = 1, NO_GROUND = 2, NOTHING_LOOSE = 3, NOTHING_CUT = 4, BUSY = 5;   // DENY: el motivo (state)
+		public static final int NO_ROOM = 0, FULL = 1, NO_GROUND = 2, NOTHING_LOOSE = 3, NOTHING_CUT = 4, BUSY = 5, NO_SPACE = 6;   // DENY: el motivo (state)
 		public static final int DATA_CAP = 1024;
 		public static final Id<TaktFx> ID = new Id<>(OpeOpeMod.id("takt_fx"));
 		public static final PacketCodec<RegistryByteBuf, TaktFx> CODEC = PacketCodec.of(TaktFx::write, TaktFx::read);

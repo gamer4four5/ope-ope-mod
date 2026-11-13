@@ -50,6 +50,7 @@
   "opeope.msg.no_ground": "There is no ground to lift there.",
   "opeope.msg.zone_empty": "Nothing loose around.",
   "opeope.msg.takt_busy": "Wait a moment: Takt is still tearing out the last one.",
+  "opeope.msg.takt_no_space": "No room above to lift that chunk out: it goes back into its hole.",
   "opeope.weapon.0": "Spear",
   "opeope.weapon.1": "Colossal Blade",
   "opeope.weapon.2": "Hammer",
