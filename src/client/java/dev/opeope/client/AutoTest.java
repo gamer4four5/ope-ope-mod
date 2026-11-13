@@ -1363,6 +1363,115 @@ public final class AutoTest {
 			check(srvA == 15, "un trozo más alto que el túnel vuelve a su hueco con su antorcha, sin encajarse en el techo",
 				"mismos bloques " + ((srvA & 1) != 0) + ", sin piezas " + ((srvA & 2) != 0) + ", nada suelto " + ((srvA & 4) != 0)
 					+ ", antorcha " + ((srvA & 8) != 0)));
+
+		// el túnel de 2 de alto con una telaraña a la altura de la cabeza, justo encima de una columna del trozo (como una
+		// antorcha en la pared): no se choca con ella, así que el trozo se queda en el túnel igual y nadie dice "no hay sitio"
+		step(5, "revisión: telaraña, preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				tunnelScene(sp, pw, gfy - 6);
+				sp.getServerWorld().setBlockState(new BlockPos(gx0 + 1, gfy - 5, gz0 - 9), Blocks.COBWEB.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy - 6, gz0 - 4.5, 180f, 22f);
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: telaraña, preparado", 60, "el cliente no ve la telaraña del túnel",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0 + 1, gfy - 5, gz0 - 9)).isOf(Blocks.COBWEB)
+				&& mc.world.getBlockState(new BlockPos(gx0, gfy - 6, gz0 - 9)).isAir()
+				&& Math.abs(mc.player.getY() - (gfy - 6)) < 0.1 && ClientState.heldIds.length == 0, null);
+		step(10, "revisión: telaraña, toque", () -> {
+			tsnap(DETACH);
+			tsnap(DENY);
+			key(R, PRESS);
+		});
+		step(2, "revisión: telaraña, toque suelta", () -> key(R, RELEASE));
+		waitFor("revisión: telaraña, suelto", 40, "no llegó DETACH con la telaraña", () -> tgot(DETACH), () -> chunkId = entityOf(DETACH));
+		step(60, "revisión: telaraña, fuera del hueco", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				int r = 0;
+				if (sp.getServerWorld().getEntityById(chunkId) instanceof PieceEntity pe) {
+					Box b = pe.getBoundingBox();
+					boolean in = b.minY >= gfy - 6 - 0.05 && b.maxY <= gfy - 4 + 0.05;
+					OpeOpeMod.LOG.info("AUTOTEST revisión telaraña: {} bloques, base en y {}, arriba en y {}, atraviesa {}", pe.blocks.size(),
+						fmt(b.minY - gfy), fmt(b.maxY - gfy), pe.noClip);
+					r = 4 | (in ? 1 : 0) | (pe.noClip ? 0 : 2);
+				}
+				srvA = r;
+			});
+		});
+		waitFor("revisión: telaraña, medido", 20, null, () -> srvA >= 0, () -> {
+			Payloads.TaktFx d = tgot(DENY) ? TaktFxClient.LAST[DENY] : null;
+			boolean denied = d != null && d.state() == Payloads.TaktFx.NO_SPACE;
+			check(srvA == 7 && !denied, "una telaraña o una antorcha en la pared del túnel no echan al trozo: se queda en el túnel",
+				denied ? "dijo que no hay sitio" : (srvA & 4) == 0 ? "ya no está"
+					: "dentro del túnel " + ((srvA & 1) != 0) + ", choca " + ((srvA & 2) != 0));
+		});
+
+		// un túnel justo debajo de la hierba (el techo es un solo bloque, con aire encima) y una antorcha en el suelo: el
+		// trozo con la antorcha es más alto que el túnel y tampoco sale atravesando ese techo fino: vuelve a su hueco y avisa
+		step(5, "revisión: techo fino, preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				tunnelScene(sp, pw, gfy - 2);
+				w.setBlockState(new BlockPos(gx0 + 1, gfy - 2, gz0 - 9), Blocks.TORCH.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy - 2, gz0 - 4.5, 180f, 22f);
+				srvC = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy + 4, gz0 + 1, false);
+				dropped0 = PieceEntity.DROPPED;
+				srvA = 1;
+			});
+		});
+		waitFor("revisión: techo fino, preparado", 60, "el cliente no ve el túnel de techo fino",
+			() -> srvA == 1 && mc.world.getBlockState(new BlockPos(gx0 + 1, gfy - 2, gz0 - 9)).isOf(Blocks.TORCH)
+				&& mc.world.getBlockState(new BlockPos(gx0, gfy - 1, gz0 - 9)).isAir()
+				&& Math.abs(mc.player.getY() - (gfy - 2)) < 0.1 && ClientState.heldIds.length == 0, null);
+		step(10, "revisión: techo fino, toque", () -> {
+			tsnap(DENY);
+			key(R, PRESS);
+		});
+		step(2, "revisión: techo fino, toque suelta", () -> key(R, RELEASE));
+		waitFor("revisión: techo fino, no cabe", 120, "no llegó el aviso de que no cabe bajo el techo fino", () -> tgot(DENY), () -> {
+			Payloads.TaktFx d = TaktFxClient.LAST[DENY];
+			check(d != null && d.state() == Payloads.TaktFx.NO_SPACE, "bajo un techo de un solo bloque Takt tampoco lo saca atravesándolo",
+				"aviso " + (d == null ? "-" : String.valueOf(d.state())));
+		});
+		step(40, "revisión: techo fino, mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int solid = count(w, gx0 - 8, gfy - 13, gz0 - 20, gx0 + 8, gfy + 4, gz0 + 1, false);
+				Box area = new Box(gx0 - 9, gfy - 14, gz0 - 21, gx0 + 9, gfy + 6, gz0 + 2);
+				int pieces = w.getEntitiesByClass(PieceEntity.class, area, e -> true).size();
+				int loose = items(w, area);
+				boolean torch = w.getBlockState(new BlockPos(gx0 + 1, gfy - 2, gz0 - 9)).isOf(Blocks.TORCH);
+				int dropped = PieceEntity.DROPPED - dropped0;
+				OpeOpeMod.LOG.info("AUTOTEST revisión techo fino: bloques {} y {}, {} piezas, {} objetos, antorcha {}, {} soltados",
+					srvC, solid, pieces, loose, torch, dropped);
+				srvA = (solid == srvC ? 1 : 0) | (pieces == 0 ? 2 : 0) | (loose == 0 && dropped == 0 ? 4 : 0) | (torch ? 8 : 0);
+			});
+		});
+		waitFor("revisión: techo fino, medido", 20, null, () -> srvA >= 0, () ->
+			check(srvA == 15, "bajo un techo fino el trozo vuelve a su hueco con su antorcha, sin quedarse en el techo",
+				"mismos bloques " + ((srvA & 1) != 0) + ", sin piezas " + ((srvA & 2) != 0) + ", nada suelto " + ((srvA & 4) != 0)
+					+ ", antorcha " + ((srvA & 8) != 0)));
+	}
+
+	/**
+	 * En el hilo del servidor: suelta lo que lleva Takt, rehace el terreno de la prueba sin trozos, objetos ni cortes y
+	 * cava un túnel de 2 de alto (y0 e y0 + 1) en x gx0 − 5..gx0 + 5, z gz0 − 16..gz0 − 2.
+	 */
+	private static void tunnelScene(ServerPlayerEntity sp, PlayerPower pw, int y0) {
+		ServerWorld w = sp.getServerWorld();
+		Takt.dropAll(sp, pw, false);
+		patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+		for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
+			en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
+		GroundCuts.clearOwner(sp.getUuid());
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int x = gx0 - 5; x <= gx0 + 5; x++)
+			for (int z = gz0 - 16; z <= gz0 - 2; z++)
+				for (int y = y0; y <= y0 + 1; y++) w.setBlockState(m.set(x, y, z), Blocks.AIR.getDefaultState(), 2 | 16);
 	}
 
 	/** Los bloques de esa pieza, tal como los ve el cliente; vacío si no está. */

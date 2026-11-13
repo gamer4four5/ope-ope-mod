@@ -334,11 +334,20 @@ public final class Takt {
 				continue;
 			}
 			if (!rip.detached && now >= rip.detachAt) detachRip(p, pw, rip);
-			if (rip.detached && now - rip.startTick > OpeConfig.TAKT_UNDO_MAX_TICKS) {
+			if (rip.detached && now - rip.startTick > OpeConfig.TAKT_UNDO_MAX_TICKS && !rising(w, rip)) {
 				GroundCuts.forgetRip(rip.id);
 				pw.rips.remove(rip);
 			}
 		}
+	}
+
+	/**
+	 * Su trozo aún sale de su hueco sin chocar (liftThrough): el arranque se guarda hasta que salga, porque endClip todavía
+	 * puede mandarlo de vuelta (trapped), y entonces se deshace entero, con sus cortes, como con R R.
+	 */
+	private static boolean rising(ServerWorld w, Rip rip) {
+		return w.getEntityById(rip.entityId) instanceof PieceEntity pe && !pe.isRemoved() && pe.noClip
+			&& pe.mode == PieceEntity.Mode.CONTROLLED;
 	}
 
 	/** La grieta termina: el trozo se suelta del suelo, tiembla, sube y pasa a la mano. */

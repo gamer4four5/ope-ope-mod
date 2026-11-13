@@ -308,9 +308,10 @@ public class PieceEntity extends Entity {
 	/**
 	 * Tras cada paso de la subida sin choques: si su base ya salió por encima del hueco (o, por si acaso, pasado el
 	 * tiempo de sobra), vuelve a chocar. Si al salir quedó metida en un techo que está justo encima, baja hasta enrasar
-	 * con el hueco cuando sus bloques caben ahí (una cueva bajita: se queda en la cueva, no dentro de la roca). Si aun así
-	 * no puede moverse hacia ningún lado (un techo más bajo que el trozo, como un túnel con una antorcha encima del
-	 * trozo), vuelve a su hueco y quien lo arrancó lo sabe: nunca se queda encajado en la roca.
+	 * con el hueco cuando ninguno de sus bloques cae en algo con lo que se choca (una cueva bajita: se queda en la cueva,
+	 * no dentro de la roca; una antorcha o una telaraña en la pared no lo impiden). Si aun así no puede moverse hacia
+	 * ningún lado (un techo más bajo que el trozo, como un túnel con una antorcha encima del trozo), vuelve a su hueco y
+	 * quien lo arrancó lo sabe: nunca se queda encajado en la roca.
 	 */
 	private void endClip() {
 		if (getY() < clipTopY - 1e-4 && ++clipTicks <= liftTicks + OpeConfig.TAKT_CLIP_SPARE_TICKS) return;
@@ -321,7 +322,7 @@ public class PieceEntity extends Entity {
 		if (over > 0 && over < 1) {
 			Vec3d c = corner();
 			BlockPos flush = BlockPos.ofFloored(c.x + 0.5, clipTopY + 0.5, c.z + 0.5);
-			if (Landing.fits(GroundRules.loaded(w), blocks, flush, List.of())) {
+			if (cellsClear(w, flush)) {
 				setPosition(getX(), clipTopY, getZ());
 				setVelocity(getVelocity().multiply(1, 0, 1));
 				if (w.isBlockSpaceEmpty(this, getBoundingBox())) return;
@@ -330,16 +331,32 @@ public class PieceEntity extends Entity {
 		if (!canBudge()) Takt.trapped(this);
 	}
 
+	/** Ninguna celda del trozo, con su (0,0,0) en base, cae en algo con lo que se choca (una antorcha, una telaraña o un cartel no cuentan). */
+	private boolean cellsClear(World w, BlockPos base) {
+		BlockView v = GroundRules.loaded(w);
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (BlockSet.Entry e : blocks.entries) {
+			m.set(base.getX() + e.x(), base.getY() + e.y(), base.getZ() + e.z());
+			if (m.getY() < w.getBottomY() || m.getY() >= w.getTopY()) return false;
+			if (!v.getBlockState(m).getCollisionShape(v, m).isEmpty()) return false;
+		}
+		return true;
+	}
+
 	private static final Vec3d[] BUDGE = {new Vec3d(0, 2, 0), new Vec3d(1, 0, 0), new Vec3d(-1, 0, 0), new Vec3d(0, 0, 1), new Vec3d(0, 0, -1)};
 
 	/**
-	 * ¿Puede moverse chocando: subir 2 bloques o ir 1 hacia algún lado sin que nada lo pare? Lo que ya toca su caja (un
-	 * tronco, un bloque suelto) no lo para; un techo que la cruza entera, sí.
+	 * ¿Puede moverse chocando: subir 2 bloques y quedar libre, o ir 1 hacia algún lado sin que nada lo pare? Lo que ya
+	 * cruza su caja (un tronco, un bloque suelto) no lo para de lado; un techo que la cruza entera lo para siempre, también
+	 * hacia arriba aunque sea fino (al chocar, vanilla no para en lo que la caja ya cruza: lo atravesaría).
 	 */
 	private boolean canBudge() {
 		Box b = getBoundingBox();
+		World w = getWorld();
 		for (Vec3d d : BUDGE) {
-			if (Entity.adjustMovementForCollisions(this, d, b, getWorld(), List.of()).squaredDistanceTo(d) < 1e-6) return true;
+			if (Entity.adjustMovementForCollisions(this, d, b, w, List.of()).squaredDistanceTo(d) >= 1e-6) continue;
+			if (d.y > 0 && !w.isBlockSpaceEmpty(this, b.offset(d))) continue;
+			return true;
 		}
 		return false;
 	}
