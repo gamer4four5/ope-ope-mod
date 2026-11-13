@@ -407,6 +407,7 @@ public class PieceEntity extends Entity {
 		if (nbt.contains("blocks")) setBlocks(BlockSet.fromSaveNbt(nbt.getCompound("blocks")));
 		if (nbt.contains("origin")) origin = BlockPos.fromLong(nbt.getLong("origin"));
 		if (nbt.containsUuid("owner")) owner = nbt.getUuid("owner");
+		debris = nbt.getBoolean("debris");
 	}
 
 	@Override
@@ -415,6 +416,20 @@ public class PieceEntity extends Entity {
 		nbt.put("blocks", (placed ? new BlockSet() : blocks).toSaveNbt());
 		if (origin != null) nbt.putLong("origin", origin.asLong());
 		if (owner != null) nbt.putUuid("owner", owner);
+		if (debris) nbt.putBoolean("debris", true);
+	}
+
+	/**
+	 * Por debajo del mundo (Entity.baseTick, antes que tick() de aquí): un terrón de un cráter que se fue al vacío (el
+	 * borde de una isla) vuelve a su celda cavada y su bloque no se pierde; lo demás desaparece como siempre.
+	 */
+	@Override
+	protected void tickInVoid() {
+		if (!getWorld().isClient && debris && origin != null && !placed) {
+			settleAt(origin, false);
+			return;
+		}
+		super.tickInVoid();
 	}
 
 	/** Ya posada no se guarda: un guardado durante la cola no puede traer sus bloques otra vez. */
@@ -473,9 +488,7 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (getY() < getWorld().getBottomY() - 64) {
-			// un terrón de un cráter que se fue al vacío vuelve a su celda cavada: el bloque no se pierde
-			if (debris && origin != null) settleAt(origin, false);
-			else discard();
+			discard();
 			return;
 		}
 		if (age % 10 == 0 && mode == Mode.CONTROLLED && weapon == null) watchdog();
@@ -1076,10 +1089,9 @@ public class PieceEntity extends Entity {
 		return lastHolder != null ? lastHolder : owner;
 	}
 
-	/** ¿Es le quien la cortó o quien la movió por última vez? (a esos no les hace daño su golpe) */
+	/** ¿Es le quien la movió por última vez (mover)? A ese no le hace daño su golpe; a quien la cortó y no la llevó, sí. */
 	private boolean spares(Entity le) {
-		UUID id = le.getUuid();
-		return id.equals(owner) || id.equals(lastHolder);
+		return le.getUuid().equals(mover());
 	}
 
 	public ServerPlayerEntity ownerPlayer() {
@@ -1224,7 +1236,13 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (dug != null && dug.seated()) return;
-		settle(false);   // el cráter no le hizo sitio debajo: se posa donde está (bestFit)
+		if (dug != null && dug.removed() > 0) {
+			// el cráter no la pudo posar: baja lo que le deje el hueco de debajo (nunca dentro de tierra sin cavar; a quien
+			// esté debajo place() lo sube encima) y se posa ahí
+			BlockPos b = Landing.find(view, blocks, corner(), List.of());
+			if (b != null && b.getY() < getY()) setPosition(b.getX() + blocks.sx / 2.0, b.getY(), b.getZ() + blocks.sz / 2.0);
+		}
+		settle(false);
 	}
 
 	/** ¿Hay suelo sólido justo debajo de la pieza (una o dos celdas por debajo de su base)? */

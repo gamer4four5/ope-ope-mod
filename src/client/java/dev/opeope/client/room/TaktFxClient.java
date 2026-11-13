@@ -214,10 +214,17 @@ public final class TaktFxClient {
 		boolean wet, splashed, gusted;
 		@Nullable LoopSound roar;
 
+		/**
+		 * La historia se siembra con la velocidad que manda el servidor (cada tick): así la velocidad es la de verdad desde
+		 * el primer tick y, si entró en el agua en los ticks antes de verla (se buscan cada 4), cuenta como que entra ahora.
+		 */
 		Fall(PieceEntity pe) {
 			this.pe = pe;
-			Arrays.fill(seen, pe.getPos());
-			this.wet = pe.getWorld().getFluidState(pe.getBlockPos()).isIn(FluidTags.WATER);
+			Vec3d p = pe.getPos(), v0 = pe.getVelocity();
+			if (v0.lengthSquared() > 7 * 7) v0 = Vec3d.ZERO;
+			for (int i = 0; i < seen.length; i++) seen[i] = p.subtract(v0.multiply(seen.length - i));
+			this.vel = v0;
+			this.wet = pe.getWorld().getFluidState(BlockPos.ofFloored(seen[0])).isIn(FluidTags.WATER);
 		}
 
 		/** Apunta la posición de este tick y rehace la velocidad (un salto de más de 7 bloques por tick es un teletransporte). */
@@ -1489,12 +1496,12 @@ public final class TaktFxClient {
 		BlockPos.Mutable m = new BlockPos.Mutable(MathHelper.floor(pe.getX()), MathHelper.floor(pe.getY()), MathHelper.floor(pe.getZ()));
 		boolean wet = w.getFluidState(m).isIn(FluidTags.WATER), entered = wet && !f.wet;
 		f.wet = wet;
-		if (!entered || f.splashed || f.vy > -0.3) return;
+		if (!entered || f.splashed || (f.vy > -0.3 && f.v < 0.8)) return;   // cayendo, o lanzada rasante y deprisa
 		f.splashed = true;
 		int y0 = m.getY(), top = y0;
 		while (top < y0 + 8 && w.getFluidState(m.setY(top + 1)).isIn(FluidTags.WATER)) top++;
 		double x = pe.getX(), y = top + 0.9, z = pe.getZ(), q = Math.sqrt(sc), r = 0.5 * Math.max(pe.blocks.sx, pe.blocks.sz);
-		double speed = Math.min(1.0, -f.vy / 2.5);
+		double speed = Math.min(1.0, Math.max(-f.vy, 0.5 * f.v) / 2.5);
 		for (int i = n((20 + 20 * q) * (0.5 + speed), true); i > 0; i--) {
 			double a = RNG.nextDouble() * 2 * Math.PI, rho = r * range(0.6, 1.1), s = range(0.05, 0.25) * q;
 			add(ParticleTypes.SPLASH, x + Math.cos(a) * rho, y, z + Math.sin(a) * rho, Math.cos(a) * s,

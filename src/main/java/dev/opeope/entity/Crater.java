@@ -10,6 +10,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.FluidBlock;
 import net.minecraft.block.PlantBlock;
+import net.minecraft.entity.decoration.AbstractDecorationEntity;
 import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.tag.BlockTags;
@@ -25,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
@@ -38,7 +40,7 @@ import java.util.UUID;
  * <p>Nunca se pierde ni se duplica un bloque, nunca suelta objetos, nunca se amontona tierra donde hay un ser vivo,
  * solo cava terreno y nunca cava bajo algo que no sea una planta (una casa, un árbol, un cofre, un raíl se quedan como
  * están) ni la tierra que sujeta algo de lado o por debajo (una antorcha en la pared, una escalera de mano, un farol
- * colgado): eso se quedaría en el aire y se soltaría.
+ * colgado, un cuadro o un marco): eso se quedaría en el aire y se soltaría.
  */
 public final class Crater {
 	private Crater() {}
@@ -111,39 +113,69 @@ public final class Crater {
 		double ax = contact.x, az = contact.z, bx = ax + dir.x * plow, bz = az + dir.z * plow;
 		int yRef = MathHelper.floor(contact.y) - 1;
 		double outer = R + Math.max(2.0, 0.9 * R);   // el manto llega hasta aquí, medido desde el surco
-		List<Box> bl = Landing.blockers(w, new Box(Math.min(ax, bx) - outer - 1, contact.y - 16, Math.min(az, bz) - outer - 1,
-			Math.max(ax, bx) + outer + 1, contact.y + 16, Math.max(az, bz) + outer + 1));
+		Box area = new Box(Math.min(ax, bx) - outer - 1, contact.y - 16, Math.min(az, bz) - outer - 1,
+			Math.max(ax, bx) + outer + 1, contact.y + 16, Math.max(az, bz) + outer + 1);
+		List<Box> bl = new ArrayList<>(Landing.blockers(w, area));
+		// los cuadros y los marcos: no se cava aquello de lo que cuelgan (la pared, el suelo, el techo) y no se pone
+		// ningún bloque donde están (se soltarían y caerían como objetos)
+		LongOpenHashSet hung = new LongOpenHashSet();
+		for (AbstractDecorationEntity e : w.getEntitiesByClass(AbstractDecorationEntity.class, area, en -> !en.isRemoved())) {
+			Direction f = e.getHorizontalFacing();
+			Box on = e.getBoundingBox().offset(-0.5 * f.getOffsetX(), -0.5 * f.getOffsetY(), -0.5 * f.getOffsetZ()).contract(1e-7);
+			BlockPos.stream(on).forEach(q -> hung.add(q.asLong()));
+			bl.add(e.getBoundingBox());
+		}
 
 		List<Dug> dug = new ArrayList<>();
 		LongOpenHashSet dugSet = new LongOpenHashSet();
-		carve(w, view, ax, az, bx, bz, R, depth, yRef, cap, dug, dugSet);
+		carve(w, view, ax, az, bx, bz, R, depth, yRef, cap, dug, dugSet, hung);
 		budgetUsed += 2 * dug.size();
-		for (Dug d : dug) w.updateNeighbors(d.pos(), Blocks.AIR);
 
 		// el trozo baja dentro del cuenco hasta apoyarse: si ara, desde lo más lejos que llega por el surco sin atravesar
-		// nada (un muro, una casa, una ladera que no se cavó); si no, o si ahí no cabe, desde donde está
+		// nada (un muro, una casa, una ladera que no se cavó); si no, o si ahí no cabe, desde donde está. A quien ya
+		// está bajo el trozo (le cayó encima y sigue vivo) no se le esquiva: al posarlo, place() lo sube encima.
 		BlockPos seat = null;
+		double ex = bx, ez = bz;   // hasta dónde llegó el surco
 		if (rock != null && !dug.isEmpty()) {
 			BlockSet set = rock.blocks;
+			Box body = rock.getBoundingBox();
+			List<Box> sbl = new ArrayList<>(bl.size());
+			for (Box b : bl) if (!b.intersects(body)) sbl.add(b);
 			Vec3d here = rock.corner(), start = here;
 			if (plow > 0) {
-				double ex = bx - set.sx / 2.0 - here.x, ez = bz - set.sz / 2.0 - here.z;
-				int steps = (int) Math.ceil(Math.hypot(ex, ez));
+				double wx = bx - set.sx / 2.0 - here.x, wz = bz - set.sz / 2.0 - here.z;
+				int steps = (int) Math.ceil(Math.hypot(wx, wz));
 				for (int i = 1; i <= steps; i++) {
-					Vec3d c = here.add(ex * i / steps, 0, ez * i / steps);
-					if (!Landing.fits(view, set, Landing.snap(c), bl)) break;
+					Vec3d c = here.add(wx * i / steps, 0, wz * i / steps);
+					if (!Landing.fits(view, set, Landing.snap(c), sbl)) break;
 					start = c;
 				}
 			}
-			seat = Landing.find(view, set, start, bl);
-			if (seat == null && start != here) seat = Landing.find(view, set, here, bl);
+			seat = Landing.find(view, set, start, sbl);
+			if (seat == null && start != here) seat = Landing.find(view, set, here, sbl);
+			if (plow > 0) {
+				// el surco acaba donde acabó el trozo (contra un muro se para): lo cavado más allá vuelve a su sitio
+				double hx = seat != null ? seat.getX() + set.sx / 2.0 : rock.getX();
+				double hz = seat != null ? seat.getZ() + set.sz / 2.0 : rock.getZ();
+				double lx = bx - ax, lz = bz - az, l2 = lx * lx + lz * lz;
+				double u = l2 < 1e-9 ? 0 : MathHelper.clamp(((hx - ax) * lx + (hz - az) * lz) / l2, 0, 1);
+				ex = ax + lx * u;
+				ez = az + lz * u;
+				if (Math.hypot(bx - ex, bz - ez) < 1.5) {   // llegó (lo que falta es redondear a la rejilla)
+					ex = bx;
+					ez = bz;
+				} else {
+					unDig(w, dug, dugSet, ax, az, ex, ez, R, seat, set);
+				}
+			}
 		}
+		for (Dug d : dug) w.updateNeighbors(d.pos(), Blocks.AIR);
 		ArrayDeque<Dug> pool = new ArrayDeque<>(dug.size());
 		List<Dug> sorted = new ArrayList<>(dug);
 		sorted.sort(Comparator.comparingInt(Dug::depth).reversed());   // lo más hondo primero
 		pool.addAll(sorted);
 		int backfill = 0;
-		double cx = bx, cz = bz;
+		double cx = ex, cz = ez;
 		if (seat != null) {
 			backfill = backfill(w, view, rock.blocks, seat, dugSet, bl, pool);
 			rock.seat(seat);
@@ -151,14 +183,32 @@ public final class Crater {
 			cz = seat.getZ() + rock.blocks.sz / 2.0;
 		}
 		int ejected = pool.isEmpty() ? 0 : eject(w, view, rock, pool, cx, contact.y, cz, R, dir, tier, rnd);
-		List<Col> cols = rim(view, ax, az, bx, bz, R, outer, yRef, dir);
+		List<Col> cols = rim(view, ax, az, ex, ez, R, outer, yRef, dir);
 		int piled = pile(w, view, bl, cols, pool, R, rnd);
 		int putBack = putBack(w, view, bl, dug, pool, cols);
 		scorch(w, view, cols, R, rnd);
-		if (tier >= 3) cracks(w, view, bx, bz, R, yRef, rnd);
+		if (tier >= 3) cracks(w, view, ex, ez, R, yRef, rnd);
 		dust(w, dug);
-		last = new Result(dug.size(), piled, putBack, backfill, ejected, seat != null, R, depth, plow);
+		last = new Result(dug.size(), piled, putBack, backfill, ejected, seat != null, R, depth, Math.hypot(ex - ax, ez - az));
 		return last;
+	}
+
+	/**
+	 * Vuelve a poner en su celda (tal cual estaba) lo cavado a más de R del surco que de verdad hizo el trozo, de a hasta
+	 * e, salvo en las columnas bajo el trozo posado: lo de detrás de un muro en el que se paró no se mueve.
+	 */
+	private static void unDig(ServerWorld w, List<Dug> dug, LongOpenHashSet dugSet, double ax, double az, double ex, double ez, double R,
+							  @Nullable BlockPos seat, BlockSet set) {
+		for (Iterator<Dug> it = dug.iterator(); it.hasNext(); ) {
+			Dug d = it.next();
+			BlockPos p = d.pos();
+			if (seg(p.getX() + 0.5, p.getZ() + 0.5, ax, az, ex, ez) <= R) continue;
+			if (seat != null && p.getX() >= seat.getX() && p.getX() < seat.getX() + set.sx
+				&& p.getZ() >= seat.getZ() && p.getZ() < seat.getZ() + set.sz) continue;
+			w.setBlockState(p, d.state(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE);
+			dugSet.remove(p.asLong());
+			it.remove();
+		}
 	}
 
 	/** Distancia horizontal de (x, z) al segmento a–b. */
@@ -175,7 +225,7 @@ public final class Crater {
 	 * algo encima que no es una planta no se cava.
 	 */
 	private static void carve(ServerWorld w, BlockView view, double ax, double az, double bx, double bz, double R, double depth,
-							  int yRef, int cap, List<Dug> out, LongOpenHashSet set) {
+							  int yRef, int cap, List<Dug> out, LongOpenHashSet set, LongOpenHashSet hung) {
 		int x0 = MathHelper.floor(Math.min(ax, bx) - R), x1 = MathHelper.floor(Math.max(ax, bx) + R);
 		int z0 = MathHelper.floor(Math.min(az, bz) - R), z1 = MathHelper.floor(Math.max(az, bz) + R);
 		List<double[]> cols = new ArrayList<>();
@@ -193,12 +243,15 @@ public final class Crater {
 			double d = depth * (1 - c[2] * c[2] / r2);
 			if (d < 0.5) continue;
 			int top = GroundRules.surfaceNear(view, x, z, yRef, 4);
-			if (top == GroundRules.NONE || !clearAbove(w, view, m, x, top + 1, z)) continue;
+			if (top == GroundRules.NONE) continue;
+			// la nieve polvo de encima también es suelo: se cava y se reparte como lo demás
+			for (int j = 0; j < 4 && view.getBlockState(m.set(x, top + 1, z)).isOf(Blocks.POWDER_SNOW); j++) top++;
+			if (!clearAbove(w, view, m, x, top + 1, z)) continue;
 			for (int y = top, k = 0; y + 0.5 >= top + 1 - d; y--, k++) {
 				m.set(x, y, z);
 				BlockState st = view.getBlockState(m);
-				if (!GroundRules.terrain(st) || !GroundRules.cuttable(st, view, m) || st.hasBlockEntity() || st.getHardness(view, m) >= 50
-					|| !holdsNothing(view, m, set)) break;
+				if (!(GroundRules.terrain(st) || st.isOf(Blocks.POWDER_SNOW)) || !GroundRules.cuttable(st, view, m) || st.hasBlockEntity()
+					|| st.getHardness(view, m) >= 50 || hung.contains(m.asLong()) || !holdsNothing(view, m, set)) break;
 				BlockPos p = m.toImmutable();
 				out.add(new Dug(p, st, k));
 				set.add(p.asLong());
@@ -210,18 +263,20 @@ public final class Crater {
 
 	/**
 	 * Lo que hay encima de la superficie de una columna (desde y, dos celdas): aire, agua o lava, o plantas y nieve fina
-	 * que el golpe se lleva (se quitan sin soltar nada; las de bajo el agua dejan su agua, y el kelp se va entero).
-	 * false si hay otra cosa (un muro, un tronco, un cofre, un raíl, una antorcha, algo anegado): esa columna no se cava.
+	 * que el golpe se lleva (se quitan sin soltar nada; las de bajo el agua dejan su agua, y los tallos como el kelp, la
+	 * caña de azúcar, el bambú o el cactus se van enteros). false si hay otra cosa (un muro, un tronco, un cofre, un raíl,
+	 * una antorcha, algo anegado): esa columna no se cava.
 	 */
 	private static boolean clearAbove(ServerWorld w, BlockView view, BlockPos.Mutable m, int x, int y, int z) {
 		for (int k = 0; k < 2; k++) {
 			m.set(x, y + k, z);
 			BlockState st = view.getBlockState(m);
 			if (st.isAir() || st.getBlock() instanceof FluidBlock) return true;
-			if (st.isOf(Blocks.KELP) || st.isOf(Blocks.KELP_PLANT)) {
-				// el kelp crece del suelo hacia arriba: se va todo el tallo (si no, el resto se soltaría flotando)
-				for (int j = 0; j < 64 && (st.isOf(Blocks.KELP) || st.isOf(Blocks.KELP_PLANT)); j++) {
-					w.setBlockState(m.toImmutable(), Blocks.WATER.getDefaultState(), Block.NOTIFY_LISTENERS | Block.FORCE_STATE | Block.SKIP_DROPS);
+			if (stalk(st)) {
+				// crece del suelo hacia arriba: se va todo el tallo (si no, el resto se soltaría flotando)
+				for (int j = 0; j < 64 && stalk(st); j++) {
+					BlockState left = st.getFluidState().isEmpty() ? Blocks.AIR.getDefaultState() : st.getFluidState().getBlockState();
+					w.setBlockState(m.toImmutable(), left, Block.NOTIFY_LISTENERS | Block.FORCE_STATE | Block.SKIP_DROPS);
 					st = view.getBlockState(m.move(Direction.UP));
 				}
 				return true;
@@ -244,13 +299,21 @@ public final class Crater {
 		return st.isIn(BlockTags.REPLACEABLE_BY_TREES) && !st.isIn(BlockTags.LEAVES);
 	}
 
+	/** Los tallos que crecen del suelo hacia arriba, de un bloque de ancho: kelp, caña de azúcar, bambú, cactus, enredaderas retorcidas. */
+	private static boolean stalk(BlockState st) {
+		return st.isOf(Blocks.KELP) || st.isOf(Blocks.KELP_PLANT) || st.isOf(Blocks.SUGAR_CANE) || st.isOf(Blocks.BAMBOO)
+			|| st.isOf(Blocks.BAMBOO_SAPLING) || st.isOf(Blocks.CACTUS) || st.isOf(Blocks.TWISTING_VINES)
+			|| st.isOf(Blocks.TWISTING_VINES_PLANT);
+	}
+
 	private static final Direction[] HOLDS = {Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST, Direction.DOWN};
 
 	/**
 	 * ¿Se puede cavar la celda m sin dejar en el aire algo que se apoya en ella? Sus vecinos de los lados y el de debajo
-	 * tienen que ser aire, agua o lava, terreno, un bloque entero, algo ya cavado o, a los lados, una planta de suelo. Una
-	 * antorcha o una escalera de mano en su cara, un raíl que sube por ella, una puerta, una valla o un farol colgado
-	 * debajo dicen que no: esa tierra se queda (y con ella, lo que queda de su columna).
+	 * tienen que ser aire, agua o lava, terreno o nieve polvo, un bloque entero, algo ya cavado o, a los lados, una planta
+	 * o un tallo de suelo (se apoyan en lo de debajo, no en esta celda). Una antorcha o una escalera de mano en su cara,
+	 * un raíl que sube por ella, una puerta, una valla o un farol colgado debajo dicen que no: esa tierra se queda (y con
+	 * ella, lo que queda de su columna).
 	 */
 	private static boolean holdsNothing(BlockView view, BlockPos m, LongOpenHashSet dug) {
 		BlockPos.Mutable n = new BlockPos.Mutable();
@@ -258,9 +321,10 @@ public final class Crater {
 			n.set(m, d);
 			if (dug.contains(n.asLong())) continue;
 			BlockState s = view.getBlockState(n);
-			if (s.isAir() || s.getBlock() instanceof FluidBlock || GroundRules.terrain(s) || s.isFullCube(view, n)) continue;
+			if (s.isAir() || s.getBlock() instanceof FluidBlock || GroundRules.terrain(s) || s.isOf(Blocks.POWDER_SNOW)
+				|| s.isFullCube(view, n)) continue;
 			if (d != Direction.DOWN && !s.hasBlockEntity() && (s.getBlock() instanceof PlantBlock
-				|| s.getBlock() instanceof AbstractPlantPartBlock || s.isOf(Blocks.SNOW))) continue;
+				|| s.getBlock() instanceof AbstractPlantPartBlock || s.isOf(Blocks.SNOW) || stalk(s))) continue;
 			return false;
 		}
 		return true;
