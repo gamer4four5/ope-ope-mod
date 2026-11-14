@@ -197,6 +197,23 @@ public final class RoomFxClient {
 					quietUntil = ticks + 10;
 				}
 			}
+			case Payloads.RoomFx.IMPACT -> {
+				RoomVisuals.onBoulderImpact(fx);
+				double dx = a.x - mc.gameRenderer.getCamera().getPos().x;
+				double dy = a.y - mc.gameRenderer.getCamera().getPos().y;
+				double dz = a.z - mc.gameRenderer.getCamera().getPos().z;
+				double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+				double reach = Math.max(48.0, fx.radius() * 8.0);
+				if (dist < reach) {
+					float w = (float) Math.pow(1.0 - dist / reach, 1.35);
+					float intensity = Math.max(0.5f, Math.min(2.0f, fx.radius2()));
+					CameraFx.trauma(Math.min(1.0f, 0.55f * intensity * w));
+					CameraFx.kick(1.8f * intensity * w);
+					CameraFx.fov(-3.0f * w, 0.04f, 0.30f);
+					ScreenFx.edgePulse(0.32f * w, 0.28f);
+					if (w > 0.45f) ScreenFx.flash(0.10f * w, 0.14f);
+				}
+			}
 			case Payloads.RoomFx.CLOSE -> {
 				// las luces del cierre solo si se veía aquí (el ROOM de otro mundo se cierra sin nada en este)
 				boolean seen = RoomVisuals.visibleHere(fx.owner(), fx.slot());

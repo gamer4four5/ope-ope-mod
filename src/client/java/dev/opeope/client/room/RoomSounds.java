@@ -55,6 +55,25 @@ public final class RoomSounds {
 		play(OpeOpeMod.id(id), volume, pitch, delayTicks, true, 0, 0, 0);
 	}
 
+	/** Corte espacial quirúrgico multicapa: desgarro de aire, cristal dimensional y vacío sub-grave. */
+	public static void cutImpact(int planes, boolean ownCut, Vec3d pos) {
+		int p = Math.max(1, Math.min(planes, 5));
+		if (ownCut) {
+			own("cut.slice", 1.72f + 0.05f * p, 0.72f, 0);
+			own("cut.sweep", 1.55f, 0.65f, 0);
+			own("cut.crystal", 1.45f, 0.55f, 1);
+			own("cut.vacuum", 1.85f, 0.32f, 1);
+			own("shambles.snap", 1.90f, 0.42f, 2);
+			if (p > 1) {
+				own("cut.glass", 1.85f, 0.30f, 2);
+				own("shambles.bell", 2.0f, 0.28f, 3);
+			}
+		} else if (pos != null) {
+			at("cut.slice", pos.x, pos.y, pos.z, 1.65f, 0.65f, 0);
+			at("cut.crystal", pos.x, pos.y, pos.z, 1.40f, 0.55f, 1);
+		}
+	}
+
 	static void own(String id, float pitch, float volume) {
 		own(id, pitch, volume, 0);
 	}
@@ -97,6 +116,9 @@ public final class RoomSounds {
 			own("room.bloom_whoom", 1.2f, 0.6f);
 			own("room.bloom_wind", 1.1f, 0.5f);
 			own("room.bloom_low", 0.7f, 0.6f);
+		own("shambles.warp", 1.35f, 0.38f, 1);
+		own("shambles.snap", 1.75f, 0.35f, 2);
+		own("takt.lift", 1.45f, 0.32f, 3);
 			float v = 0.22f;
 			for (int i = 0; i < BLOOM_GLINTS.length; i++) {
 				own("room.glint", BLOOM_GLINTS[i], v, BLOOM_DELAYS[i]);
@@ -116,6 +138,8 @@ public final class RoomSounds {
 			own("room.bell", 1.0f * rate, 0.5f, 0);
 			own("room.bell", 1.335f * rate, 0.4f, 2);
 			own("room.lock_low", 0.7f * rate, 0.6f);
+		own("shambles.snap", 1.55f * rate, 0.35f, 1);
+		own("surgery.chime", 1.65f, 0.30f, 3);
 		} else {
 			at("room.lock", at.x, at.y, at.z, 1.5f, 0.8f * OTHERS, 0);
 			at("room.bell", at.x, at.y, at.z, 1.0f * rate, 0.5f * OTHERS, 0);
@@ -150,6 +174,8 @@ public final class RoomSounds {
 	static void cast(boolean own, Vec3d from, @Nullable Supplier<Vec3d> comet) {
 		if (own) {
 			own("room.throw", 1.4f, 0.8f);
+		own("takt.launch", 1.7f, 0.35f, 0);
+		own("shambles.air", 1.45f, 0.30f, 1);
 			own("room.glint", 1.8f, 0.5f);
 			stopFly();
 			if (comet != null) {
@@ -176,6 +202,8 @@ public final class RoomSounds {
 			own("room.land_glass", 1.5f, 0.6f * v);
 			own("room.land_crystal", 1.2f, 0.6f * v);
 			own("room.bloom", 1.1f, 0.8f * v, 1);
+		own("shambles.warp", 1.55f, 0.42f * v, 1);
+		own("takt.lift", 1.25f, 0.36f * v, 2);
 		} else {
 			float v = (float) Math.min(4.0, Math.max(1.0, dist / 16.0));
 			at("room.land", at.x, at.y, at.z, 0.8f * rate, 0.9f * v, 0);

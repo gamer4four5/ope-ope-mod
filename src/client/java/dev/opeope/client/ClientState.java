@@ -55,6 +55,28 @@ public final class ClientState {
 		return has(Payloads.State.UNION);
 	}
 
+	public static int combatStyle() {
+		if (has(Payloads.State.STYLE_SWORD)) return 2;
+		if (has(Payloads.State.STYLE_FIGHT)) return 3;
+		return 1;
+	}
+
+	public static boolean freeMode() {
+		return has(Payloads.State.FREE_MODE);
+	}
+
+	public static boolean kroomBlade() {
+		return has(Payloads.State.KROOM_BLADE);
+	}
+
+	public static boolean eternalYouth() {
+		return has(Payloads.State.ETERNAL_YOUTH);
+	}
+
+	public static boolean zeroGravity() {
+		return has(Payloads.State.ZERO_G);
+	}
+
 	public static void apply(Payloads.State s) {
 		flags = s.flags();
 		pattern = s.pattern();

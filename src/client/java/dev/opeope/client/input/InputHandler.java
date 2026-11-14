@@ -11,6 +11,7 @@ import dev.opeope.client.render.TerrainFx;
 import dev.opeope.client.room.RoomFxClient;
 import dev.opeope.client.room.TaktSounds;
 import dev.opeope.client.screen.GuideScreen;
+import dev.opeope.client.screen.IslandScreen;
 import dev.opeope.client.screen.SettingsScreen;
 import dev.opeope.net.Payloads;
 import dev.opeope.power.Actions;
@@ -107,7 +108,7 @@ public final class InputHandler {
 	private static Vec3d dragLook = new Vec3d(0, 0, 1);
 	private static double dragDX, dragDY;               // lo que se movió el ratón con la cámara quieta
 	private static double lastSX = 1, lastSY = 0;       // el último tajo en pantalla (x a la derecha, y hacia arriba)
-	private static final double DRAG_MIN = 10;           // menos que esto (≈1,5°) es un clic: repite el último tajo
+	private static final double DRAG_MIN = 5;           // menos que esto (≈1,5°) es un clic: repite el último tajo
 	private static boolean unionCHeld;
 	private static long unionCAt;
 	private static boolean surgeryOn;
@@ -202,6 +203,21 @@ public final class InputHandler {
 		if (action != GLFW.GLFW_PRESS) return false;
 		if (key == GLFW.GLFW_KEY_ESCAPE && escapeLatches()) return true;
 		if (!active()) return false;
+		// Flechas del teclado para mover el ROOM arriba/abajo/izquierda/derecha cuando tienes un ROOM abierto
+		if (ClientState.ownRoom() != null) {
+			int moveDir = switch (key) {
+				case GLFW.GLFW_KEY_UP -> 1;
+				case GLFW.GLFW_KEY_DOWN -> 2;
+				case GLFW.GLFW_KEY_LEFT -> 3;
+				case GLFW.GLFW_KEY_RIGHT -> 4;
+				default -> 0;
+			};
+			if (moveDir != 0) {
+				Send.action(Actions.ROOM_MOVE, moveDir);
+				mark(key, NOTHING);
+				return true;
+			}
+		}
 		if (passthrough(key)) return false;
 		return press(InputUtil.Type.KEYSYM, key, key);
 	}
@@ -265,6 +281,12 @@ public final class InputHandler {
 			}
 			rUsed = true;
 			rLatchAt = now;
+			lastFruitInputAt = now;
+			return true;
+		}
+		if (ClientState.taktCount > 0 && mc().player != null
+			&& (mc().player.getMainHandStack().isEmpty() || mc().player.getMainHandStack().isOf(ModItems.KIKOKU))) {
+			Send.action(Actions.TAKT_SCROLL, dir);
 			lastFruitInputAt = now;
 			return true;
 		}
@@ -815,6 +837,18 @@ public final class InputHandler {
 			mark(code, NOTHING);
 			return true;
 		}
+		if (ClientState.union() && empty) {
+			Send.action(Actions.UNION_CLICK);
+			p.swingHand(Hand.MAIN_HAND);
+			mark(code, NOTHING);
+			return true;
+		}
+		if (ClientState.combatStyle() == 3 && empty) {
+			Send.action(Actions.FIGHT_COMBO);
+			p.swingHand(Hand.MAIN_HAND);
+			mark(code, NOTHING);
+			return true;
+		}
 		if (ClientState.taktCount > 0 && free) {
 			Send.action(Actions.TAKT_THROW_ONE);
 			p.swingHand(Hand.MAIN_HAND);
@@ -823,18 +857,12 @@ public final class InputHandler {
 			mark(code, () -> leftHeld = false);
 			return true;
 		}
-		if (ClientState.union() && empty) {
-			Send.action(Actions.UNION_CLICK);
-			p.swingHand(Hand.MAIN_HAND);
-			mark(code, NOTHING);
-			return true;
-		}
 		if (empty && ClientState.ownRoom() != null) {
 			beginDrag();
 			mark(code, InputHandler::endDrag);
 			return true;
 		}
-		if (kikoku && ClientState.ownRoom() != null && ClientState.inOwnRoom(p.getEyePos())) {
+		if (kikoku && (ClientState.ownRoom() != null || ClientState.kroomBlade())) {
 			kikokuCut(p);
 			return false;   // el golpe normal de la espada también ocurre
 		}
@@ -869,6 +897,7 @@ public final class InputHandler {
 			mark(code, NOTHING);
 			return true;
 		}
+		if (interactable()) return false;
 		if (ClientState.taktCount > 0 && free) {
 			mark(code, () -> {
 				Send.action(Actions.TAKT_THROW_ALL);
@@ -876,7 +905,6 @@ public final class InputHandler {
 			});
 			return true;
 		}
-		if (interactable()) return false;
 		if (ClientState.union() && empty) {
 			Send.action(Actions.UNION_RECONSTRUCT);
 			mark(code, NOTHING);
@@ -1004,6 +1032,7 @@ public final class InputHandler {
 		Vec3d n = look.crossProduct(swipe).normalize();
 		Vec3d eye = p.getEyePos();
 		Send.cut(2, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) eye.x, (float) eye.y, (float) eye.z});
+		CutFx.slashFlash(Math.cos(a), Math.sin(a));
 		Onboarding.mark(Onboarding.STEP_CUT);
 	}
 
@@ -1014,12 +1043,18 @@ public final class InputHandler {
 		OpeProgress.tick();
 		Onboarding.tick();
 		if (mc.currentScreen == null) {
-			// el libro y los ajustes son teclas de Minecraft: funcionan también sin la fruta
-			boolean libro = false, ajustes = false;
+			// el libro, Isla Bisturí, estilo y ajustes son teclas de Minecraft: funcionan también sin la fruta
+			boolean libro = false, ajustes = false, isla = false, estilo = false;
 			while (OpeKeyBindings.LIBRO.wasPressed()) libro = true;
 			while (OpeKeyBindings.AJUSTES.wasPressed()) ajustes = true;
+			while (OpeKeyBindings.ISLA.wasPressed()) isla = true;
+			while (OpeKeyBindings.ESTILO.wasPressed()) estilo = true;
 			if (ajustes) mc.setScreen(new SettingsScreen(null));
+			else if (isla) mc.setScreen(new IslandScreen(null));
 			else if (libro) mc.setScreen(new GuideScreen());
+			if (estilo && mc.player != null && ClientState.hasFruit()) {
+				Send.action(Actions.STYLE_SWITCH, 0);
+			}
 		}
 		boolean focused = mc.isWindowFocused();
 		if (wasFocused && !focused) clearLatches(mc.player != null);   // solo el flanco: Xvfb puede decir «sin foco» siempre

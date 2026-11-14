@@ -1,6 +1,8 @@
 package dev.opeope.entity;
 
+import dev.opeope.power.CutEngine;
 import dev.opeope.power.CutStates;
+import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.Room;
 import dev.opeope.registry.ModEntities;
@@ -25,16 +27,18 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Sterben: la nodachi gira como una sierra y corta todo lo que cruza. */
+/** Sterben (Hoja de la Muerte): la Kikoku gira a altísima velocidad como una sierra circular quirúrgica 3D que corta enemigos y estructuras. */
 public class SterbenEntity extends Entity {
-	public static final double SPEED = 1.1;
-	public static final double RANGE = 24;
+	public static final double SPEED = 1.25;
+	public static final double RANGE = 32;
 	private UUID owner;
 	private Vec3d dir = new Vec3d(0, 0, 1);
 	private double traveled;
+	private boolean cutStructureDone = false;
 	private final Map<Integer, Integer> hit = new HashMap<>();
 
 	public SterbenEntity(EntityType<? extends SterbenEntity> type, World world) {
@@ -47,9 +51,10 @@ public class SterbenEntity extends Entity {
 		e.owner = p.getUuid();
 		Vec3d look = p.getRotationVector();
 		e.dir = look;
-		Vec3d start = p.getEyePos().add(look.multiply(1.5)).subtract(0, 0.4, 0);
+		Vec3d start = p.getEyePos().add(look.multiply(1.5)).subtract(0, 0.3, 0);
 		e.setPosition(start);
 		e.setYaw(p.getYaw());
+		e.setPitch(p.getPitch());
 		p.getWorld().spawnEntity(e);
 		return e;
 	}
@@ -86,30 +91,59 @@ public class SterbenEntity extends Entity {
 		Vec3d next = getPos().add(dir.multiply(SPEED));
 		setPosition(next);
 		traveled += SPEED;
-		w.spawnParticles(ParticleTypes.SWEEP_ATTACK, getX(), getY(), getZ(), 1, 0.4, 0.1, 0.4, 0);
-		w.spawnParticles(ParticleTypes.END_ROD, getX(), getY(), getZ(), 3, 0.8, 0.1, 0.8, 0.02);
-		if (age % 4 == 0) w.playSound(null, getX(), getY(), getZ(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.PLAYERS, 0.8f, 1.6f);
 
-		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, getBoundingBox().expand(1.0), e -> e.isAlive() && e != p)) {
-			Integer until = hit.get(le.getId());
-			if (until != null && until > age) continue;
-			hit.put(le.getId(), age + 12);
-			DamageSource src = p != null ? w.getDamageSources().playerAttack(p) : w.getDamageSources().magic();
-			le.damage(src, 5f);
-			Vec3d n = dir.crossProduct(new Vec3d(0, 1, 0));
-			if (n.lengthSquared() < 1e-3) n = new Vec3d(1, 0, 0);
-			CutStates.cutLiving(le, java.util.List.of(new dev.opeope.power.CutEngine.Plane(new Vec3d(0, 1, 0), getPos())), 20 * 12, 0);
+		// Anillo de partículas 3D de la sierra giratoria
+		Vec3d right = dir.crossProduct(new Vec3d(0, 1, 0));
+		if (right.lengthSquared() < 1e-4) right = new Vec3d(1, 0, 0);
+		right = right.normalize();
+		Vec3d up = right.crossProduct(dir).normalize();
+		for (int i = 0; i < 6; i++) {
+			double ang = (age * 0.9) + i * Math.PI / 3.0;
+			Vec3d rim = getPos().add(right.multiply(Math.cos(ang) * 2.1)).add(up.multiply(Math.sin(ang) * 2.1));
+			w.spawnParticles(CutEngine.ROOM_DUST, rim.x, rim.y, rim.z, 1, 0.05, 0.05, 0.05, 0);
+		}
+		w.spawnParticles(ParticleTypes.SWEEP_ATTACK, getX(), getY(), getZ(), 2, 0.7, 0.2, 0.7, 0);
+		w.spawnParticles(ParticleTypes.END_ROD, getX(), getY(), getZ(), 4, 1.1, 0.2, 1.1, 0.03);
+		if (age % 3 == 0) {
+			w.playSound(null, getX(), getY(), getZ(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.PLAYERS, 1.0f, 1.7f);
 		}
 
-		// Dentro del ROOM la sierra raja lo blando que encuentra (hojas, plantas, cristal).
-		Room room = p != null ? PowerManager.get(p).room : null;
-		if (room != null && room.contains(getPos())) {
-			BlockPos c = BlockPos.ofFloored(getPos());
-			for (BlockPos bp : BlockPos.iterate(c.add(-1, -1, -1), c.add(1, 1, 1))) {
-				BlockState s = w.getBlockState(bp);
-				if (s.isAir()) continue;
-				float h = s.getHardness(w, bp);
-				if (h >= 0 && h < 0.8f) w.breakBlock(bp, true, p);
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, getBoundingBox().expand(2.2), e -> e.isAlive() && e != p)) {
+			Integer until = hit.get(le.getId());
+			if (until != null && until > age) continue;
+			hit.put(le.getId(), age + 6);
+			DamageSource src = p != null ? w.getDamageSources().playerAttack(p) : w.getDamageSources().magic();
+			le.damage(src, 9f);
+			le.addVelocity(dir.x * 0.45, 0.18, dir.z * 0.45);
+			le.velocityModified = true;
+			CutStates.cutLiving(le, List.of(
+				new CutEngine.Plane(new Vec3d(0, 1, 0), getPos()),
+				new CutEngine.Plane(right, getPos())
+			), 20 * 14, 0);
+		}
+
+		// Dentro del ROOM la sierra corta estructuras sólidas (casas, árboles, torres) y tritura obstáculos blandos
+		if (p != null) {
+			PlayerPower pw = PowerManager.get(p);
+			Room room = pw.room;
+			if (room != null && room.contains(getPos())) {
+				BlockPos c = BlockPos.ofFloored(getPos());
+				boolean hitSolid = false;
+				for (BlockPos bp : BlockPos.iterate(c.add(-1, -1, -1), c.add(1, 1, 1))) {
+					BlockState s = w.getBlockState(bp);
+					if (s.isAir()) continue;
+					float h = s.getHardness(w, bp);
+					if (h >= 0 && h < 0.8f) {
+						w.breakBlock(bp, true, p);
+					} else if (h >= 0.8f) {
+						hitSolid = true;
+					}
+				}
+				if (hitSolid && !cutStructureDone) {
+					cutStructureDone = true;
+					CutEngine.Region reg = CutEngine.Region.of(room).withLimit(getPos(), 7.5);
+					CutEngine.cut(p, List.of(new CutEngine.Plane(new Vec3d(0, 1, 0), getPos())), reg, pw.suspend, 0, 12f, true);
+				}
 			}
 		}
 		if (traveled > RANGE) discard();

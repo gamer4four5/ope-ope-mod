@@ -240,7 +240,7 @@ public final class CutRendering {
 					bx - px + ox, by - py + oy, bz - pz + oz,
 					bx + px + ox, by + py + oy, bz + pz + oz,
 					ax + px + ox, ay + py + oy, az + pz + oz,
-					170, 235, 255, 230});
+					(int) (170 + 80 * Math.max(0f, MathHelper.sin(time * 0.25f))), (int) (230 + 25 * Math.max(0f, MathHelper.sin(time * 0.25f))), 255, (int) (230 * (0.78f + 0.22f * MathHelper.sin(time * 0.32f + sideBit * 1.4f)))});
 			}
 		}
 

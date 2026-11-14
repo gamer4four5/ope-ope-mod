@@ -533,6 +533,23 @@ public final class RoomVisuals {
 		ring(key, own, rgb, dim, fx.ax(), fx.ay(), fx.az(), Math.min(40f, 0.55f * fx.radius()));
 	}
 
+	/** Onda de choque sísmica en el suelo cuando se estrella una rocota o masa gigante. */
+	static void onBoulderImpact(Payloads.RoomFx fx) {
+		Identifier dim = currentDim();
+		if (dim == null) return;
+		float r = Math.max(4f, fx.radius());
+		double now = RoomFxClient.time();
+		String key = "impact:" + fx.ax() + ":" + fx.az();
+		ring(key, true, 0xFFCC77, dim, fx.ax(), fx.ay(), fx.az(), Math.min(48f, r * 2.2f));
+		Fx shock = add(new Fx(Fx.SHOCK, key, true, 0x8FE3FF, dim, now, 0.38));
+		shock.ax = fx.ax();
+		ring(key + ":dust", true, 0xD8B88A, dim, fx.ax(), fx.ay(), fx.az(), Math.min(36f, r * 1.5f));
+		shock.ay = fx.ay();
+		shock.az = fx.az();
+		shock.r0 = r * 1.4f;
+		shock.alpha = 0.72f;
+	}
+
 	/** Vuelve a ti: la cuerda hasta tu pecho y ecos cada 2 ticks por el camino. */
 	static void onBring(Payloads.RoomFx fx, boolean own, int clientTick) {
 		Identifier dim = currentDim();

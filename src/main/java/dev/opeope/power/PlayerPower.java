@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** Todo lo que un usuario de la fruta tiene en marcha. Vive en el servidor mientras el jugador está conectado. */
 public class PlayerPower {
@@ -29,6 +30,7 @@ public class PlayerPower {
 	public TaktMode taktMode = TaktMode.HAND;
 	public double taktDist = 4.5;
 	public final Map<Integer, Vec3d> parked = new HashMap<>();
+	public final Map<Integer, Vec3d> taktOffsets = new HashMap<>();
 	public long lastTaktTap;
 	public final List<Integer> suspended = new ArrayList<>();
 	public final List<Integer> bisturiHeld = new ArrayList<>();   // lo cortado con el Bisturí, quieto hasta soltar
@@ -85,14 +87,38 @@ public class PlayerPower {
 	public BlockPos pillarBase;
 	public int floorCount;
 
+	// Fusión: Estilos de combate (1=Fruta, 2=Espada Kikoku, 3=Pelea/Palma), Modo Libre y Protección de caída en el cielo
+	public int combatStyle = 1;
+	public boolean freeMode = false;
+	public int fallImmunityTicks = 0;
+	public int comboStep = 0;
+	public long lastComboTick = 0;
+	public int counterStanceTicks = 0;
+
+	// Nuevas expansiones de la fruta: K-ROOM Espada Gigante 3D, Shambles de Proyectiles y Cirugía de Juventud Eterna
+	public int kroomBladeTicks = 0;
+	public int eternalYouthTicks = 0;
+	public boolean projectileShambles = true;
+	public int transplantedHearts = 0;
+
+	// Gravedad Cero + Vuelo Quirúrgico en el ROOM y Control Mental (Kokoro Shambles)
+	public boolean zeroGravityRoom = false;
+	public boolean surgicalFlightGranted = false;
+	public final List<UUID> controlledMobs = new ArrayList<>();
+
 	public boolean bisturi;
 	public boolean dirty = true;
 
 	public boolean onCooldown(Tech t) {
+		if (freeMode) return false;
 		return cooldowns[t.ordinal()] > 0;
 	}
 
 	public void cooldown(Tech t) {
+		if (freeMode) {
+			cooldowns[t.ordinal()] = 0;
+			return;
+		}
 		cooldowns[t.ordinal()] = t.ticks;
 		dirty = true;
 	}

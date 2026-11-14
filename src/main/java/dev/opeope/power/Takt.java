@@ -143,6 +143,7 @@ public final class Takt {
 			if (!mine || e == null || e.isRemoved() || !e.isAlive() || (e instanceof PieceEntity pe && pe.mode != PieceEntity.Mode.CONTROLLED)) {
 				it.remove();
 				pw.parked.remove(id);
+				pw.taktOffsets.remove(id);
 				if (mine) HOLDERS.remove(id);   // lo de otro sigue siendo suyo: ni se olvida ni se le apaga el borde
 				changed = true;
 				continue;
@@ -673,8 +674,64 @@ public final class Takt {
 			double dx = bb.maxX - bb.minX, dy = bb.maxY - bb.minY, dz = bb.maxZ - bb.minZ;
 			a = (float) (0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
 		}
+		pw.taktOffsets.remove(e.getId());
 		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 12, 0.5, 0.5, 0.5, 0);
 		sendFx(w, fx(TaktFx.GRAB, 0, e.getId(), p.getUuid(), c, a, b, waveDelay, flags, 0, NONE));
+	}
+
+	/** Captura un grupo de entidades o piezas manteniendo su disposición 3D relativa al apuntar con Takt. */
+	public static void captureCutGroup(ServerPlayerEntity p, PlayerPower pw, List<Entity> cutEntities) {
+		if (cutEntities.isEmpty()) return;
+		ServerWorld w = p.getServerWorld();
+		List<Entity> valid = new ArrayList<>();
+		for (Entity e : cutEntities) {
+			if (e == null || e.isRemoved() || !e.isAlive() || pw.takt.contains(e.getId())) continue;
+			if (!canGrab(p, e)) continue;
+			if (!PowerManager.inRoom(p, e.getBoundingBox().getCenter())) continue;
+			valid.add(e);
+		}
+		if (valid.isEmpty()) return;
+		int maxCut = Math.max(OpeConfig.TAKT_MAX * 4, OpeConfig.CUT_MAX_PIECES);
+		int free = maxCut - pw.takt.size() - pendingRips(pw);
+		if (free <= 0) return;
+		if (valid.size() > free) valid = valid.subList(0, free);
+
+		Vec3d centroid = Vec3d.ZERO;
+		for (Entity e : valid) centroid = centroid.add(e.getBoundingBox().getCenter());
+		centroid = centroid.multiply(1.0 / valid.size());
+
+		Vec3d eye = p.getEyePos();
+		pw.taktMode = PlayerPower.TaktMode.HAND;
+		double maxSpan = 0;
+		for (Entity e : valid) {
+			pw.takt.add(e.getId());
+			HOLDERS.put(e.getId(), p.getUuid());
+			pw.parked.remove(e.getId());
+			if (valid.size() > 1) {
+				pw.taktOffsets.put(e.getId(), e.getBoundingBox().getCenter().subtract(centroid));
+			} else {
+				pw.taktOffsets.remove(e.getId());
+			}
+			Vec3d c = e.getBoundingBox().getCenter();
+			maxSpan = Math.max(maxSpan, c.distanceTo(centroid));
+			if (e instanceof PieceEntity pe) {
+				pe.control(c.add(0, 1.0, 0));
+				pe.setFlag(PieceEntity.F_HELD, true);
+				pe.setFlag(PieceEntity.F_SUSPENDED, false);
+				pe.setFlag(PieceEntity.F_LANDED, false);
+				pe.setVelocity(0, 0.25, 0);
+				pe.velocityModified = true;
+			} else {
+				e.setNoGravity(true);
+				e.setVelocity(0, 0.25, 0);
+				e.velocityModified = true;
+			}
+			THROWN.remove(e.getId());
+			THROWN_SPEED.remove(e.getId());
+			sendFx(w, fx(TaktFx.GRAB, 0, e.getId(), p.getUuid(), c, 1.5f, 0f, 0, 0, 0, NONE));
+		}
+		pw.taktDist = MathHelper.clamp(Math.max(4.0, Math.min(28.0, centroid.distanceTo(eye) + maxSpan * 0.4)), 2.0, 64.0);
+		pw.dirty = true;
 	}
 
 	/** ¿Está en el aire? Cae, o no hay nada sólido en las tres celdas bajo el centro de su base. */
@@ -744,12 +801,16 @@ public final class Takt {
 			return;
 		}
 		UUID me = p.getUuid();
-		List<PieceEntity> cand = new ArrayList<>();
+		List<Entity> cand = new ArrayList<>();
 		Set<Integer> seen = new HashSet<>();
 		for (Room room : rooms) {
 			Box box = new Box(room.center, room.center).expand(room.radius);
 			for (PieceEntity pe : w.getEntitiesByClass(PieceEntity.class, box, e -> looseCut(pw, me, room, e))) {
 				if (seen.add(pe.getId())) cand.add(pe);
+			}
+			for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, box,
+				e -> e != p && CutStates.isCut(e) && room.contains(e.getBoundingBox().getCenter()) && !pw.takt.contains(e.getId()) && canGrab(p, e))) {
+				if (seen.add(le.getId())) cand.add(le);
 			}
 		}
 		if (cand.isEmpty()) {
@@ -757,19 +818,20 @@ public final class Takt {
 			deny(p, TaktFx.NOTHING_CUT, eye);
 			return;
 		}
-		int free = OpeConfig.TAKT_MAX - pw.takt.size() - pendingRips(pw);
+		int maxCut = Math.max(OpeConfig.TAKT_MAX * 4, OpeConfig.CUT_MAX_PIECES);
+		int free = maxCut - pw.takt.size() - pendingRips(pw);
 		if (free <= 0) {
 			msg(p, "takt_full");
 			deny(p, TaktFx.FULL, eye);
 			return;
 		}
-		cand.sort(Comparator.comparingDouble((PieceEntity e) -> e.center().squaredDistanceTo(eye)).thenComparingInt(PieceEntity::getId));
+		cand.sort(Comparator.comparingDouble((Entity e) -> e.getBoundingBox().getCenter().squaredDistanceTo(eye)).thenComparingInt(Entity::getId));
 		if (cand.size() > free) cand = cand.subList(0, free);
 		long now = w.getTime();
 		int longest = 0;
-		for (PieceEntity pe : cand) {
-			int delay = Math.min(OpeConfig.TAKT_WAVE_MAX_TICKS, (int) Math.round(0.6 * pe.center().distanceTo(eye)));
-			WAVES.add(new Wave(me, pe.getId(), now + delay, delay, TaktFx.F_AREA));
+		for (Entity e : cand) {
+			int delay = Math.min(OpeConfig.TAKT_WAVE_MAX_TICKS, (int) Math.round(0.6 * e.getBoundingBox().getCenter().distanceTo(eye)));
+			WAVES.add(new Wave(me, e.getId(), now + delay, delay, TaktFx.F_AREA));
 			longest = Math.max(longest, delay);
 		}
 		Room first = rooms.get(0);
@@ -803,11 +865,13 @@ public final class Takt {
 			due.add(wv);
 		}
 		if (due == null) return;
+		int maxCut = Math.max(OpeConfig.TAKT_MAX * 4, OpeConfig.CUT_MAX_PIECES);
 		for (Wave wv : due) {
 			Entity e = w.getEntityById(wv.id());
 			if (e == null || e.isRemoved() || pw.takt.contains(wv.id()) || !canGrab(p, e)) continue;
 			if (!PowerManager.inRoom(p, e.getBoundingBox().getCenter())) continue;
-			if (pw.takt.size() + pendingRips(pw) >= OpeConfig.TAKT_MAX) break;
+			int limit = (wv.flags() & TaktFx.F_AREA) != 0 ? maxCut : OpeConfig.TAKT_MAX;
+			if (pw.takt.size() + pendingRips(pw) >= limit) break;
 			grab(p, pw, e, wv.delay(), wv.flags());
 		}
 	}
@@ -841,7 +905,7 @@ public final class Takt {
 	}
 
 	public static void scroll(PlayerPower pw, int dir) {
-		pw.taktDist = MathHelper.clamp(pw.taktDist + dir * 1.0, 2.0, 40.0);
+		pw.taktDist = MathHelper.clamp(pw.taktDist + dir * 1.4, 2.0, 64.0);
 		pw.dirty = true;
 	}
 
@@ -865,6 +929,7 @@ public final class Takt {
 			int id = e.getId();
 			pw.takt.remove((Integer) id);
 			pw.parked.remove(id);
+			pw.taktOffsets.remove(id);
 			forget(id);
 			if (e instanceof PieceEntity pe && pe.weapon == null) {
 				BlockPos base = landingBase(w, view, pe, props.get(id));
@@ -941,6 +1006,7 @@ public final class Takt {
 		}
 		pw.takt.clear();
 		pw.parked.clear();
+		pw.taktOffsets.clear();
 		if (pw.taktMode == PlayerPower.TaktMode.PARK) pw.taktMode = PlayerPower.TaktMode.HAND;
 		pw.dirty = true;
 	}
@@ -988,6 +1054,7 @@ public final class Takt {
 	private static void launch(ServerPlayerEntity p, PlayerPower pw, Entity e, Vec3d aim, double speed, int index, int fxFlags) {
 		pw.takt.remove((Integer) e.getId());
 		pw.parked.remove(e.getId());
+		pw.taktOffsets.remove(e.getId());
 		forget(e.getId());
 		Vec3d c = e.getBoundingBox().getCenter();
 		int flags = fxFlags;
@@ -1063,10 +1130,10 @@ public final class Takt {
 		Vec3d anchor = Vec3d.ZERO;
 		if (mode == PlayerPower.TaktMode.HAND) {
 			double d = pw.taktDist + biggest * 0.6;
-			if (n == 1 && list.get(0) instanceof PieceEntity only && only.radius() / 2.5 > 1) {
-				d = Math.max(d, Math.min(1.7 * only.radius() + 4, 24));   // un trozo grande se lleva más lejos para verlo entero
+			if (pw.taktOffsets.isEmpty() && n == 1 && list.get(0) instanceof PieceEntity only && only.radius() > 3.5) {
+				d = Math.max(d, Math.min(1.5 * only.radius() + 3.5, 24));   // solo trozos enormes se llevan más lejos para verlos enteros
 			}
-			anchor = eye.add(look.multiply(d)).add(up.multiply(0.6));
+			anchor = eye.add(look.multiply(d)).add(up.multiply(pw.taktOffsets.isEmpty() && n == 1 ? 0.0 : 0.15));
 		}
 		for (int i = 0; i < n; i++) {
 			Entity e = list.get(i);
@@ -1084,6 +1151,10 @@ public final class Takt {
 				target = p.getPos().add(Math.cos(beta) * orbitR, 1.3 + Math.sin(time * 0.05 + i) * 0.4, Math.sin(beta) * orbitR);
 				vel = new Vec3d(-Math.sin(beta), 0, Math.cos(beta)).multiply(orbitR * omega);
 				drive = PieceEntity.DRIVE_ORBIT;
+			} else if (mode == PlayerPower.TaktMode.HAND && pw.taktOffsets.containsKey(e.getId())) {
+				target = anchor.add(pw.taktOffsets.get(e.getId()));
+				vel = Vec3d.ZERO;
+				drive = PieceEntity.DRIVE_HAND;
 			} else if (i == 0) {
 				target = anchor;
 				vel = Vec3d.ZERO;
@@ -1100,8 +1171,8 @@ public final class Takt {
 				pe.drive = drive;
 			} else {
 				Vec3d c = e.getBoundingBox().getCenter();
-				Vec3d v = target.subtract(c).multiply(0.3);
-				if (v.length() > 1.6) v = v.normalize().multiply(1.6);
+				Vec3d v = target.subtract(c).multiply(0.65);
+				if (v.length() > 4.5) v = v.normalize().multiply(4.5);
 				e.setVelocity(v.add(0, 0.08, 0));
 				e.fallDistance = 0;
 				e.velocityModified = true;

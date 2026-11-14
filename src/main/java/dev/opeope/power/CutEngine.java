@@ -81,6 +81,8 @@ public final class CutEngine {
 		public Vec3d eye, look;
 		public Vec3d lc;
 		public double lr;
+		public int minX = Integer.MIN_VALUE, maxX = Integer.MAX_VALUE;
+		public int minZ = Integer.MIN_VALUE, maxZ = Integer.MAX_VALUE;
 
 		public static Region of(Room room) {
 			Region g = new Region();
@@ -108,11 +110,27 @@ public final class CutEngine {
 			return this;
 		}
 
+		public Region withXZBounds(int minX, int maxX, int minZ, int maxZ) {
+			Region g = new Region();
+			g.c = this.c;
+			g.r = this.r;
+			g.eye = this.eye;
+			g.look = this.look;
+			g.lc = this.lc;
+			g.lr = this.lr;
+			g.minX = minX;
+			g.maxX = maxX;
+			g.minZ = minZ;
+			g.maxZ = maxZ;
+			return g;
+		}
+
 		public boolean contains(Vec3d p) {
 			return contains(p.x, p.y, p.z);
 		}
 
 		public boolean contains(double x, double y, double z) {
+			if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
 			double dx = x - c.x, dy = y - c.y, dz = z - c.z;
 			if (dx * dx + dy * dy + dz * dz > r * r) return false;
 			if (lc != null) {
@@ -163,6 +181,57 @@ public final class CutEngine {
 		return false;
 	}
 
+	/** Suelo natural continuo (tierra/césped/arena/grava/barro/netherrack/endstone) bajo árboles y edificios. */
+	private static boolean isNaturalSoil(BlockState st) {
+		return st.isOf(Blocks.GRASS_BLOCK) || st.isOf(Blocks.DIRT) || st.isOf(Blocks.COARSE_DIRT)
+			|| st.isOf(Blocks.ROOTED_DIRT) || st.isOf(Blocks.PODZOL) || st.isOf(Blocks.MYCELIUM)
+			|| st.isOf(Blocks.SAND) || st.isOf(Blocks.RED_SAND) || st.isOf(Blocks.GRAVEL)
+			|| st.isOf(Blocks.MUD) || st.isOf(Blocks.CLAY) || st.isOf(Blocks.SNOW_BLOCK)
+			|| st.isOf(Blocks.NETHERRACK) || st.isOf(Blocks.SOUL_SAND) || st.isOf(Blocks.SOUL_SOIL)
+			|| st.isOf(Blocks.END_STONE);
+	}
+
+	/** Roca/terreno natural de montañas y acantilados (se corta junto con su tierra/césped/nieve, pero detiene cortes verticales de árboles/casas apoyados en piedra). */
+	private static boolean isNaturalRock(BlockState st) {
+		return st.isIn(net.minecraft.registry.tag.BlockTags.BASE_STONE_OVERWORLD)
+			|| st.isIn(net.minecraft.registry.tag.BlockTags.BASE_STONE_NETHER)
+			|| st.isIn(net.minecraft.registry.tag.BlockTags.TERRACOTTA)
+			|| st.isOf(Blocks.SANDSTONE) || st.isOf(Blocks.RED_SANDSTONE)
+			|| st.isOf(Blocks.CALCITE) || st.isOf(Blocks.DRIPSTONE_BLOCK)
+			|| st.isOf(Blocks.MOSS_BLOCK);
+	}
+
+	/** Registra una semilla única junto con el plano más cercano, su caja en GroundCuts y su relieve vertical. */
+	private static void addSeed(ServerWorld w, Plane pl, int pi, int bx, int by, int bz,
+			LongOpenHashSet seen, LongArrayList seeds, IntArrayList seedPlane, IntArrayList seedSide,
+			boolean[] planeTerrain, int[][] planeBox, LongOpenHashSet reliefCols, int[] reliefBounds,
+			IntArrayList reliefTops, List<Vec3d> fx, List<BlockState> fxState, boolean addFx, double px, double py, double pz) {
+		if (by < w.getBottomY() || by >= w.getTopY()) return;
+		long key = BlockPos.asLong(bx, by, bz);
+		if (!seen.add(key)) return;
+		BlockPos bp = new BlockPos(bx, by, bz);
+		if (!w.isChunkLoaded(bp)) return;
+		BlockState st = w.getBlockState(bp);
+		if (!cuttable(st, w, bp)) return;
+		seeds.add(key);
+		seedPlane.add(pi);
+		seedSide.add(pl.dist(bx + 0.5, by + 0.5, bz + 0.5) >= 0 ? 1 : -1);
+		if (GroundRules.terrain(st)) {
+			planeTerrain[pi] = true;
+			if (reliefCols.size() < 48 && reliefCols.add(BlockPos.asLong(bx >> 2, 0, bz >> 2))) {
+				int topY = w.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, bx, bz) - 1;
+				reliefTops.add(topY);
+				reliefBounds[0] = Math.min(reliefBounds[0], topY);
+				reliefBounds[1] = Math.max(reliefBounds[1], topY);
+			}
+		}
+		planeBox[pi] = grow(planeBox[pi], bx, by, bz);
+		if (addFx && fx.size() < 260 && w.random.nextInt(3) == 0) {
+			fx.add(new Vec3d(px, py, pz));
+			fxState.add(st);
+		}
+	}
+
 	/**
 	 * Corta con varios planos a la vez. Devuelve cuántas piezas se soltaron y cuántos seres vivos quedaron en piezas.
 	 * @param noReattach ticks en que lo cortado de un ser vivo no se puede volver a unir (Radio Knife)
@@ -190,7 +259,12 @@ public final class CutEngine {
 		if (planes.isEmpty()) return new Result(0, 0);
 		BlockView view = GroundRules.loaded(w);
 
-		// 1. Semillas: los bloques pegados a cada plano dentro de la región (y de qué lado del plano quedan).
+		// 1. Semillas: priorizando la zona exacta donde miras y sin saltarse troncos/paredes finas.
+		double aimReach = Math.max(32.0, region.sampleR() * 2.2);
+		var aimHit = PowerManager.raycastBlock(player, aimReach);
+		Vec3d aim = aimHit.getType() != net.minecraft.util.hit.HitResult.Type.MISS ? aimHit.getPos()
+			: player.getEyePos().add(player.getRotationVector().multiply(Math.min(24.0, region.sampleR() * 0.5)));
+
 		LongOpenHashSet seen = new LongOpenHashSet();
 		LongArrayList seeds = new LongArrayList();
 		IntArrayList seedPlane = new IntArrayList();
@@ -198,22 +272,46 @@ public final class CutEngine {
 		List<Vec3d> fx = new ArrayList<>();
 		List<BlockState> fxState = new ArrayList<>();
 		int np = planes.size();
-		boolean[] planeTerrain = new boolean[np];   // el plano tiene alguna semilla de suelo
-		int[][] planeBox = new int[np][];           // la caja de las semillas de cada plano: min x y z, max x y z
-		boolean anyTerrain = false;
+		boolean[] planeTerrain = new boolean[np];
+		int[][] planeBox = new int[np][];
+		LongOpenHashSet reliefCols = new LongOpenHashSet();
+		int[] reliefBounds = {Integer.MAX_VALUE, Integer.MIN_VALUE};
+		IntArrayList reliefTops = new IntArrayList();
 		Vec3d scC = region.sampleC();
 		double sr = region.sampleR();
-		BlockPos.Mutable m = new BlockPos.Mutable();
-		int budget = OpeConfig.CUT_MAX_SAMPLES / planes.size();
+		int budget = Math.max(1, OpeConfig.CUT_MAX_SAMPLES / np);
 		for (int pi = 0; pi < (blocks ? np : 0); pi++) {
 			Plane pl = planes.get(pi);
+			Vec3d u = perpendicular(pl.n());
+			Vec3d v = pl.n().crossProduct(u).normalize();
+
+			// Pasada fina alrededor de donde apunta la mira (garantiza que árboles 1x1, vallas o muros delgados queden sembrados)
+			double dAim = pl.dist(aim);
+			if (Math.abs(dAim) <= 6.5) {
+				Vec3d qAim = aim.subtract(pl.n().multiply(dAim));
+				double fineR = Math.min(6.0, sr);
+				for (double a = -fineR; a <= fineR; a += 0.45) {
+					for (double b = -fineR; b <= fineR; b += 0.45) {
+						if (a * a + b * b > fineR * fineR) continue;
+						double px = qAim.x + u.x * a + v.x * b, py = qAim.y + u.y * a + v.y * b, pz = qAim.z + u.z * a + v.z * b;
+						if (!region.contains(px, py, pz)) continue;
+						for (double off : new double[]{-0.75, -0.35, 0.35, 0.75}) {
+							int bx = (int) Math.floor(px + pl.n().x * off);
+							int by = (int) Math.floor(py + pl.n().y * off);
+							int bz = (int) Math.floor(pz + pl.n().z * off);
+							addSeed(w, pl, pi, bx, by, bz, seen, seeds, seedPlane, seedSide, planeTerrain, planeBox,
+								reliefCols, reliefBounds, reliefTops, fx, fxState, off > 0 && off < 0.5, px, py, pz);
+						}
+					}
+				}
+			}
+
+			// Pasada completa sobre la sección del plano dentro de la región (muestreo doble para troncos/muros de 1 bloque)
 			double dc = pl.dist(scC);
 			if (Math.abs(dc) >= sr) continue;
 			double rr = Math.sqrt(sr * sr - dc * dc);
 			Vec3d q = scC.subtract(pl.n().multiply(dc));
-			Vec3d u = perpendicular(pl.n());
-			Vec3d v = pl.n().crossProduct(u).normalize();
-			double step = 0.7;
+			double step = 0.58;
 			double cells = (2 * rr / step) * (2 * rr / step);
 			if (cells > budget) step = 2 * rr / Math.sqrt(budget);
 			for (double a = -rr; a <= rr; a += step) {
@@ -221,44 +319,54 @@ public final class CutEngine {
 					if (a * a + b * b > rr * rr) continue;
 					double px = q.x + u.x * a + v.x * b, py = q.y + u.y * a + v.y * b, pz = q.z + u.z * a + v.z * b;
 					if (!region.contains(px, py, pz)) continue;
-					for (int s = -1; s <= 1; s += 2) {
-						m.set(px + pl.n().x * 0.5 * s, py + pl.n().y * 0.5 * s, pz + pl.n().z * 0.5 * s);
-						long key = m.asLong();
-						if (!seen.add(key)) continue;
-						BlockState st = w.getBlockState(m);
-						if (cuttable(st, w, m)) {
-							seeds.add(key);
-							seedPlane.add(pi);
-							// el lado real del bloque (por su centro), no el de la muestra
-							seedSide.add(pl.dist(m.getX() + 0.5, m.getY() + 0.5, m.getZ() + 0.5) >= 0 ? 1 : -1);
-							if (GroundRules.terrain(st)) {
-								planeTerrain[pi] = true;
-								anyTerrain = true;
-							}
-							planeBox[pi] = grow(planeBox[pi], m.getX(), m.getY(), m.getZ());
-							if (s == 1 && fx.size() < 240 && w.random.nextInt(3) == 0) {
-								fx.add(new Vec3d(px, py, pz));
-								fxState.add(st);
-							}
-						}
+					for (double off : new double[]{-0.65, -0.25, 0.25, 0.65}) {
+						int bx = (int) Math.floor(px + pl.n().x * off);
+						int by = (int) Math.floor(py + pl.n().y * off);
+						int bz = (int) Math.floor(pz + pl.n().z * off);
+						addSeed(w, pl, pi, bx, by, bz, seen, seeds, seedPlane, seedSide, planeTerrain, planeBox,
+							reliefCols, reliefBounds, reliefTops, fx, fxState, off > 0 && off < 0.5, px, py, pz);
 					}
 				}
 			}
 		}
 
-		// 2a. Grupos conexos que no cruzan ningún plano: si no tocan el resto del mundo, se sueltan enteros
-		//     (un árbol, una torre, una casa que cabe en el ROOM).
+		boolean anyTerrain = false;
+		for (boolean pt : planeTerrain) if (pt) { anyTerrain = true; break; }
+		int groundMedianY = player.getBlockY() - 1;
+		if (!reliefTops.isEmpty()) {
+			int[] sortedTops = reliefTops.toIntArray();
+			java.util.Arrays.sort(sortedTops);
+			groundMedianY = sortedTops[sortedTops.length / 2];
+		}
+		boolean hasTerrainRelief = reliefBounds[1] != Integer.MIN_VALUE
+			&& (reliefBounds[1] - groundMedianY >= 5 || reliefBounds[1] >= player.getBlockY() + 5);
+
+		// Ordenamos las semillas de más cercana a más lejana respecto a donde apunta tu mira
+		Integer[] seedOrder = new Integer[seeds.size()];
+		double[] seedDist2 = new double[seeds.size()];
+		for (int i = 0; i < seeds.size(); i++) {
+			seedOrder[i] = i;
+			long k = seeds.getLong(i);
+			double dx = BlockPos.unpackLongX(k) + 0.5 - aim.x;
+			double dy = BlockPos.unpackLongY(k) + 0.5 - aim.y;
+			double dz = BlockPos.unpackLongZ(k) + 0.5 - aim.z;
+			seedDist2[i] = dx * dx + dy * dy + dz * dz;
+		}
+		java.util.Arrays.sort(seedOrder, java.util.Comparator.comparingDouble(i -> seedDist2[i]));
+
+		// 2a. Grupos conexos que no cruzan ningún plano: si no tocan el resto del mundo, se sueltan enteros.
 		Long2IntOpenHashMap comp = new Long2IntOpenHashMap();
 		comp.defaultReturnValue(0);
 		List<LongArrayList> detached = new ArrayList<>();
 		IntArrayList detachedSeed = new IntArrayList();
 		LongArrayFIFOQueue queue = new LongArrayFIFOQueue();
 		int nextId = 1;
-		for (int si = 0; si < seeds.size(); si++) {
+		for (int si : seedOrder) {
 			long seed = seeds.getLong(si);
 			if (comp.get(seed) != 0) continue;
 			LongArrayList members = new LongArrayList();
-			boolean anchored = flood(w, planes, region, seed, nextId++, comp, members, queue, false, OpeConfig.CUT_MAX_PIECE_BLOCKS);
+			boolean anchored = flood(w, planes, region, seed, nextId++, comp, members, queue, false,
+				Integer.MIN_VALUE, false, Integer.MIN_VALUE, OpeConfig.CUT_MAX_PIECE_BLOCKS);
 			if (anchored) {
 				for (int i = 0; i < members.size(); i++) comp.put(members.getLong(i), -1);
 			} else {
@@ -267,38 +375,162 @@ public final class CutEngine {
 			}
 		}
 
-		// 2b. Lo que sigue pegado al terreno por fuera del ROOM: el borde del ROOM también corta. Lo que queda encima
-		//     de un corte no vertical (la cima de una montaña, la parte de arriba de una pared o de un tejado) se separa
-		//     igual, recortado por la esfera. Lo de debajo del corte es el suelo y se queda.
+		// 2b. Lo que sigue conectado por fuera del ROOM o apoyado en el suelo:
+		//     Montañas y edificios hasta el borde completo del ROOM (380k); cortes planos en el suelo quedan para Takt (GroundCuts).
 		Long2IntOpenHashMap compB = new Long2IntOpenHashMap();
 		compB.defaultReturnValue(0);
 		int nextB = 1;
 		int visitedB = 0;
-		for (int si = 0; si < seeds.size(); si++) {
-			long seed = seeds.getLong(si);
-			if (comp.get(seed) != -1 || compB.get(seed) != 0) continue;
-			Plane sp = planes.get(seedPlane.getInt(si));
-			if (seedSide.getInt(si) * sp.n().y < OpeConfig.CUT_SLIDE_MIN_UP) continue;
-			if (visitedB > OpeConfig.CUT_MAX_SLICE_VISIT) break;
-			LongArrayList members = new LongArrayList();
-			boolean anchored = flood(w, planes, region, seed, nextB++, compB, members, queue, true, OpeConfig.CUT_MAX_SLICE_BLOCKS);
-			visitedB += members.size();
-			// La regla de la cuña: una loncha grande que no puede bajar por el plano (la sujeta suelo de fuera del ROOM o
-			// de detrás de otro plano) se queda como suelo: sin parpadeo, y el corte queda recordado para Takt.
-			if (!anchored && members.size() > OpeConfig.CUT_HOVER_MAX_BLOCKS && slideBlocked(view, members, sp, seedSide.getInt(si))) {
-				anchored = true;
+		boolean found2b = false;
+		int baseFloorY = Math.max(w.getBottomY(),
+			Math.max(groundMedianY + 1, player.getBlockY()));
+		for (int pass = 0; pass < 2; pass++) {
+			for (int si : seedOrder) {
+				long seed = seeds.getLong(si);
+				if (comp.get(seed) != -1 || compB.get(seed) != 0) continue;
+				Plane sp = planes.get(seedPlane.getInt(si));
+				int side = seedSide.getInt(si);
+				boolean verticalPlane = Math.abs(sp.n().y) < 0.32;
+				if (pass == 1 && (!verticalPlane || side >= 0 || found2b)) continue;
+				BlockPos spPos = BlockPos.fromLong(seed);
+				BlockState seedSt = w.getBlockState(spPos);
+				boolean terrainSeed = isNaturalSoil(seedSt) || isNaturalRock(seedSt);
+				int minFloorY;
+				boolean skipSoil;
+				int skipRockBelowY;
+				if (!verticalPlane) {
+					if (side * sp.n().y < 0.32) continue;
+					minFloorY = Integer.MIN_VALUE;
+					skipSoil = false;
+					skipRockBelowY = Integer.MIN_VALUE;
+				} else {
+					if (pass == 0 && side < 0) continue;
+					if (terrainSeed && (!hasTerrainRelief || pass == 1 || spPos.getY() < baseFloorY)) continue;
+					skipSoil = !terrainSeed;
+					skipRockBelowY = terrainSeed ? Integer.MIN_VALUE : spPos.getY() - 1;
+					minFloorY = baseFloorY;
+				}
+				if (visitedB > OpeConfig.CUT_MAX_SLICE_VISIT) break;
+				LongArrayList members = new LongArrayList();
+				int maxSlice = verticalPlane ? 220_000 : OpeConfig.CUT_MAX_SLICE_BLOCKS;
+				boolean anchored = flood(w, planes, region, seed, nextB++, compB, members, queue, true,
+					minFloorY, skipSoil, skipRockBelowY, maxSlice);
+				visitedB += members.size();
+				if (!anchored && verticalPlane && terrainSeed) {
+					int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+					for (int i = 0; i < members.size(); i++) {
+						int by = BlockPos.unpackLongY(members.getLong(i));
+						if (by < minY) minY = by;
+						if (by > maxY) maxY = by;
+					}
+					if (members.size() < 64 || maxY - minY < 4) anchored = true;
+				}
+				if (!anchored && !verticalPlane && members.size() > OpeConfig.CUT_HOVER_MAX_BLOCKS) {
+					int minY = Integer.MAX_VALUE;
+					for (int i = 0; i < members.size(); i++) {
+						int by = BlockPos.unpackLongY(members.getLong(i));
+						if (by < minY) minY = by;
+					}
+					if ((minY <= groundMedianY + 2 || Math.abs(sp.n().y) < 0.90)
+						&& slideBlocked(view, members, sp, side)) {
+						anchored = true;
+					}
+				}
+				if (anchored) {
+					for (int i = 0; i < members.size(); i++) compB.put(members.getLong(i), -1);
+				} else {
+					detached.add(members);
+					detachedSeed.add(si);
+					found2b = true;
+				}
 			}
-			if (anchored) {
-				for (int i = 0; i < members.size(); i++) compB.put(members.getLong(i), -1);
-			} else {
-				detached.add(members);
-				detachedSeed.add(si);
+			if (found2b) break;
+		}
+
+		// 2c. Respaldo para mega-montañas (>380k bloques): divide toda la extensión del ROOM en columnas sectorizadas 24x24.
+		if (!found2b && !seeds.isEmpty() && sr > 12.0) {
+			final int colW = 24;
+			java.util.LinkedHashMap<Long, Integer> colReps = new java.util.LinkedHashMap<>();
+			for (int si : seedOrder) {
+				long seed = seeds.getLong(si);
+				if (comp.get(seed) != -1) continue;
+				Plane sp = planes.get(seedPlane.getInt(si));
+				int side = seedSide.getInt(si);
+				boolean verticalPlane = Math.abs(sp.n().y) < 0.32;
+				if (!verticalPlane && side * sp.n().y < 0.32) continue;
+				if (verticalPlane && side < 0) continue;
+				BlockState seedSt = w.getBlockState(BlockPos.fromLong(seed));
+				boolean terrainSeed = isNaturalSoil(seedSt) || isNaturalRock(seedSt);
+				int bx = BlockPos.unpackLongX(seed), by = BlockPos.unpackLongY(seed), bz = BlockPos.unpackLongZ(seed);
+				if (terrainSeed && (!hasTerrainRelief || by < baseFloorY)) continue;
+				int gx = Math.floorDiv(bx, colW), gz = Math.floorDiv(bz, colW);
+				long cKey = ((long) (gx & 0xFFFFFFFFL) << 32) | (gz & 0xFFFFFFFFL);
+				colReps.putIfAbsent(cKey, si);
+			}
+			Long2IntOpenHashMap compF = new Long2IntOpenHashMap();
+			compF.defaultReturnValue(0);
+			int nextF = 1;
+			int total2c = 0;
+			for (int si : colReps.values()) {
+				if (total2c >= 720_000) break;
+				long seed = seeds.getLong(si);
+				if (compF.get(seed) != 0) continue;
+				int bx = BlockPos.unpackLongX(seed), by = BlockPos.unpackLongY(seed), bz = BlockPos.unpackLongZ(seed);
+				int gx = Math.floorDiv(bx, colW), gz = Math.floorDiv(bz, colW);
+				Region colReg = region.withXZBounds(gx * colW, (gx + 1) * colW, gz * colW, (gz + 1) * colW);
+				Plane sp = planes.get(seedPlane.getInt(si));
+				boolean verticalPlane = Math.abs(sp.n().y) < 0.32;
+				BlockState seedSt = w.getBlockState(new BlockPos(bx, by, bz));
+				boolean terrainSeed = isNaturalSoil(seedSt) || isNaturalRock(seedSt);
+				boolean skipSoil = verticalPlane && !terrainSeed;
+				int skipRockBelowY = (verticalPlane && !terrainSeed) ? by - 1 : Integer.MIN_VALUE;
+				int minFloorY = verticalPlane ? baseFloorY : Integer.MIN_VALUE;
+				LongArrayList members = new LongArrayList();
+				boolean anchored = flood(w, planes, colReg, seed, nextF++, compF, members, queue, true,
+					minFloorY, skipSoil, skipRockBelowY, 45000);
+				if (anchored) {
+					for (int i = 0; i < members.size(); i++) compF.put(members.getLong(i), -1);
+				} else {
+					detached.add(members);
+					detachedSeed.add(si);
+					total2c += members.size();
+				}
 			}
 		}
 
-		// Antes de tocar ningún bloque: el material, lo que se va a soltar, los seres que se cortan, lo que el suelo
-		// recuerda y el aviso a los clientes (que dibujan la costura sobre el mundo aún entero).
-		int count = Math.min(detached.size(), OpeConfig.CUT_MAX_PIECES);
+		// Sectorización antes de tocar ningún bloque: montañas grandes se dividen en sectores sincronizados
+		long totalDetachedBlocks = 0;
+		for (LongArrayList m : detached) totalDetachedBlocks += m.size();
+		int secXZ = totalDetachedBlocks > 450_000 ? 28 : (totalDetachedBlocks > 140_000 ? 24 : 20);
+		int secY = totalDetachedBlocks > 450_000 ? 36 : (totalDetachedBlocks > 140_000 ? 32 : 24);
+		List<LongArrayList> finalGroups = new ArrayList<>();
+		IntArrayList finalSeeds = new IntArrayList();
+		for (int gi = 0; gi < detached.size() && finalGroups.size() < OpeConfig.CUT_MAX_PIECES; gi++) {
+			LongArrayList members = detached.get(gi);
+			int si = detachedSeed.getInt(gi);
+			if (members.size() <= 9600) {
+				finalGroups.add(members);
+				finalSeeds.add(si);
+			} else {
+				Map<Long, LongArrayList> sectors = new java.util.LinkedHashMap<>();
+				for (int i = 0; i < members.size(); i++) {
+					long k = members.getLong(i);
+					int sx = Math.floorDiv(BlockPos.unpackLongX(k), secXZ);
+					int sy = Math.floorDiv(BlockPos.unpackLongY(k), secY);
+					int sz = Math.floorDiv(BlockPos.unpackLongZ(k), secXZ);
+					long secKey = ((long) (sx & 0xFFFFF) << 40) | ((long) (sy & 0xFFFFF) << 20) | (long) (sz & 0xFFFFF);
+					sectors.computeIfAbsent(secKey, ignored -> new LongArrayList()).add(k);
+				}
+				for (LongArrayList sec : sectors.values()) {
+					if (finalGroups.size() >= OpeConfig.CUT_MAX_PIECES) break;
+					finalGroups.add(sec);
+					finalSeeds.add(si);
+				}
+			}
+		}
+
+		// Antes de tocar ningún bloque: material, GroundCuts y aviso a clientes (dibuja costura sobre el mundo entero).
+		int count = finalGroups.size();
 		Vec3d mid = Vec3d.ZERO;
 		BlockState mainMat = null;
 		Map<BlockState, Integer> matCount = new HashMap<>();
@@ -325,17 +557,16 @@ public final class CutEngine {
 		if (recorded > 0) flags |= Payloads.CutFx.F_REMEMBERED;
 		sendFx(w, player, planes, region, count, livingCut, mainMat == null ? -1 : Block.getRawIdFromState(mainMat), flags);
 
-		// 3. Cada grupo suelto pasa a ser una pieza, que resbala por el plano del corte. En tres pasadas, para que las
-		//    caras cortadas de cada pieza se midan con todos los bloques aún en su sitio.
+		// 3. Cada grupo suelto pasa a ser una pieza (A: cutFaceMask, B: aire, C: entidades + slide/suspensión).
 		PlayerPower power = PowerManager.get(player);
 		Vec3d look = player.getRotationVector();
 		long now = w.getTime();
 		List<BlockSet> sets = new ArrayList<>(count);
 		List<BlockPos> mins = new ArrayList<>(count);
 		List<List<BlockPos>> groupCells = new ArrayList<>(count);
+		LongOpenHashSet removedSet = new LongOpenHashSet();
 		for (int gi = 0; gi < count; gi++) {
-			// A: los bloques (con los datos de cofres y demás) y sus caras cortadas
-			LongArrayList members = detached.get(gi);
+			LongArrayList members = finalGroups.get(gi);
 			int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
 			for (int i = 0; i < members.size(); i++) {
 				long k = members.getLong(i);
@@ -346,13 +577,15 @@ public final class CutEngine {
 			BlockSet set = new BlockSet();
 			List<BlockPos> mine = new ArrayList<>(members.size());
 			for (int i = 0; i < members.size(); i++) {
-				BlockPos pos = BlockPos.fromLong(members.getLong(i));
+				long k = members.getLong(i);
+				BlockPos pos = BlockPos.fromLong(k);
 				BlockState st = w.getBlockState(pos);
 				NbtCompound beNbt = null;
 				BlockEntity be = w.getBlockEntity(pos);
 				if (be != null) beNbt = be.createNbtWithIdentifyingData(w.getRegistryManager());
 				set.add(pos.getX() - minX, pos.getY() - minY, pos.getZ() - minZ, st, beNbt);
 				mine.add(pos);
+				removedSet.add(k);
 			}
 			BlockPos min = new BlockPos(minX, minY, minZ);
 			set.cutFaceMask(view, min);
@@ -362,7 +595,6 @@ public final class CutEngine {
 		}
 		List<BlockPos> removed = new ArrayList<>();
 		for (List<BlockPos> mine : groupCells) {
-			// B: fuera del mundo
 			for (BlockPos pos : mine) {
 				BlockEntity be = w.getBlockEntity(pos);
 				if (be instanceof Inventory inv) inv.clear();
@@ -372,7 +604,6 @@ public final class CutEngine {
 		}
 		int pieces = 0;
 		for (int gi = 0; gi < count; gi++) {
-			// C: las piezas, con sus caras recién cortadas brillando
 			BlockSet set = sets.get(gi);
 			BlockPos min = mins.get(gi);
 			set.normalize();
@@ -380,15 +611,14 @@ public final class CutEngine {
 			SPAWNED.add(pe);
 			pe.markFx(now);
 			pe.setFlag(PieceEntity.F_FRESH, true);
-			int si = detachedSeed.getInt(gi);
+			int si = finalSeeds.getInt(gi);
 			Plane pl0 = planes.get(seedPlane.getInt(si));
-			Vec3d nSide = pl0.n().multiply(seedSide.getInt(si));   // normal del plano hacia el lado de la pieza
+			Vec3d nSide = pl0.n().multiply(seedSide.getInt(si));
 			if (suspend) {
 				pe.control(pe.center().add(nSide.multiply(0.3)));
 				pe.setFlag(PieceEntity.F_SUSPENDED, true);
 				power.suspended.add(pe.getId());
 			} else if (nSide.y >= OpeConfig.CUT_SLIDE_MIN_UP) {
-				// Encima del corte: resbala por el plano, cuesta abajo y hacia donde fue el tajo (el filo se lo lleva).
 				Vec3d swipe = swipeOf(pl0, look);
 				Vec3d dir = swipe.add(look.multiply(0.35));
 				Vec3d push = dir.subtract(nSide.multiply(dir.dotProduct(nSide)));
@@ -401,11 +631,22 @@ public final class CutEngine {
 			}
 			pieces++;
 		}
-		for (BlockPos pos : removed) w.updateNeighbors(pos, Blocks.AIR);
+		if (removed.size() <= 8000) {
+			for (BlockPos pos : removed) w.updateNeighbors(pos, Blocks.AIR);
+		} else {
+			BlockPos.Mutable nm = new BlockPos.Mutable();
+			for (BlockPos pos : removed) {
+				for (Direction d : DIRS) {
+					nm.set(pos.getX() + d.getOffsetX(), pos.getY() + d.getOffsetY(), pos.getZ() + d.getOffsetZ());
+					if (!removedSet.contains(nm.asLong())) {
+						w.updateNeighbors(pos, Blocks.AIR);
+						break;
+					}
+				}
+			}
+		}
 
-		// 4. Seres vivos y piezas que ya estaban sueltas (las que se están posando o ya se posaron no se tocan: sus
-		//    bloques están, o están a punto de estar, en el mundo; tampoco las que vuelven a su sitio o se están cosiendo:
-		//    partirlas dejaría su hueco abierto para siempre).
+		// 4. Seres vivos y piezas que ya estaban sueltas.
 		int living = 0;
 		for (Entity e : w.getOtherEntities(player, region.box(), e -> !(e instanceof SterbenEntity))) {
 			if (e instanceof PieceEntity pe) {
@@ -431,7 +672,6 @@ public final class CutEngine {
 			Vec3d p = fx.get(i);
 			BlockState st = fxState.get(i);
 			w.spawnParticles(ROOM_DUST, p.x, p.y, p.z, 1, 0.05, 0.05, 0.05, 0);
-			// el material del corte: polvo, astillas o chispas de lo que se cortó
 			w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st), p.x, p.y, p.z, 2, 0.1, 0.1, 0.1, 0.08);
 			if (w.random.nextInt(4) == 0) w.spawnParticles(ParticleTypes.END_ROD, p.x, p.y, p.z, 1, 0, 0, 0, 0.005);
 		}
@@ -552,16 +792,18 @@ public final class CutEngine {
 			d[o + 6] = (float) s.x; d[o + 7] = (float) s.y; d[o + 8] = (float) s.z;
 		}
 		Payloads.CutFx payload = new Payloads.CutFx(d, player.getId(), pieces, living, material, flags);
-		for (ServerPlayerEntity sp : PlayerLookup.around(w, c, 128)) ServerPlayNetworking.send(sp, payload);
+		double reach = Math.min(384.0, Math.max(192.0, region.sampleR() + 64.0));
+		for (ServerPlayerEntity sp : PlayerLookup.around(w, c, reach)) ServerPlayNetworking.send(sp, payload);
 	}
 
 	/**
 	 * Recorre el grupo de bloques unidos a la semilla sin cruzar ningún plano. Devuelve true si está anclado:
 	 * llega al fondo del mundo, a un bloque irrompible, a un chunk sin cargar, a otro grupo anclado o es demasiado grande.
 	 * @param roomBounded el borde de la región también corta (lo de fuera no cuenta como unión)
+	 * @param minFloorY si > Integer.MIN_VALUE, el plano del suelo (minFloorY) también actúa como borde de corte
 	 */
 	private static boolean flood(ServerWorld w, List<Plane> planes, Region region, long seed, int id, Long2IntOpenHashMap comp,
-			LongArrayList members, LongArrayFIFOQueue queue, boolean roomBounded, int maxBlocks) {
+			LongArrayList members, LongArrayFIFOQueue queue, boolean roomBounded, int minFloorY, boolean skipSoil, int skipRockBelowY, int maxBlocks) {
 		BlockPos.Mutable m = new BlockPos.Mutable();
 		int bottom = w.getBottomY(), top = w.getTopY();
 		comp.put(seed, id);
@@ -575,6 +817,7 @@ public final class CutEngine {
 				int nx = cx + d.getOffsetX(), ny = cy + d.getOffsetY(), nz = cz + d.getOffsetZ();
 				if (ny < bottom) return true;
 				if (ny >= top) continue;
+				if (minFloorY > Integer.MIN_VALUE && ny < minFloorY) continue;
 				if (roomBounded && !region.contains(nx + 0.5, ny + 0.5, nz + 0.5)) continue;
 				long nk = BlockPos.asLong(nx, ny, nz);
 				int c = comp.get(nk);
@@ -582,12 +825,15 @@ public final class CutEngine {
 				if (separated(planes, region, cx, cy, cz, nx, ny, nz)) continue;
 				m.set(nx, ny, nz);
 				if (c != 0) {
+					if (minFloorY > Integer.MIN_VALUE) continue;
 					if (cuttable(w.getBlockState(m), w, m)) return true;
 					continue;
 				}
 				if (!w.isChunkLoaded(m)) return true;
 				BlockState st = w.getBlockState(m);
 				if (st.isAir() || st.getBlock() instanceof FluidBlock) continue;
+				if (skipSoil && isNaturalSoil(st)) continue;
+				if (skipRockBelowY > Integer.MIN_VALUE && ny <= skipRockBelowY && isNaturalRock(st)) continue;
 				if (st.getHardness(w, m) < 0) return true;
 				comp.put(nk, id);
 				members.add(nk);
@@ -667,6 +913,7 @@ public final class CutEngine {
 		if (wasHeld) {
 			holderPower.takt.remove((Integer) pe.getId());
 			holderPower.parked.remove(pe.getId());
+			holderPower.taktOffsets.remove(pe.getId());
 			for (PieceEntity np : made) Takt.adopt(holderPower, holder, np);
 			holderPower.dirty = true;
 		}

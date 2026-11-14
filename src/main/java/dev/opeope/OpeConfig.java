@@ -25,21 +25,21 @@ public final class OpeConfig {
 	public static final double ROOM_FIRST_RADIUS = 24;    // el tamaño de un ROOM lanzado sin haber fijado ninguno antes
 
 	// Cortes
-	public static final int CUT_MAX_PIECE_BLOCKS = 4000;  // más grande que esto se considera anclado (terreno)
-	public static final int CUT_MAX_SLICE_BLOCKS = 12000; // lo que el borde del ROOM recorta del terreno (la cima de un monte)
-	public static final int CUT_MAX_SLICE_VISIT = 60000; // tope de bloques recorridos buscando esos recortes
-	public static final double CUT_SLIDE_MIN_UP = 0.3;    // lo que queda encima de un corte con al menos esta inclinación resbala
-	public static final double CUT_SLIDE_PUSH = 0.16;     // empujón inicial en la dirección del tajo (bloques/tick)
-	public static final int CUT_HOVER_TICKS = 20 * 8;     // si no puede resbalar, queda separada flotando este rato
-	public static final int CUT_HOVER_MAX_BLOCKS = 400;   // más grande que esto, si está encajada vuelve a su sitio en vez de flotar
-	public static final int CUT_HOLD_TICKS = 3;           // lo cortado se queda quieto un instante con la costura encendida (0,15 s)
-	public static final int CUT_MAX_PIECES = 48;
-	public static final int CUT_MAX_SAMPLES = 420_000;
+	public static final int CUT_MAX_PIECE_BLOCKS = 8000;  // más grande que esto se considera anclado (terreno)
+	public static final int CUT_MAX_SLICE_BLOCKS = 380_000; // lo que el borde del ROOM recorta del terreno (la cima o ladera completa de un monte)
+	public static final int CUT_MAX_SLICE_VISIT = 1_500_000; // tope de bloques recorridos buscando esos recortes
+	public static final double CUT_SLIDE_MIN_UP = 0.22;   // lo que queda encima de un corte con al menos esta inclinación resbala
+	public static final double CUT_SLIDE_PUSH = 0.42;     // empujón inicial en la dirección del tajo (bloques/tick)
+	public static final int CUT_HOVER_TICKS = 20 * 10;    // si no puede resbalar, queda separada flotando 10 s para Takt/Rejuntar/Unión
+	public static final int CUT_HOVER_MAX_BLOCKS = 400;   // si la pieza es una masa gigante apoyada (> 400), se ancla en vez de flotar entera
+	public static final int CUT_HOLD_TICKS = 4;           // lo cortado se queda quieto un instante con la costura encendida (0,20 s)
+	public static final int CUT_MAX_PIECES = 192;
+	public static final int CUT_MAX_SAMPLES = 900_000;
 	public static final int CUT_LIVING_TICKS = 20 * 30;   // lo cortado de un ser vivo se recompone solo a los 30 s
 	public static final int RADIO_KNIFE_NO_REATTACH = 20 * 5;
 
 	// Takt
-	public static final int TAKT_MAX = 32;
+	public static final int TAKT_MAX = 48;
 	public static final double TAKT_LAUNCH = 2.1;         // 42 m/s
 	public static final double TAKT_RANGE = 200;
 	public static final double TAKT_ZONE_RADIUS = 6;

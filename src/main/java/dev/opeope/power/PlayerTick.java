@@ -9,10 +9,26 @@ final class PlayerTick {
 	private PlayerTick() {}
 
 	static void tick(ServerPlayerEntity p, PlayerPower pw) {
-		for (int i = 0; i < pw.cooldowns.length; i++) if (pw.cooldowns[i] > 0) pw.cooldowns[i]--;
+		for (int i = 0; i < pw.cooldowns.length; i++) {
+			if (pw.freeMode) pw.cooldowns[i] = 0;
+			else if (pw.cooldowns[i] > 0) pw.cooldowns[i]--;
+		}
+
+		// Inmunidad total al daño por caída dentro del ROOM o tras teletransportarse al cielo con Shambles
+		if (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0) {
+			p.fallDistance = 0f;
+			if (pw.fallImmunityTicks > 0) {
+				if (p.isOnGround() && pw.fallImmunityTicks < 580) {
+					pw.fallImmunityTicks = Math.min(pw.fallImmunityTicks, 20);
+				}
+				pw.fallImmunityTicks--;
+			}
+		}
+		if (pw.counterStanceTicks > 0) pw.counterStanceTicks--;
 
 		RoomOps.tick(p, pw);
 		Takt.tick(p, pw);
+		Shambles.tickProjectiles(p, pw);
 		if (p.age % 20 == 0) Forge.weapons(p, pw);
 		Terrain.tick(p, pw);
 		Union.surgeryTick(p, pw);
@@ -21,6 +37,9 @@ final class PlayerTick {
 		Techniques.rainTick(p, pw);
 		Techniques.silentTick(p, pw);
 		Techniques.anesthesiaTick(p, pw);
+		Techniques.kroomBladeTick(p, pw);
+		Techniques.eternalYouthTick(p, pw);
+		Techniques.surgicalDomainTick(p, pw);
 		Takt.tickThrown(p.getServerWorld());
 
 		if (pw.shamblesMarkTicks > 0 && --pw.shamblesMarkTicks == 0 && pw.shamblesMark >= 0) {

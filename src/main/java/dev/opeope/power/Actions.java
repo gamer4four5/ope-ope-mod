@@ -20,16 +20,22 @@ public final class Actions {
 	public static final int UNION_CLICK = 80, UNION_RECONSTRUCT = 81, WEAPON_USE = 82;
 	public static final int KROOM = 90, ANESTHESIA = 91, SHOCK_WILLE = 92, RROOM = 93, PUNCTURE = 94, SILENT = 95, SQUEEZE = 96;
 
+	// Fusión: Estilos de Combate (1=Fruta, 2=Espada Kikoku, 3=Pelea), Mover ROOM y Panel Isla Bisturí [J]
+	public static final int STYLE_SWITCH = 100, FIGHT_COMBO = 101, ROOM_MOVE = 102, ISLAND_ACTION = 103;
+
 	// Órdenes de Takt (R mantenida + tecla)
 	public static final int ORDER_ORBIT = 1, ORDER_PARK = 2, ORDER_SETDOWN = 3, ORDER_DROP = 4, ORDER_ZONE = 5,
 		ORDER_CUT = 6, ORDER_GATHER = 7, ORDER_UNITE = 8, ORDER_THROW_ALL = 9, ORDER_FORGE = 10; // + 0..4
 
 	public static void handle(ServerPlayerEntity p, int action, int arg) {
+		if (action == ISLAND_ACTION && !ModAttachments.hasFruit(p)) {
+			PowerManager.grantFruit(p);
+		}
 		if (!ModAttachments.hasFruit(p)) return;
 		PlayerPower pw = PowerManager.get(p);
 		boolean release = (action == ROOM_RELEASE) || ((action == FLOOR || action == BISTURI || action == SURGERY
 			|| action == ANESTHESIA || action == RROOM || action == SQUEEZE) && arg == 0);
-		if (!release && !PowerManager.canUse(p)) {
+		if (!release && action != ISLAND_ACTION && !PowerManager.canUse(p)) {
 			p.sendMessage(Text.translatable("opeope.msg.sea"), true);
 			return;
 		}
@@ -91,6 +97,10 @@ public final class Actions {
 			case PUNCTURE -> Techniques.puncture(p, pw);
 			case SILENT -> Techniques.silent(p, pw);
 			case SQUEEZE -> pw.squeezing = arg == 1;
+			case STYLE_SWITCH -> Techniques.setStyle(p, pw, arg);
+			case FIGHT_COMBO -> Techniques.fightCombo(p, pw);
+			case ROOM_MOVE -> Techniques.moveRoom(p, pw, arg);
+			case ISLAND_ACTION -> Techniques.islandAction(p, pw, arg);
 			default -> {}
 		}
 	}

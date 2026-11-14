@@ -7,6 +7,7 @@ import dev.opeope.power.CutEngine;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.Room;
+import dev.opeope.power.RoomEvents;
 import dev.opeope.power.Takt;
 import dev.opeope.registry.ModEffects;
 import dev.opeope.registry.ModEntities;
@@ -15,10 +16,13 @@ import dev.opeope.terrain.Landing;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.FallingBlockEntity;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.MovementType;
 import net.minecraft.entity.damage.DamageSource;
@@ -54,9 +58,11 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -77,8 +83,8 @@ public class PieceEntity extends Entity {
 	public static final int F_LANDED = 64;    // posándose o ya posada: no se coge, sin borde, se dibuja a 0,998
 	public static final int F_CHUNK = 128;    // arrancada del suelo con Takt
 
-	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. LANDING: se posa. */
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING }
+	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. LANDING: se posa. CHIMERA: parte cosida a un ser vivo. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
 
@@ -118,6 +124,12 @@ public class PieceEntity extends Entity {
 	private int lastImpactAge = -1000;     // el último impacto (age) y su energía: no revienta dos veces seguidas
 	private double lastImpactE;
 	private final Map<Integer, Integer> hitCooldown = new HashMap<>();
+	public int chimeraHostId = -1;
+	private int fallSoundCd;
+	private boolean fromCut;
+	private double maxFallSpeed;
+	private double lerpX, lerpY, lerpZ;
+	private int lerpSteps;
 
 	// El corte: plano (normal hacia la pieza) por el que resbala
 	private Vec3d slideN = new Vec3d(0, 1, 0);
@@ -463,6 +475,14 @@ public class PieceEntity extends Entity {
 	}
 
 	@Override
+	public void updateTrackedPositionAndAngles(double x, double y, double z, float yaw, float pitch, int interpolationSteps) {
+		this.lerpX = x;
+		this.lerpY = y;
+		this.lerpZ = z;
+		this.lerpSteps = Math.max(1, interpolationSteps);
+	}
+
+	@Override
 	public boolean shouldRender(double distance) {
 		double d = Math.max(getBoundingBox().getAverageSideLength(), 1.5) * 128.0;
 		return distance < d * d;
@@ -478,7 +498,14 @@ public class PieceEntity extends Entity {
 		int keep = flags();
 		super.tick();
 		if (flags() != keep) this.dataTracker.set(FLAGS, (byte) keep);
-		if (getWorld().isClient) return;
+		if (getWorld().isClient) {
+			if (lerpSteps > 0) {
+				setPosition(getX() + (lerpX - getX()) / lerpSteps, getY() + (lerpY - getY()) / lerpSteps,
+					getZ() + (lerpZ - getZ()) / lerpSteps);
+				lerpSteps--;
+			}
+			return;
+		}
 		if (landedTail > 0) {
 			if (--landedTail == 0) discard();
 			return;
@@ -510,7 +537,27 @@ public class PieceEntity extends Entity {
 			case SLIDING -> slideTick();
 			case HOVER -> hoverTick();
 			case LANDING -> landingTick();
+			case CHIMERA -> chimeraTick();
 		}
+	}
+
+	private void chimeraTick() {
+		if (!(getWorld() instanceof ServerWorld sw)) return;
+		Entity host = chimeraHostId >= 0 ? sw.getEntityById(chimeraHostId) : null;
+		if (!(host instanceof LivingEntity le) || !le.isAlive() || le.isRemoved()) {
+			chimeraHostId = -1;
+			mode = Mode.FREE;
+			setNoGravity(false);
+			noClip = false;
+			setFlag(F_SEAM, false);
+			return;
+		}
+		Vec3d back = Vec3d.fromPolar(0, le.bodyYaw).multiply(-0.35);
+		setPosition(le.getPos().add(back.x, Math.max(0.45, le.getHeight() * 0.55), back.z));
+		setVelocity(le.getVelocity());
+		setNoGravity(true);
+		noClip = true;
+		fallDistance = 0;
 	}
 
 	/**
@@ -556,6 +603,7 @@ public class PieceEntity extends Entity {
 
 	public void startSlide(Vec3d n, Vec3d planePoint, Vec3d push) {
 		mode = Mode.SLIDING;
+		fromCut = true;
 		slideN = n.normalize();
 		slideP = planePoint;
 		slideTicks = 0;
@@ -567,15 +615,17 @@ public class PieceEntity extends Entity {
 	private void slideTick() {
 		slideTicks++;
 		Vec3d g = new Vec3d(0, -0.06, 0);
+		boolean verticalCut = Math.abs(slideN.y) < 0.35;
 		Vec3d v = getVelocity().add(g.subtract(slideN.multiply(g.dotProduct(slideN))));
-		v = v.subtract(slideN.multiply(v.dotProduct(slideN))).multiply(0.96);
-		if (v.length() > 1.5) v = v.normalize().multiply(1.5);
+		v = v.subtract(slideN.multiply(v.dotProduct(slideN))).multiply(verticalCut ? 0.985 : 0.96);
+		double maxSlide = verticalCut ? 2.1 : 1.5;
+		if (v.length() > maxSlide) v = v.normalize().multiply(maxSlide);
 		int steps = Math.max(1, (int) Math.ceil(v.length() / 0.2));
 		Vec3d step = v.multiply(1.0 / steps);
 		boolean blocked = false;
 		for (int i = 0; i < steps; i++) {
 			Vec3d next = getPos().add(step);
-			if (collidesAt(next)) {
+			if (slideTicks > 4 && collidesAt(next)) {
 				blocked = true;
 				break;
 			}
@@ -584,9 +634,9 @@ public class PieceEntity extends Entity {
 		}
 		if (v.length() > 0.5) hitEntities(v, false);
 		if (slideTicks % 3 == 0 && v.length() > 0.05) slideDust();
-		boolean stopped = slideTicks > 15 && v.lengthSquared() < 1e-4;
+		boolean stopped = slideTicks > 18 && v.lengthSquared() < 1e-4;
 		if (blocked || stopped || slideTicks > 120) {
-			if (slid < 0.6) {
+			if (slid < 0.75) {
 				// Encajada. Si es pequeña, se separa y flota un rato (para agarrarla con Takt); si es un pedazo de terreno
 				// enorme que no tiene adónde ir (un corte mirando al suelo), vuelve a su sitio sin más.
 				if (blocks.size() > OpeConfig.CUT_HOVER_MAX_BLOCKS && origin != null) {
@@ -598,6 +648,7 @@ public class PieceEntity extends Entity {
 				return;
 			}
 			mode = Mode.FREE;
+			fromCut = true;
 			restTicks = 0;
 			freeTicks = 0;
 			setVelocity(blocked ? Vec3d.ZERO : v);
@@ -620,7 +671,7 @@ public class PieceEntity extends Entity {
 				for (int y = iy0; y <= iy1; y++) {
 					for (int z = iz0; z <= iz1; z++) {
 						double d = slideN.x * (x + 0.5 - slideP.x) + slideN.y * (y + 0.5 - slideP.y) + slideN.z * (z + 0.5 - slideP.z);
-						if (d > -1.0 && d <= 0.05) continue;   // la piel del corte
+						if (d > -1.35 && d <= 0.25) continue;   // la piel del corte
 						m.set(x, y, z);
 						if (w.isOutOfHeightLimit(m)) continue;
 						BlockState st = w.getBlockState(m);
@@ -645,6 +696,7 @@ public class PieceEntity extends Entity {
 	/** No tiene por dónde resbalar (sigue encajada en el terreno de fuera del ROOM): se separa por el corte y espera. */
 	private void startHover() {
 		mode = Mode.HOVER;
+		fromCut = true;
 		hoverTicks = 0;
 		setVelocity(Vec3d.ZERO);
 		setFlag(F_SUSPENDED, true);
@@ -657,11 +709,15 @@ public class PieceEntity extends Entity {
 
 	private void hoverTick() {
 		hoverTicks++;
-		double gap = 0.4 * Math.min(1, hoverTicks / 5.0);
-		setPosition(home().add(slideN.multiply(gap)));
+		double t = Math.min(1.0, hoverTicks / 6.0);
+		boolean large = blocks != null && blocks.size() > 500;
+		double gap = (large ? 1.85 : 1.25) * t;
+		double lift = (large ? 0.55 : 0.35) * t + Math.sin(hoverTicks * 0.12) * 0.04;
+		setPosition(home().add(slideN.multiply(gap)).add(0, lift, 0));
 		setVelocity(Vec3d.ZERO);
 		if (hoverTicks > OpeConfig.CUT_HOVER_TICKS) {
 			setFlag(F_SUSPENDED, false);
+			fromCut = false;
 			if (origin != null) {
 				setPosition(home());
 				settleAt(origin, false);
@@ -674,6 +730,10 @@ public class PieceEntity extends Entity {
 	/** Suelta la pieza: vuelve a caer con la gravedad. Nadie la lleva ya. */
 	public void release(Vec3d velocity, boolean asThrow) {
 		mode = Mode.FREE;
+		chimeraHostId = -1;
+		fromCut = false;
+		fallSoundCd = 0;
+		maxFallSpeed = 0;
 		solid = false;
 		target = null;
 		targetVel = Vec3d.ZERO;
@@ -692,6 +752,9 @@ public class PieceEntity extends Entity {
 
 	public void control(Vec3d centerTarget) {
 		mode = Mode.CONTROLLED;
+		chimeraHostId = -1;
+		fromCut = false;
+		holdTicks = 0;
 		target = centerTarget;
 		targetVel = Vec3d.ZERO;
 		drive = DRIVE_HAND;
@@ -784,8 +847,8 @@ public class PieceEntity extends Entity {
 	 */
 	private void spring(Vec3d t, Vec3d vt, double r) {
 		double s = Math.max(1, r / 2.5);
-		double kHand = s <= 1 ? 34 : Math.max(7, 34 / Math.pow(s, 0.8));
-		double aHand = s <= 1 ? 90 : Math.max(22, 90 / Math.pow(s, 0.55));
+		double kHand = s <= 1 ? 85 : Math.max(24, 85 / Math.pow(s, 0.75));
+		double aHand = s <= 1 ? 260 : Math.max(85, 260 / Math.pow(s, 0.45));
 		double k, c, maxA;
 		if (drive == DRIVE_PARK) {
 			k = 22 / Math.sqrt(s);
@@ -793,7 +856,7 @@ public class PieceEntity extends Entity {
 			maxA = 0.6 * aHand;
 		} else {
 			k = kHand;
-			c = s <= 1 ? 11 : 2 * Math.sqrt(kHand) * 0.92;
+			c = s <= 1 ? 18 : 2 * Math.sqrt(kHand) * 0.96;
 			maxA = aHand;
 		}
 		final double h = 1 / 60.0;
@@ -821,6 +884,10 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (perTick.length() > 0.7) hitEntities(perTick, true);
+		if (!noClip && !placed && drive == DRIVE_HAND && blocks.size() >= 80
+			&& perTick.lengthSquared() > 1.0 && getWorld() instanceof ServerWorld sw) {
+			plowTreeBlocks(sw, moved, false);
+		}
 	}
 
 	/**
@@ -835,6 +902,20 @@ public class PieceEntity extends Entity {
 		if (slowFall && v.y < -0.12) v = new Vec3d(v.x, -0.12, v.z);
 		double max = OpeConfig.FALL_MAX_SPEED;
 		if (v.lengthSquared() > max * max) v = v.multiply(max / v.length());
+		double speedBefore = v.length();
+		maxFallSpeed = Math.max(maxFallSpeed, speedBefore);
+		if (getWorld() instanceof ServerWorld sw) {
+			spawnFallTrail(sw, v, speedBefore);
+			if (fallSoundCd > 0) fallSoundCd--;
+			if (!debris && !slowFall && blocks.size() >= 18 && speedBefore > 0.95 && fallSoundCd == 0) {
+				sw.playSound(null, getX(), getY(), getZ(), SoundEvents.ENTITY_BREEZE_WIND_BURST, SoundCategory.BLOCKS,
+					(float) Math.min(2.2, 0.5 + blocks.size() / 80.0), 0.55f);
+				fallSoundCd = 14;
+			}
+			if (!debris && !slowFall && blocks.size() >= 18 && speedBefore > 0.55) {
+				plowTreeBlocks(sw, v, true);
+			}
+		}
 		setVelocity(v);
 		move(MovementType.SELF, v);
 		boolean collided = horizontalCollision || verticalCollision;
@@ -853,7 +934,9 @@ public class PieceEntity extends Entity {
 		setVelocity(after.x * f, after.y * air, after.z * f);
 		if (isOnGround() && getVelocity().lengthSquared() < 0.004) restTicks++;
 		else restTicks = 0;
-		if (restTicks > 6 || freeTicks > 20 * 30) settle(false);
+		boolean keepCut = fromCut && !thrown && !slowFall && lastImpactAge < 0;
+		int maxRest = keepCut ? 20 * 25 : 6;
+		if (restTicks > maxRest || freeTicks > 20 * 30) settle(false);
 	}
 
 	// ------------------------------------------------------------------ posar (4.6)
@@ -1203,22 +1286,36 @@ public class PieceEntity extends Entity {
 		BlockState floor = view.getBlockState(BlockPos.ofFloored(contact.x, contact.y - 0.5, contact.z));
 		double vh = Math.hypot(vel.x, vel.z);
 		Vec3d dir = vh > 1e-3 ? new Vec3d(vel.x / vh, 0, vel.z / vh) : Vec3d.ZERO;
-		double R = 0, plow = 0;
-		Crater.Result dug = null;
-		if (!side && tier >= 2 && GroundRules.terrain(floor)) {
-			double rf = 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sz * blocks.sz);
+		double rf = 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sz * blocks.sz);
+		double R = 0, plow = 0, depth = 0;
+		boolean canCrater = !side && tier >= 2 && GroundRules.terrain(floor);
+		if (canCrater) {
 			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k), 1.4, OpeConfig.CRATER_MAX_RADIUS);
-			double depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k), 1, 10);
+			depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k), 1, 10);
 			if (ground && vh > 0.3 * Math.abs(vel.y)) {
 				// rasante: lo que el suelo le deja seguir lo frena el roce (μ 0,6) en unos metros
 				double sv = keepOnGround() * vh * 20;
 				plow = Math.min(sv * sv / (2 * 0.6 * 9.81), 1.5 * R);
 			}
+		}
+		if (!debris && tier >= 1) {
+			plowTreeBlocks(w, vel, true);
+			clearTreeCanopyAbove(w, BlockPos.ofFloored(contact), Math.max(2.0, R > 0 ? R : r), Math.max(4, blocks.sy + 4), 10);
+		}
+		if (!debris && !side && tier >= 2 && blocks.size() >= 18) {
+			damageRockOnImpact(w, vel.lengthSquared() > 1e-6 ? vel.normalize() : new Vec3d(0, -1, 0), vel.length());
+		}
+		Crater.Result dug = null;
+		if (canCrater) {
 			dug = Crater.dig(w, this, contact, dir, plow, R, depth, tier);
 			R = dug.radius();
 			plow = dug.plow();
 		}
 		if (tier >= 1) shock(w, contact, k, tier, r);
+		boolean big = blocks.size() >= 18 || tier >= 2 || r > OpeConfig.TAKT_BIG_RADIUS;
+		spawnImpactFx(w, contact, Math.max(R, r), vel.length(), floor, big, tier >= 3);
+		RoomEvents.sendWorldImpact(w, mover(), contact, (float) Math.max(R, r),
+			(float) MathHelper.clamp(vel.length() * (tier >= 3 ? 1.1 : big ? 0.7 : 0.35), 0.25, 2.5));
 		int flags = chunkFx() | (r > OpeConfig.TAKT_BIG_RADIUS ? Payloads.TaktFx.F_BIG : 0);
 		int[] data = Payloads.TaktFx.impactData(r, dir, k, Block.getRawIdFromState(floor), plow, dug == null ? 0 : dug.removed());
 		UUID mv = mover();
@@ -1869,5 +1966,207 @@ public class PieceEntity extends Entity {
 			stuckTicks = 0;
 			solid = true;
 		}
+	}
+
+	// ------------------------------------------------------------------ meteorito / árboles / daño propio
+
+	private static boolean isTreeBlock(BlockState st) {
+		return st.isIn(BlockTags.LOGS) || st.isIn(BlockTags.LEAVES) || st.isIn(BlockTags.PLANKS)
+			|| st.isIn(BlockTags.FENCES) || st.isIn(BlockTags.FENCE_GATES) || st.isIn(BlockTags.WOODEN_DOORS)
+			|| st.isIn(BlockTags.SAPLINGS) || st.isOf(Blocks.BAMBOO) || st.isOf(Blocks.VINE)
+			|| st.isOf(Blocks.MANGROVE_ROOTS) || st.isOf(Blocks.MUDDY_MANGROVE_ROOTS);
+	}
+
+	private void plowTreeBlocks(ServerWorld sw, Vec3d moveVec, boolean spawnFalling) {
+		Vec3d dir = moveVec.lengthSquared() > 1e-6 ? moveVec.normalize() : Vec3d.ZERO;
+		Box scan = getBoundingBox().stretch(dir.multiply(0.95)).expand(0.35);
+		int minX = MathHelper.floor(scan.minX), maxX = MathHelper.floor(scan.maxX);
+		int minY = Math.max(sw.getBottomY(), MathHelper.floor(scan.minY));
+		int maxY = Math.min(sw.getTopY() - 1, MathHelper.floor(scan.maxY));
+		int minZ = MathHelper.floor(scan.minZ), maxZ = MathHelper.floor(scan.maxZ);
+		int dx = Math.max(1, maxX - minX + 1), dy = Math.max(1, maxY - minY + 1), dz = Math.max(1, maxZ - minZ + 1);
+		long vol = (long) dx * dy * dz;
+		int step = vol > 3200 ? 2 : 1;
+		int broken = 0, logsFallen = 0, fxCount = 0;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int y = minY; y <= maxY; y += step) {
+			for (int x = minX; x <= maxX; x += step) {
+				for (int z = minZ; z <= maxZ; z += step) {
+					m.set(x, y, z);
+					BlockState st = sw.getBlockState(m);
+					if (!isTreeBlock(st) || st.hasBlockEntity()) continue;
+					broken++;
+					BlockPos pos = m.toImmutable();
+					if (fxCount < 22) {
+						fxCount++;
+						sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st),
+							pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 4, 0.25, 0.25, 0.25, 0.14);
+					}
+					if (spawnFalling && st.isIn(BlockTags.LOGS) && logsFallen < 6) {
+						logsFallen++;
+						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(sw, pos, st);
+						if (fb != null) {
+							fb.dropItem = false;
+							fb.setVelocity(dir.x * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35, 0.22 + sw.random.nextDouble() * 0.25,
+								dir.z * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35);
+						}
+					} else {
+						sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
+					}
+				}
+			}
+		}
+		if (broken > 0) {
+			sw.playSound(null, getX(), getY(), getZ(), SoundEvents.BLOCK_WOOD_BREAK, SoundCategory.BLOCKS,
+				Math.min(1.6f, 0.55f + broken * 0.04f), 0.78f + sw.random.nextFloat() * 0.25f);
+		}
+	}
+
+	private void clearTreeCanopyAbove(ServerWorld sw, BlockPos centerPos, double rad, int maxRise, int maxLogsFalling) {
+		int r = MathHelper.clamp((int) Math.ceil(rad), 2, 7);
+		int rise = MathHelper.clamp(maxRise, 4, 14);
+		int minY = Math.max(sw.getBottomY(), centerPos.getY() - 1);
+		int maxY = Math.min(sw.getTopY() - 1, centerPos.getY() + rise);
+		int logsFallen = 0, broken = 0, fxCount = 0;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int x = centerPos.getX() - r; x <= centerPos.getX() + r; x++) {
+			for (int z = centerPos.getZ() - r; z <= centerPos.getZ() + r; z++) {
+				int dx = x - centerPos.getX(), dz = z - centerPos.getZ();
+				if (dx * dx + dz * dz > r * r) continue;
+				for (int y = minY; y <= maxY; y++) {
+					m.set(x, y, z);
+					BlockState st = sw.getBlockState(m);
+					if (!isTreeBlock(st) || st.hasBlockEntity()) continue;
+					broken++;
+					BlockPos pos = m.toImmutable();
+					if (fxCount < 24) {
+						fxCount++;
+						sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st),
+							pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 3, 0.2, 0.2, 0.2, 0.12);
+					}
+					if (st.isIn(BlockTags.LOGS) && logsFallen < maxLogsFalling) {
+						logsFallen++;
+						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(sw, pos, st);
+						if (fb != null) {
+							fb.dropItem = false;
+							fb.setVelocity((sw.random.nextDouble() - 0.5) * 0.28, 0.12 + sw.random.nextDouble() * 0.2,
+								(sw.random.nextDouble() - 0.5) * 0.28);
+						}
+					} else {
+						sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
+					}
+				}
+			}
+		}
+		if (broken > 0) {
+			sw.playSound(null, centerPos.getX() + 0.5, centerPos.getY() + 0.5, centerPos.getZ() + 0.5,
+				SoundEvents.BLOCK_WOOD_BREAK, SoundCategory.BLOCKS, 1.1f, 0.85f);
+		}
+	}
+
+	private void damageRockOnImpact(ServerWorld sw, Vec3d dir, double speed) {
+		if (blocks == null || blocks.size() < 18) return;
+		int minRemain = Math.max(12, (int) Math.ceil(blocks.size() * 0.68));
+		int wantChip = MathHelper.clamp((int) Math.round(blocks.size() * Math.min(0.22, 0.08 + speed * 0.05)), 2, 16);
+		wantChip = Math.min(wantChip, blocks.size() - minRemain);
+		if (wantChip <= 0) return;
+
+		double lcx = blocks.sx / 2.0, lcy = blocks.sy / 2.0, lcz = blocks.sz / 2.0;
+		List<BlockSet.Entry> outer = new ArrayList<>(blocks.surface());
+		outer.sort((a, b) -> {
+			double sa = outerScore(a, lcx, lcy, lcz, dir);
+			double sb = outerScore(b, lcx, lcy, lcz, dir);
+			return Double.compare(sb, sa);
+		});
+		if (outer.size() > wantChip) outer = outer.subList(0, wantChip);
+		Set<Long> chippedKeys = new HashSet<>(outer.size() * 2);
+		for (BlockSet.Entry e : outer) chippedKeys.add(BlockPos.asLong(e.x(), e.y(), e.z()));
+
+		int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+		for (BlockSet.Entry e : blocks.entries) {
+			if (chippedKeys.contains(BlockPos.asLong(e.x(), e.y(), e.z()))) continue;
+			if (e.x() < minX) minX = e.x();
+			if (e.y() < minY) minY = e.y();
+			if (e.z() < minZ) minZ = e.z();
+		}
+		if (minX == Integer.MAX_VALUE) return;
+
+		double cornerX = getX() - blocks.sx / 2.0;
+		double cornerY = getY();
+		double cornerZ = getZ() - blocks.sz / 2.0;
+		BlockSet kept = new BlockSet();
+		for (BlockSet.Entry e : blocks.entries) {
+			if (chippedKeys.contains(BlockPos.asLong(e.x(), e.y(), e.z()))) continue;
+			kept.add(e.x() - minX, e.y() - minY, e.z() - minZ, e.state(), e.be(), e.faces());
+		}
+		if (kept.isEmpty()) return;
+
+		UUID mv = mover();
+		Vec3d c = center();
+		for (BlockSet.Entry e : outer) {
+			double wx = cornerX + e.x() + 0.5;
+			double wy = cornerY + e.y() + 0.5;
+			double wz = cornerZ + e.z() + 0.5;
+			BlockSet shardSet = new BlockSet();
+			shardSet.add(0, 0, 0, e.state(), e.be(), 0x3F);
+			PieceEntity shard = spawn(sw, shardSet, new Vec3d(wx - 0.5, wy - 0.5, wz - 0.5), null, mv);
+			shard.debris = true;
+			Vec3d out = new Vec3d(wx - c.x, Math.max(0.2, wy - c.y), wz - c.z);
+			if (out.lengthSquared() < 1e-4) out = new Vec3d(sw.random.nextDouble() - 0.5, 0.5, sw.random.nextDouble() - 0.5);
+			out = out.normalize();
+			double sp = 0.25 + sw.random.nextDouble() * Math.min(0.45, 0.2 + speed * 0.15);
+			shard.release(new Vec3d(out.x * sp, 0.26 + sw.random.nextDouble() * 0.24, out.z * sp), false);
+		}
+		setBlocks(kept);
+		setPosition(cornerX + minX + kept.sx / 2.0, cornerY + minY, cornerZ + minZ + kept.sz / 2.0);
+		sw.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_STONE_BREAK, SoundCategory.BLOCKS, 1.4f, 0.72f);
+	}
+
+	private static double outerScore(BlockSet.Entry e, double lcx, double lcy, double lcz, Vec3d dir) {
+		double dx = e.x() + 0.5 - lcx, dy = e.y() + 0.5 - lcy, dz = e.z() + 0.5 - lcz;
+		double radial = dx * dx + dy * dy + dz * dz;
+		// Desprende esquinas superiores/laterales y bordes exteriores manteniendo la base más entera para asentarse en el cráter
+		double front = (dx * dir.x + dy * dir.y + dz * dir.z) * 1.4;
+		return radial + front + (e.y() == 0 ? -4.0 : 0.0);
+	}
+
+	private void spawnFallTrail(ServerWorld sw, Vec3d v, double speed) {
+		if (debris || slowFall || blocks == null || blocks.size() < 18 || speed < 0.45) return;
+		BlockState mat = blocks.dominant();
+		Vec3d c = center();
+		double spread = Math.min(3.5, Math.max(0.5, radius() * 0.55));
+		int puffs = blocks.size() >= 64 ? 3 : 1;
+		sw.spawnParticles(ParticleTypes.CLOUD, c.x, c.y - blocks.sy * 0.3, c.z, puffs, spread * 0.5, 0.2, spread * 0.5, 0.04);
+		if (speed > 0.85) {
+			sw.spawnParticles(ParticleTypes.LARGE_SMOKE, c.x, c.y, c.z, puffs, spread * 0.45, 0.25, spread * 0.45, 0.03);
+		}
+		if (mat != null && age % 2 == 0) {
+			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, mat), c.x, c.y, c.z,
+				Math.min(8, 2 + blocks.size() / 40), spread * 0.6, 0.3, spread * 0.6, 0.12);
+		}
+	}
+
+	private void spawnImpactFx(ServerWorld sw, Vec3d contact, double rad, double speed, BlockState floor, boolean big, boolean colossal) {
+		double r = Math.max(1.2, rad);
+		BlockState rockMat = blocks != null && blocks.dominant() != null ? blocks.dominant() : floor;
+		int debrisCount = MathHelper.clamp((int) (18 + r * (colossal ? 26 : big ? 16 : 9)), 18, 220);
+		if (!floor.isAir()) {
+			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, floor), contact.x, contact.y + 0.35, contact.z,
+				debrisCount / 2, r * 0.55, 0.4, r * 0.55, Math.min(0.95, 0.35 + speed * 0.25));
+		}
+		if (rockMat != null && !rockMat.isAir()) {
+			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, rockMat), contact.x, contact.y + 0.6, contact.z,
+				debrisCount / 2, r * 0.45, 0.5, r * 0.45, Math.min(1.0, 0.3 + speed * 0.22));
+		}
+		sw.spawnParticles(ParticleTypes.POOF, contact.x, contact.y + 0.3, contact.z,
+			colossal ? 48 : big ? 28 : 12, r * 0.6, 0.25, r * 0.6, 0.16);
+		sw.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, contact.x, contact.y + 0.5, contact.z,
+			colossal ? 34 : big ? 18 : 6, r * 0.5, 0.35, r * 0.5, 0.06);
+		if (big) {
+			sw.spawnParticles(ParticleTypes.ASH, contact.x, contact.y + 0.8, contact.z,
+				colossal ? 60 : 28, r * 0.75, 0.8, r * 0.75, 0.08);
+		}
+		sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.BLOCK_DEEPSLATE_BREAK, SoundCategory.BLOCKS,
+			colossal ? 2.4f : big ? 1.6f : 1.0f, 0.6f);
 	}
 }

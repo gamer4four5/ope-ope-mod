@@ -5,6 +5,7 @@ import dev.opeope.entity.PieceEntity;
 import dev.opeope.net.Payloads;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -47,6 +48,8 @@ public final class Union {
 		pw.takt.remove((Integer) id);
 		pw.suspended.remove((Integer) id);
 		pw.parked.remove(id);
+		pw.taktOffsets.remove(id);
+		pe.chimeraHostId = -1;
 		Takt.forget(id);
 	}
 
@@ -83,6 +86,30 @@ public final class Union {
 	}
 
 	public static void click(ServerPlayerEntity p, PlayerPower pw) {
+		// Si ya hay una pieza seleccionada y se apunta a un ser vivo en el ROOM, injértala como Quimera Quirúrgica
+		if (pw.unionSelected >= 0) {
+			Entity sel = p.getWorld().getEntityById(pw.unionSelected);
+			Entity aimedLiving = PowerManager.raycastEntity(p, 200, 0.3, ent -> ent instanceof LivingEntity le && le != p && le.isAlive());
+			if (sel instanceof PieceEntity pe && !pe.isRemoved() && unionOk(p, pe) && aimedLiving instanceof LivingEntity le && PowerManager.inRoom(p, le.getPos())) {
+				clearSelection(p, pw);
+				pw.dirty = true;
+				letGo(pw, pe);
+				pe.setFlag(PieceEntity.F_HELD, false);
+				pe.resetMotion();
+				pe.mode = PieceEntity.Mode.CHIMERA;
+				pe.chimeraHostId = le.getId();
+				pe.setFlag(PieceEntity.F_SEAM, true);
+				pe.setFlag(PieceEntity.F_SUSPENDED, false);
+				le.setCustomName(Text.literal("§b[Quimera: " + le.getType().getName().getString() + "]"));
+				le.setCustomNameVisible(true);
+				le.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 20 * 60, 1, false, true));
+				Techniques.beam(p, pe.center(), le.getPos().add(0, le.getHeight(), 0), CutEngine.ROOM_DUST);
+				p.getWorld().playSound(null, le.getX(), le.getY(), le.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.2f, 1.3f);
+				p.sendMessage(Text.literal("§bQuimera Quirúrgica creada sobre " + le.getType().getName().getString()), true);
+				return;
+			}
+		}
+
 		Entity e = PowerManager.raycastEntity(p, 200, 0.2, ent -> (ent instanceof PieceEntity pe && unionOk(p, pe))
 			|| (ent instanceof LivingEntity le && CutStates.isCut(le)));
 		if (e instanceof LivingEntity le) {
@@ -196,7 +223,10 @@ public final class Union {
 		return Math.max(4, (int) Math.round(20 * 1.15 * (0.8 + Math.min(0.6, d / 60))));
 	}
 
-	/** R Z: todo lo cortado del ROOM vuela a una sola masa cosida, que queda en Takt para lanzarla. */
+	/**
+	 * R Z (Rejuntar): une todas las piezas cortadas del ROOM conservando la forma exacta en que fueron cortadas
+	 * (por ejemplo, si cortaste un árbol o una casa, se reensambla manteniendo su estructura original intacta) y las compacta en 3D.
+	 */
 	public static void gather(ServerPlayerEntity p, PlayerPower pw) {
 		Room room = pw.room;
 		if (room == null) {
@@ -209,21 +239,193 @@ public final class Union {
 			p.sendMessage(Text.translatable("opeope.msg.nothing_cut"), true);
 			return;
 		}
-		Vec3d gc = p.getEyePos().add(p.getRotationVector().multiply(pw.taktDist + 3)).add(0, 2, 0);
-		List<BlockSet.Entry> all = new ArrayList<>();
+		Vec3d gc = p.getEyePos().add(p.getRotationVector().multiply(Math.max(5.0, Math.min(pw.taktDist, 24.0)))).add(0, 1.0, 0);
 		ServerWorld w = p.getServerWorld();
+
+		// 1. Agrupamos piezas con origen original (origin != null) por proximidad estructural
+		List<PieceEntity> withOrigin = new ArrayList<>();
+		List<PieceEntity> noOrigin = new ArrayList<>();
 		for (PieceEntity pe : pieces) {
-			if (all.size() > 6000) break;
-			all.addAll(pe.blocks.entries);
-			Techniques.beam(p, pe.center(), gc, CutEngine.ROOM_DUST);
-			letGo(pw, pe);
-			pe.discard();
+			if (pe.origin != null) withOrigin.add(pe);
+			else noOrigin.add(pe);
 		}
-		BlockSet ball = ball(all);
-		PieceEntity mass = PieceEntity.spawn(w, ball, gc.subtract(ball.sx / 2.0, ball.sy / 2.0, ball.sz / 2.0), null, p.getUuid());
+
+		List<List<PieceEntity>> clusters = new ArrayList<>();
+		boolean[] used = new boolean[withOrigin.size()];
+		for (int i = 0; i < withOrigin.size(); i++) {
+			if (used[i]) continue;
+			used[i] = true;
+			List<PieceEntity> cluster = new ArrayList<>();
+			cluster.add(withOrigin.get(i));
+			boolean grew = true;
+			while (grew) {
+				grew = false;
+				int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+				int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+				for (PieceEntity cp : cluster) {
+					minX = Math.min(minX, cp.origin.getX());
+					minY = Math.min(minY, cp.origin.getY());
+					minZ = Math.min(minZ, cp.origin.getZ());
+					maxX = Math.max(maxX, cp.origin.getX() + cp.blocks.sx);
+					maxY = Math.max(maxY, cp.origin.getY() + cp.blocks.sy);
+					maxZ = Math.max(maxZ, cp.origin.getZ() + cp.blocks.sz);
+				}
+				for (int j = 0; j < withOrigin.size(); j++) {
+					if (used[j]) continue;
+					PieceEntity cand = withOrigin.get(j);
+					int cMinX = cand.origin.getX(), cMinY = cand.origin.getY(), cMinZ = cand.origin.getZ();
+					int cMaxX = cMinX + cand.blocks.sx, cMaxY = cMinY + cand.blocks.sy, cMaxZ = cMinZ + cand.blocks.sz;
+					boolean near = cMaxX >= minX - 2 && cMinX <= maxX + 2
+						&& cMaxY >= minY - 2 && cMinY <= maxY + 2
+						&& cMaxZ >= minZ - 2 && cMinZ <= maxZ + 2;
+					if (near) {
+						used[j] = true;
+						cluster.add(cand);
+						grew = true;
+					}
+				}
+			}
+			clusters.add(cluster);
+		}
+		for (PieceEntity np : noOrigin) clusters.add(List.of(np));
+		clusters.sort((a, b) -> Integer.compare(
+			b.stream().mapToInt(pe -> pe.blocks.size()).sum(),
+			a.stream().mapToInt(pe -> pe.blocks.size()).sum()
+		));
+
+		// 2. Construimos el BlockSet intacto de cada grupo estructural (preservando faces cortadas)
+		List<BlockSet> shapes = new ArrayList<>(clusters.size());
+		net.minecraft.util.math.BlockPos singleOriginBase = null;
+		boolean preserveOrigin = (clusters.size() == 1 && !withOrigin.isEmpty() && noOrigin.isEmpty());
+		int totalEntries = 0;
+
+		for (int ci = 0; ci < clusters.size(); ci++) {
+			List<PieceEntity> cluster = clusters.get(ci);
+			int clusterBlocks = 0;
+			for (PieceEntity pe : cluster) clusterBlocks += pe.blocks.size();
+			if (!shapes.isEmpty() && totalEntries + clusterBlocks > 48000) continue;
+			if (shapes.isEmpty() && clusterBlocks > 48000) continue;
+
+			int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+			boolean hasOrig = cluster.get(0).origin != null;
+			for (PieceEntity pe : cluster) {
+				int ox = hasOrig ? pe.origin.getX() : (int) Math.round(pe.corner().x);
+				int oy = hasOrig ? pe.origin.getY() : (int) Math.round(pe.corner().y);
+				int oz = hasOrig ? pe.origin.getZ() : (int) Math.round(pe.corner().z);
+				minX = Math.min(minX, ox);
+				minY = Math.min(minY, oy);
+				minZ = Math.min(minZ, oz);
+			}
+			if (preserveOrigin && ci == 0) singleOriginBase = new net.minecraft.util.math.BlockPos(minX, minY, minZ);
+			BlockSet cSet = new BlockSet();
+			for (PieceEntity pe : cluster) {
+				int ox = (hasOrig ? pe.origin.getX() : (int) Math.round(pe.corner().x)) - minX;
+				int oy = (hasOrig ? pe.origin.getY() : (int) Math.round(pe.corner().y)) - minY;
+				int oz = (hasOrig ? pe.origin.getZ() : (int) Math.round(pe.corner().z)) - minZ;
+				for (BlockSet.Entry entry : pe.blocks.entries) {
+					cSet.add(ox + entry.x(), oy + entry.y(), oz + entry.z(), entry.state(), entry.be(), entry.faces());
+					totalEntries++;
+				}
+				Techniques.beam(p, pe.center(), gc, CutEngine.ROOM_DUST);
+				letGo(pw, pe);
+				pe.discard();
+			}
+			if (!cSet.isEmpty()) {
+				cSet.normalize();
+				shapes.add(cSet);
+			}
+		}
+		if (shapes.isEmpty()) {
+			p.sendMessage(Text.translatable("opeope.msg.nothing_cut"), true);
+			return;
+		}
+
+		// 3. Empaquetado 3D esférico Fibonacci alrededor del núcleo mayor conservando la forma de cada estructura
+		java.util.Map<net.minecraft.util.math.BlockPos, BlockSet.Entry> placed = new java.util.LinkedHashMap<>();
+		it.unimi.dsi.fastutil.longs.LongOpenHashSet occupied = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+		{
+			BlockSet core = shapes.get(0);
+			int cx0 = -core.sx / 2, cy0 = -core.sy / 2, cz0 = -core.sz / 2;
+			int occMinX = cx0, occMaxX = cx0 + core.sx;
+			int occMinY = cy0, occMaxY = cy0 + core.sy;
+			int occMinZ = cz0, occMaxZ = cz0 + core.sz;
+			for (BlockSet.Entry e : core.entries) {
+				int px = cx0 + e.x(), py = cy0 + e.y(), pz = cz0 + e.z();
+				net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(px, py, pz);
+				if (placed.putIfAbsent(pos, e) == null) occupied.add(pos.asLong());
+			}
+			final int dirs = 72;
+			final double golden = Math.PI * (3.0 - Math.sqrt(5.0));
+			for (int si = 1; si < shapes.size(); si++) {
+				BlockSet sh = shapes.get(si);
+				List<BlockSet.Entry> surf = sh.surface();
+				int occSpan = Math.max(occMaxX - occMinX, Math.max(occMaxY - occMinY, occMaxZ - occMinZ));
+				int shSpan = Math.max(sh.sx, Math.max(sh.sy, sh.sz));
+				double maxD = Math.max(140.0, occSpan + shSpan + 24.0);
+				double bestD2 = Double.MAX_VALUE;
+				int bestX = occMaxX, bestY = 0, bestZ = 0;
+				double phase = si * 1.13;
+				for (int di = 0; di < dirs; di++) {
+					double y = 1.0 - (2.0 * (di + 0.5)) / dirs;
+					double rad = Math.sqrt(Math.max(0.0, 1.0 - y * y));
+					double theta = golden * di + phase;
+					double dx = Math.cos(theta) * rad;
+					double dz = Math.sin(theta) * rad;
+					double minRadius = Math.max(1.0, Math.min(sh.sx, Math.min(sh.sy, sh.sz)) * 0.25);
+					for (double d = minRadius; d <= maxD; d += 1.0) {
+						int sx = (int) Math.round(dx * d) - sh.sx / 2;
+						int sy = (int) Math.round(y * d) - sh.sy / 2;
+						int sz = (int) Math.round(dz * d) - sh.sz / 2;
+						boolean collides = false;
+						boolean boxOverlap = sx + sh.sx > occMinX && sx < occMaxX
+							&& sy + sh.sy > occMinY && sy < occMaxY
+							&& sz + sh.sz > occMinZ && sz < occMaxZ;
+						if (boxOverlap) {
+							for (BlockSet.Entry e : surf) {
+								if (occupied.contains(net.minecraft.util.math.BlockPos.asLong(sx + e.x(), sy + e.y(), sz + e.z()))) {
+									collides = true;
+									break;
+								}
+							}
+						}
+						if (!collides) {
+							double mx = sx + sh.sx * 0.5, my = sy + sh.sy * 0.5, mz = sz + sh.sz * 0.5;
+							double d2 = mx * mx + my * my + mz * mz;
+							if (d2 < bestD2) {
+								bestD2 = d2;
+								bestX = sx;
+								bestY = sy;
+								bestZ = sz;
+							}
+							break;
+						}
+					}
+				}
+				occMinX = Math.min(occMinX, bestX);
+				occMaxX = Math.max(occMaxX, bestX + sh.sx);
+				occMinY = Math.min(occMinY, bestY);
+				occMaxY = Math.max(occMaxY, bestY + sh.sy);
+				occMinZ = Math.min(occMinZ, bestZ);
+				occMaxZ = Math.max(occMaxZ, bestZ + sh.sz);
+				for (BlockSet.Entry e : sh.entries) {
+					int px = bestX + e.x(), py = bestY + e.y(), pz = bestZ + e.z();
+					net.minecraft.util.math.BlockPos pos = new net.minecraft.util.math.BlockPos(px, py, pz);
+					if (placed.putIfAbsent(pos, e) == null) occupied.add(pos.asLong());
+				}
+			}
+		}
+
+		BlockSet assembled = new BlockSet();
+		for (var e : placed.entrySet()) {
+			net.minecraft.util.math.BlockPos pos = e.getKey();
+			BlockSet.Entry be = e.getValue();
+			assembled.add(pos.getX(), pos.getY(), pos.getZ(), be.state(), be.be(), be.faces());
+		}
+		assembled.normalize();
+		PieceEntity mass = PieceEntity.spawn(w, assembled, gc.subtract(assembled.sx / 2.0, assembled.sy / 2.0, assembled.sz / 2.0), singleOriginBase, p.getUuid());
 		mass.setFlag(PieceEntity.F_SEAM, true);
 		Takt.grab(p, pw, mass);
-		w.spawnParticles(ParticleTypes.END_ROD, gc.x, gc.y, gc.z, 60, ball.sx / 2.0, ball.sy / 2.0, ball.sz / 2.0, 0.05);
+		w.spawnParticles(ParticleTypes.END_ROD, gc.x, gc.y, gc.z, 60, assembled.sx / 2.0, assembled.sy / 2.0, assembled.sz / 2.0, 0.05);
 		w.playSound(null, gc.x, gc.y, gc.z, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 2f, 0.5f);
 	}
 
@@ -250,20 +452,51 @@ public final class Union {
 		if (start) p.sendMessage(Text.translatable("opeope.msg.surgery"), true);
 	}
 
+	/**
+	 * Autocirugía y Cirugía de Reconstrucción Avanzada (Tab + C mantenido):
+	 * Cura órganos internos, reimplanta extremidades cortadas, extrae todos los venenos/efectos negativos,
+	 * restaura hambre/saturación y envuelve al paciente en una doble hélice quirúrgica 3D.
+	 */
 	public static void surgeryTick(ServerPlayerEntity p, PlayerPower pw) {
 		if (!pw.surgery) return;
 		pw.surgeryTicks++;
-		if (pw.surgeryTicks % 10 != 0) return;
-		Entity t = PowerManager.raycastEntity(p, 4.5, 0.3, e -> e instanceof LivingEntity);
+		Entity t = PowerManager.raycastEntity(p, 5.5, 0.3, e -> e instanceof LivingEntity);
 		LivingEntity target = t instanceof LivingEntity le ? le : p;
-		target.heal(1.2f);
+		ServerWorld w = p.getServerWorld();
+
+		// Doble hélice quirúrgica alrededor del paciente cada 2 ticks
+		if (pw.surgeryTicks % 2 == 0) {
+			double a = pw.surgeryTicks * 0.35;
+			double h = (pw.surgeryTicks % 24) / 24.0 * target.getHeight();
+			for (int k = 0; k < 2; k++) {
+				double ang = a + k * Math.PI;
+				double rx = target.getX() + Math.cos(ang) * 0.85;
+				double rz = target.getZ() + Math.sin(ang) * 0.85;
+				w.spawnParticles(CutEngine.ROOM_DUST, rx, target.getY() + h, rz, 1, 0, 0, 0, 0);
+			}
+		}
+
+		if (pw.surgeryTicks % 8 != 0) return;
+		target.heal(2.2f);
 		CutStates.reattach(target, false);
 		target.removeStatusEffect(StatusEffects.POISON);
 		target.removeStatusEffect(StatusEffects.WITHER);
-		ServerWorld w = p.getServerWorld();
+		target.removeStatusEffect(StatusEffects.SLOWNESS);
+		target.removeStatusEffect(StatusEffects.WEAKNESS);
+		target.removeStatusEffect(StatusEffects.BLINDNESS);
+		target.removeStatusEffect(StatusEffects.DARKNESS);
+		target.removeStatusEffect(StatusEffects.NAUSEA);
+		target.removeStatusEffect(StatusEffects.MINING_FATIGUE);
+		target.removeStatusEffect(StatusEffects.HUNGER);
+		if (target instanceof ServerPlayerEntity sp) {
+			sp.getHungerManager().add(1, 0.5f);
+		}
 		Box b = target.getBoundingBox();
 		w.spawnParticles(ParticleTypes.HAPPY_VILLAGER, b.getCenter().x, b.getCenter().y, b.getCenter().z, 6, b.getLengthX() / 2, b.getLengthY() / 2, b.getLengthZ() / 2, 0);
 		w.spawnParticles(CutEngine.ROOM_DUST, b.getCenter().x, b.getCenter().y, b.getCenter().z, 6, b.getLengthX() / 2, b.getLengthY() / 2, b.getLengthZ() / 2, 0);
-		if (pw.surgeryTicks % 40 == 0) w.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 0.6f, 1.4f);
+		if (pw.surgeryTicks % 32 == 0) {
+			target.addStatusEffect(new StatusEffectInstance(StatusEffects.REGENERATION, 60, 1, false, false, true));
+			w.playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 0.7f, 1.5f);
+		}
 	}
 }

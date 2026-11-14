@@ -16,7 +16,11 @@ public final class Patterns {
 		List<CutEngine.Plane> out = new ArrayList<>();
 		Vec3d look = p.getRotationVector();
 		Vec3d n = base.n();
-		Vec3d aim = PowerManager.aimPoint(p, 200);
+		Room room = PowerManager.get(p).room;
+		double maxR = room != null ? Math.min(200.0, p.getEyePos().distanceTo(room.center) + room.radius) : 24.0;
+		var hit = PowerManager.raycastBlock(p, maxR);
+		Vec3d aim = hit.getType() != net.minecraft.util.hit.HitResult.Type.MISS ? hit.getPos()
+			: (room != null ? room.center : p.getEyePos().add(look.multiply(12.0)));
 		Vec3d n2 = n.crossProduct(look);
 		if (n2.lengthSquared() < 1e-4) n2 = n.crossProduct(new Vec3d(0, 1, 0));
 		n2 = n2.normalize();

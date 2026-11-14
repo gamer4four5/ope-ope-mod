@@ -100,8 +100,8 @@ public final class Payloads {
 	 */
 	public record RoomFx(UUID owner, int slot, int kind, double ax, double ay, double az, double bx, double by, double bz,
 						 float radius, float radius2, int ticks, int flags) implements CustomPayload {
-		public static final int CREATE = 0, FIX = 1, NOTCH = 2, LIMIT = 3, CAST = 4, LAND = 5, BRING = 6, ARRIVE = 7, CLOSE = 8, KINDS = 9;
-		public static final String[] NAMES = {"CREATE", "FIX", "NOTCH", "LIMIT", "CAST", "LAND", "BRING", "ARRIVE", "CLOSE"};
+		public static final int CREATE = 0, FIX = 1, NOTCH = 2, LIMIT = 3, CAST = 4, LAND = 5, BRING = 6, ARRIVE = 7, CLOSE = 8, IMPACT = 9, KINDS = 10;
+		public static final String[] NAMES = {"CREATE", "FIX", "NOTCH", "LIMIT", "CAST", "LAND", "BRING", "ARRIVE", "CLOSE", "IMPACT"};
 		public static final int F_REBUILT = 1;                  // CREATE
 		public static final int F_GROW = 1, F_SHRINK = 2;       // NOTCH
 		public static final int F_FRESH = 2;                    // CAST
@@ -221,7 +221,9 @@ public final class Payloads {
 	/** Servidor → cliente: el estado de los poderes del jugador, para el HUD y para saber qué hace cada clic. held: los ids de Takt, en orden. */
 	public record State(int flags, int pattern, int taktCount, int taktMode, int weapon, int scanTicks, int[] cooldowns, int[] held) implements CustomPayload {
 		public static final int HAS_FRUIT = 1, AWAKEN_UNLOCKED = 2, AWAKENED = 4, REACH_TARGET = 8, SUSPEND = 16,
-			UNION = 32, BISTURI = 64, UNION_SELECTED = 128, CURTAIN = 256, SILENT = 512;
+			UNION = 32, BISTURI = 64, UNION_SELECTED = 128, CURTAIN = 256, SILENT = 512,
+			STYLE_SWORD = 1024, STYLE_FIGHT = 2048, FREE_MODE = 4096,
+			KROOM_BLADE = 8192, ETERNAL_YOUTH = 16384, ZERO_G = 32768;
 		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);

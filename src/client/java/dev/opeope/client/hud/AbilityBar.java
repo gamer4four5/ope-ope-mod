@@ -96,6 +96,7 @@ public final class AbilityBar {
 	/** Lee el estado de la fruta y rellena las casillas. */
 	private static void compute(MinecraftClient mc) {
 		boolean awake = ClientState.awakened();
+		int style = ClientState.combatStyle();
 		ClientPlayerEntity p = mc.player;
 		for (int i = 0; i < N; i++) {
 			lit[i] = false;
@@ -144,20 +145,48 @@ public final class AbilityBar {
 		if (heart) {
 			plain(4, "corazon", "Apretar", false, Theme.HEART);
 			special[4] = Theme.HEART;
+		} else if (style == 2) {
+			tech(4, "hoja", Tech.RADIO_KNIFE);
+			name[4] = "Iai: Desenvaine";
+		} else if (style == 3) {
+			tech(4, "mes", Tech.MES);
+			name[4] = "Mes: Palma";
 		} else {
 			tech(4, awake ? "kroom" : "radio_knife", awake ? Tech.KROOM : Tech.RADIO_KNIFE);
 		}
 
-		tech(5, awake ? "anestesia" : "injection", awake ? Tech.ANESTHESIA : Tech.INJECTION);
-		tech(6, awake ? "shock_wille" : "gamma", awake ? Tech.SHOCK_WILLE : Tech.GAMMA);
-		tech(7, awake ? "rroom" : "scan", awake ? Tech.RROOM : Tech.SCAN);
-		lit[7] = ClientState.scanTicks > 0;
+		if (style == 2) {
+			tech(5, "injection", Tech.INJECTION);
+			name[5] = "Luna de Acero";
+			tech(6, "sterben", Tech.GAMMA);
+			name[6] = "Torbellino";
+			tech(7, "scan", Tech.SCAN);
+			lit[7] = ClientState.scanTicks > 0;
+		} else if (style == 3) {
+			tech(5, "counter", Tech.COUNTER);
+			name[5] = "Descarga Palma";
+			tech(6, "shambles", Tech.SHAMBLES);
+			name[6] = "Trueque Combate";
+			tech(7, "takt", Tech.SCAN);
+			name[7] = "Gancho Takt";
+		} else {
+			tech(5, awake ? "anestesia" : "injection", awake ? Tech.ANESTHESIA : Tech.INJECTION);
+			tech(6, awake ? "shock_wille" : "gamma", awake ? Tech.SHOCK_WILLE : Tech.GAMMA);
+			tech(7, awake ? "rroom" : "scan", awake ? Tech.RROOM : Tech.SCAN);
+			lit[7] = ClientState.scanTicks > 0;
+		}
 		tech(8, awake ? "silent" : "curtain", awake ? Tech.SILENT : Tech.CURTAIN);
 		lit[8] = ClientState.has(Payloads.State.CURTAIN) || ClientState.has(Payloads.State.SILENT);
 		tech(9, "piedra", Tech.MARKER);
 
-		plain(10, "despertar", "Despertar", awake, Theme.AWAKE);
-		locked[10] = !ClientState.has(Payloads.State.AWAKEN_UNLOCKED);
+		if (style == 2) {
+			tech(10, "estacas", Tech.STERBEN);
+			name[10] = "Mil Puntadas";
+			locked[10] = false;
+		} else {
+			plain(10, "despertar", "Despertar", awake, Theme.AWAKE);
+			locked[10] = !ClientState.has(Payloads.State.AWAKEN_UNLOCKED);
+		}
 	}
 
 	/** Cada tick: enfriamientos que empiezan (nombre) o acaban (destello), y casillas que se encienden. */

@@ -218,5 +218,19 @@
   "takt.fall": {
     "subtitle": "subtitles.opeope.takt.fall",
     "sounds": [{"name": "minecraft:item.elytra.flying", "type": "event"}]
-  }
+  },
+  "cut.slice": {"sounds": [{"name": "minecraft:item.trident.throw", "type": "event"}]},
+  "cut.crystal": {"sounds": [{"name": "minecraft:block.amethyst_cluster.break", "type": "event"}]},
+  "cut.vacuum": {"sounds": [{"name": "minecraft:block.respawn_anchor.deplete", "type": "event"}]},
+  "cut.glass": {"sounds": [{"name": "minecraft:block.glass.break", "type": "event"}]},
+  "shambles.snap": {"sounds": [{"name": "minecraft:block.amethyst_block.chime", "type": "event"}]},
+  "shambles.warp": {"sounds": [{"name": "minecraft:block.amethyst_block.resonate", "type": "event"}]},
+  "shambles.air": {"sounds": [{"name": "minecraft:entity.breeze.wind_burst", "type": "event"}]},
+  "shambles.bell": {"sounds": [{"name": "minecraft:block.note_block.chime", "type": "event"}]},
+  "takt.lift": {"sounds": [{"name": "minecraft:block.beacon.power_select", "type": "event"}]},
+  "takt.launch": {"sounds": [{"name": "minecraft:item.trident.riptide_3", "type": "event"}]},
+  "kroom.surge": {"sounds": [{"name": "minecraft:block.conduit.attack.target", "type": "event"}]},
+  "kroom.boom": {"sounds": [{"name": "minecraft:entity.warden.sonic_boom", "type": "event"}]},
+  "surgery.pulse": {"sounds": [{"name": "minecraft:entity.warden.heartbeat", "type": "event"}]},
+  "surgery.chime": {"sounds": [{"name": "minecraft:entity.allay.ambient_without_item", "type": "event"}]}
 }

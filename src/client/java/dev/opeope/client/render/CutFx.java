@@ -101,12 +101,12 @@ public final class CutFx {
 				eyed ? new Vec3d(d[8], d[9], d[10]) : null, eyed ? look : null);
 			boolean blocks = (fx.flags() & Payloads.CutFx.F_BLOCKS) != 0;
 			long now = System.currentTimeMillis();
-			int budget = 9000;
+			int budget = 24000;
 			for (int i = 14; i + 8 < d.length; i += 9) {
 				Vec3d n = new Vec3d(d[i], d[i + 1], d[i + 2]);
 				Vec3d p = new Vec3d(d[i + 3], d[i + 4], d[i + 5]);
 				Vec3d s = new Vec3d(d[i + 6], d[i + 7], d[i + 8]);
-				float[] seg = blocks && budget > 0 ? segments(mc.world, n, p, z, budget, 64) : EMPTY;
+				float[] seg = blocks && budget > 0 ? segments(mc.world, n, p, z, budget, Math.max(64.0, z.sampleR()), 1) : EMPTY;
 				budget -= seg.length / 9;
 				ACTIVE.add(new Fx(n, p, s, z.sampleC(), z.sampleR(), seg, now));
 				if (seg.length > 0) {
@@ -145,7 +145,8 @@ public final class CutFx {
 			return;
 		}
 		Zone z = new Zone(room.center(), room.radius(), null, 0, mc.player.getEyePos(), mc.player.getRotationVector());
-		preview = segments(mc.world, new Vec3d(pl[0], pl[1], pl[2]), new Vec3d(pl[3], pl[4], pl[5]), z, 6000, 40);
+		int stride = z.sampleR() > 64.0 ? 2 : 1;
+		preview = segments(mc.world, new Vec3d(pl[0], pl[1], pl[2]), new Vec3d(pl[3], pl[4], pl[5]), z, 10000, Math.max(40.0, z.sampleR()), stride);
 	}
 
 	public static void clear() {
@@ -209,6 +210,10 @@ public final class CutFx {
 	 * la cara(3). Recorre solo las columnas que atraviesa el plano (eje dominante de la normal).
 	 */
 	static float[] segments(World w, Vec3d n, Vec3d p, Zone z, int max, double maxR) {
+		return segments(w, n, p, z, max, maxR, 1);
+	}
+
+	static float[] segments(World w, Vec3d n, Vec3d p, Zone z, int max, double maxR, int stride) {
 		double ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
 		int dom = ax >= ay && ax >= az ? 0 : (ay >= az ? 1 : 2);
 		Vec3d sc = z.sampleC();
@@ -217,13 +222,14 @@ public final class CutFx {
 		int u = (dom + 1) % 3, v = (dom + 2) % 3;
 		int u0 = (int) Math.floor(cc[u] - sr), u1 = (int) Math.floor(cc[u] + sr);
 		int v0 = (int) Math.floor(cc[v] - sr), v1 = (int) Math.floor(cc[v] + sr);
-		float[] out = new float[Math.min(max, 4096) * 9];
+		float[] out = new float[Math.min(max, 12000) * 9];
 		int count = 0;
 		BlockPos.Mutable m = new BlockPos.Mutable(), q = new BlockPos.Mutable();
 		int[] cell = new int[3];
 		double[] corner = new double[3];
-		for (int iu = u0; iu <= u1; iu++) {
-			for (int iv = v0; iv <= v1; iv++) {
+		int step = Math.max(1, stride);
+		for (int iu = u0; iu <= u1; iu += step) {
+			for (int iv = v0; iv <= v1; iv += step) {
 				// dónde cruza el plano esta columna
 				double t = pp[dom] - (nn[u] * (iu + 0.5 - pp[u]) + nn[v] * (iv + 0.5 - pp[v])) / nn[dom];
 				double spread = (Math.abs(nn[u]) + Math.abs(nn[v])) / (2 * Math.abs(nn[dom])) + 0.5;
@@ -456,26 +462,37 @@ public final class CutFx {
 		s = s.normalize();
 		Vec3d o = n.crossProduct(s).normalize();
 		double prog = Math.min(1, age / SWEEP_MS);
-		double front = -rr + 2 * rr * prog;          // por dónde va el filo
-		double fade = age < SWEEP_MS ? 1 : Math.max(0, 1 - (age - SWEEP_MS) / 260.0);
-		// el velo ya barrido, en franjas
-		int strips = 16;
+		double eased = 1.0 - (1.0 - prog) * (1.0 - prog);
+		double front = -rr + 2 * rr * eased;          // por dónde va el filo
+		double fade = age < SWEEP_MS ? 1 : Math.max(0, 1 - (age - SWEEP_MS) / 300.0);
+		// el velo ya barrido, en franjas cromáticas (celeste eléctrico -> violeta sutil)
+		int strips = 18;
 		for (int i = 0; i < strips; i++) {
 			double x0 = -rr + 2 * rr * i / strips, x1 = -rr + 2 * rr * (i + 1) / strips;
 			if (x0 >= front) break;
 			x1 = Math.min(x1, front);
 			double h0 = Math.sqrt(Math.max(0, rr * rr - x0 * x0)), h1 = Math.sqrt(Math.max(0, rr * rr - x1 * x1));
 			double behind = (front - x1) / (2 * rr);          // lo más lejano al filo ya se está apagando
-			int a = (int) (60 * fade * Math.max(0, 1 - behind * 1.6));
+			int a = (int) (82 * fade * Math.max(0, 1 - behind * 1.45));
 			if (a <= 0) continue;
-			quad(buf, m, cam, q, s, o, x0, -h0, x1, -h1, x1, h1, x0, h0, 190, 240, 255, a);
+			int rCol = (int) (145 + 65 * Math.min(1, behind * 2.0));
+			int gCol = (int) (235 - 70 * Math.min(1, behind * 2.0));
+			quad(buf, m, cam, q, s, o, x0, -h0, x1, -h1, x1, h1, x0, h0, rCol, gCol, 255, a);
 		}
-		// el filo
-		if (age < SWEEP_MS + 40) {
-			double w = Math.max(0.12, rr * 0.03);
-			double xa = front - w, xb = front;
-			double ha = Math.sqrt(Math.max(0, rr * rr - xa * xa)), hb = Math.sqrt(Math.max(0, rr * rr - xb * xb));
-			quad(buf, m, cam, q, s, o, xa, -ha, xb, -hb, xb, hb, xa, ha, 255, 255, 255, (int) (200 * fade));
+		// el filo doble: corona cian ancha + núcleo blanco afilado
+		if (age < SWEEP_MS + 60) {
+			double coronaW = Math.max(0.28, rr * 0.08);
+			double ca = Math.max(-rr, front - coronaW), cb = Math.min(rr, front);
+			if (cb > ca) {
+				double ha = Math.sqrt(Math.max(0, rr * rr - ca * ca)), hb = Math.sqrt(Math.max(0, rr * rr - cb * cb));
+				quad(buf, m, cam, q, s, o, ca, -ha, cb, -hb, cb, hb, ca, ha, 110, 225, 255, (int) (130 * fade));
+			}
+			double w = Math.max(0.12, rr * 0.025);
+			double xa = Math.max(-rr, front - w), xb = Math.min(rr, front);
+			if (xb > xa) {
+				double ha = Math.sqrt(Math.max(0, rr * rr - xa * xa)), hb = Math.sqrt(Math.max(0, rr * rr - xb * xb));
+				quad(buf, m, cam, q, s, o, xa, -ha, xb, -hb, xb, hb, xa, ha, 255, 255, 255, (int) (230 * fade));
+			}
 		}
 	}
 

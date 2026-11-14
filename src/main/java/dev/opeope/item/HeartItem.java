@@ -1,5 +1,6 @@
 package dev.opeope.item;
 
+import dev.opeope.power.PowerManager;
 import dev.opeope.power.Techniques;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
@@ -14,7 +15,11 @@ import net.minecraft.world.World;
 
 import java.util.UUID;
 
-/** Mes: el corazón de alguien dentro de un cubo. Clic derecho lo aprieta. */
+/**
+ * Mes: el corazón de alguien dentro de un cubo quirúrgico.
+ * - Clic derecho: aprieta el corazón y daña/aturde a su dueño.
+ * - Shift + Clic derecho (agachado): realiza un Trasplante Quirúrgico de Corazón, otorgándote vida máxima y fuerza permanentes.
+ */
 public class HeartItem extends Item {
 	public HeartItem(Settings settings) {
 		super(settings);
@@ -37,6 +42,10 @@ public class HeartItem extends Item {
 	public TypedActionResult<ItemStack> use(World world, PlayerEntity user, Hand hand) {
 		ItemStack stack = user.getStackInHand(hand);
 		if (!world.isClient && user instanceof ServerPlayerEntity sp) {
+			if (sp.isSneaking()) {
+				Techniques.transplantHeart(sp, PowerManager.get(sp), hand);
+				return TypedActionResult.consume(user.getStackInHand(hand));
+			}
 			Techniques.squeezeHeart(sp, stack);
 		}
 		user.getItemCooldownManager().set(this, 8);

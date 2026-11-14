@@ -72,6 +72,13 @@ public final class StatusChips {
 	private static List<Chip> chips(MinecraftClient mc, OpeSettings.Interfaz mode, long now) {
 		List<Chip> out = new ArrayList<>();
 		boolean simple = mode == OpeSettings.Interfaz.SENCILLA;
+		int style = ClientState.combatStyle();
+		if (style == 2) out.add(new Chip("hoja", Theme.AWAKE, "Estilo: Espada Kikoku", Theme.AWAKE, -1f));
+		else if (style == 3) out.add(new Chip("counter", Theme.FORGE, "Estilo: Pelea y Palma", Theme.FORGE, -1f));
+		if (ClientState.freeMode()) out.add(new Chip("despertar", Theme.HI, "Modo Libre", Theme.HI, -1f));
+		if (ClientState.kroomBlade()) out.add(new Chip("hoja", Theme.AWAKE, "K-ROOM: Kikoku 26m", Theme.AWAKE, -1f));
+		if (ClientState.eternalYouth()) out.add(new Chip("despertar", Theme.FORGE, "Juventud Eterna", Theme.FORGE, -1f));
+		if (ClientState.zeroGravity()) out.add(new Chip("suspender", Theme.HI, "Gravedad Cero ROOM", Theme.HI, -1f));
 		if (ClientState.awakened()) out.add(new Chip("despertar", Theme.AWAKE, "Despertar", Theme.AWAKE, -1f));
 		if (ClientState.scanTicks > 0) {
 			float f = Anim.clamp01(ClientState.scanTicks / (float) OpeConfig.SCAN_TICKS);

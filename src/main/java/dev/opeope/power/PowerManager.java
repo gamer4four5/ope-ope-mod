@@ -5,6 +5,7 @@ import dev.opeope.entity.PieceEntity;
 import dev.opeope.OpeConfig;
 import dev.opeope.net.Payloads;
 import dev.opeope.registry.ModAttachments;
+import dev.opeope.registry.ModEffects;
 import dev.opeope.registry.ModItems;
 import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -17,12 +18,16 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.boss.WitherEntity;
 import net.minecraft.entity.boss.dragon.EnderDragonEntity;
+import net.minecraft.entity.damage.DamageTypes;
+import net.minecraft.entity.effect.StatusEffectInstance;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.ElderGuardianEntity;
 import net.minecraft.entity.mob.WardenEntity;
-import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -64,6 +69,19 @@ public final class PowerManager {
 		ServerTickEvents.END_SERVER_TICK.register(PowerManager::tick);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			ServerPlayerEntity p = handler.getPlayer();
+			if (!Boolean.getBoolean("opeope.autotest") && !ModAttachments.hasFruit(p)) {
+				boolean hasFruitItem = false;
+				for (int i = 0; i < p.getInventory().size(); i++) {
+					if (p.getInventory().getStack(i).isOf(ModItems.FRUIT)) {
+						hasFruitItem = true;
+						break;
+					}
+				}
+				if (!hasFruitItem) {
+					p.getInventory().offerOrDrop(new ItemStack(ModItems.FRUIT));
+					p.getInventory().offerOrDrop(new ItemStack(ModItems.KIKOKU));
+				}
+			}
 			get(p).dirty = true;
 			sendAllRooms(p);
 			GroundCuts.sendAll(p);
@@ -82,6 +100,37 @@ public final class PowerManager {
 			sendAllRooms(player);
 		});
 		EntityTrackingEvents.START_TRACKING.register((entity, player) -> CutStates.onStartTracking(entity, player));
+		// Protección total contra daño por caída y Sello de Inmortalidad de la Operación de Juventud Eterna (Furo Shujutsu)
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
+			if (entity instanceof ServerPlayerEntity sp && ModAttachments.hasFruit(sp)) {
+				PlayerPower pw = get(sp);
+				if (source.isOf(DamageTypes.FALL) && (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0)) {
+					sp.fallDistance = 0f;
+					return false;
+				}
+				// Si un golpe fuera a matarte mientras tienes activa la Operación de Juventud Eterna, anula la muerte
+				if (pw.eternalYouthTicks > 0 && sp.getHealth() - amount <= 1.0f) {
+					sp.setHealth(sp.getMaxHealth());
+					sp.clearStatusEffects();
+					sp.addStatusEffect(new StatusEffectInstance(StatusEffects.REGENERATION, 200, 3, false, false, true));
+					sp.addStatusEffect(new StatusEffectInstance(StatusEffects.ABSORPTION, 400, 4, false, false, true));
+					sp.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, 200, 3, false, false, true));
+					ServerWorld w = sp.getServerWorld();
+					w.spawnParticles(ParticleTypes.TOTEM_OF_UNDYING, sp.getX(), sp.getY() + 1.0, sp.getZ(), 60, 1.0, 1.2, 1.0, 0.2);
+					w.spawnParticles(Techniques.YOUTH_DUST, sp.getX(), sp.getY() + 1.0, sp.getZ(), 60, 1.5, 1.0, 1.5, 0.05);
+					w.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ITEM_TOTEM_USE, SoundCategory.PLAYERS, 1.0f, 1.4f);
+					for (LivingEntity near : w.getEntitiesByClass(LivingEntity.class, sp.getBoundingBox().expand(6.0), e -> e != sp && e.isAlive())) {
+						near.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 60, 0, false, true));
+						Vec3d push = near.getPos().subtract(sp.getPos()).normalize().multiply(1.6).add(0, 0.5, 0);
+						near.addVelocity(push.x, push.y, push.z);
+						near.velocityModified = true;
+					}
+					sp.sendMessage(Text.literal("§6✦ Sello de Juventud Eterna: ¡Daño letal anulado y órganos reconstruidos!"), true);
+					return false;
+				}
+			}
+			return true;
+		});
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
 			// Quien muere suelta lo que lleva y sus arranques pendientes se deshacen (sigue haciendo tick hasta reaparecer).
 			if (entity instanceof ServerPlayerEntity sp) {
@@ -199,6 +248,12 @@ public final class PowerManager {
 		if (pw.unionSelected >= 0) flags |= Payloads.State.UNION_SELECTED;
 		if (pw.curtainTicks > 0) flags |= Payloads.State.CURTAIN;
 		if (pw.silentTicks > 0) flags |= Payloads.State.SILENT;
+		if (pw.combatStyle == 2) flags |= Payloads.State.STYLE_SWORD;
+		if (pw.combatStyle == 3) flags |= Payloads.State.STYLE_FIGHT;
+		if (pw.freeMode) flags |= Payloads.State.FREE_MODE;
+		if (pw.kroomBladeTicks > 0 || pw.anesthesia) flags |= Payloads.State.KROOM_BLADE;
+		if (pw.eternalYouthTicks > 0) flags |= Payloads.State.ETERNAL_YOUTH;
+		if (pw.zeroGravityRoom) flags |= Payloads.State.ZERO_G;
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
 		int[] held = new int[Math.min(pw.takt.size(), 64)];   // lo que lleva en Takt, en orden (el cliente dibuja sus fantasmas)
 		for (int i = 0; i < held.length; i++) held[i] = pw.takt.get(i);
@@ -327,6 +382,22 @@ public final class PowerManager {
 		if (kind == 1 && pw.bisturi) Techniques.bisturi(p, pw, false);
 		Room room = pw.room;
 		if (room == null || room.dim != p.getWorld().getRegistryKey()) {
+			// Si tienes la hoja gigante de K-ROOM activa, puedes cortar a 26m incluso sin ROOM externo
+			if (kind == 2 && pw.kroomBladeTicks > 0) {
+				Vec3d eye = p.getEyePos();
+				Vec3d look = p.getRotationVector();
+				List<CutEngine.Plane> kPlanes = new ArrayList<>();
+				for (int i = 0; i + 5 < raw.length; i += 6) {
+					Vec3d n = new Vec3d(raw[i], raw[i + 1], raw[i + 2]);
+					if (n.lengthSquared() > 1e-6) kPlanes.add(new CutEngine.Plane(n.normalize(), eye));
+				}
+				if (!kPlanes.isEmpty()) {
+					kPlanes = Patterns.expand(p, kPlanes.get(0), pw.pattern);
+					CutEngine.cut(p, kPlanes, CutEngine.Region.sphere(eye.add(look.multiply(12.0)), 14.0).withEye(eye, look), pw.suspend, 0, 18f, false, false);
+					pw.cooldown(Tech.AMPUTATE);
+				}
+				return;
+			}
 			noRoom(p);
 			return;
 		}
@@ -341,12 +412,13 @@ public final class PowerManager {
 			planes.add(new CutEngine.Plane(n.normalize(), point));
 		}
 		if (planes.isEmpty()) return;
-		if (kind == 0) planes = Patterns.expand(p, planes.get(0), pw.pattern);
+		if (kind == 0 || kind == 2) planes = Patterns.expand(p, planes.get(0), pw.pattern);
 		Vec3d eye = p.getEyePos();
 		Vec3d look = p.getRotationVector();
 		CutEngine.Region region = CutEngine.Region.of(room).withEye(eye, look);
 		if (kind == 2) {
-			region.withLimit(eye, 6.0);            // la Kikoku corta lo que alcanza el filo
+			double maxK = pw.kroomBladeTicks > 0 ? Math.min(room.radius, 36.0) : Math.min(room.radius, 24.0);
+			region.withLimit(eye, maxK);
 		} else if (pw.reachTarget) {
 			Entity target = raycastEntity(p, 200, 0.2, e -> e.isAlive());
 			Vec3d at = target != null ? target.getBoundingBox().getCenter() : aimPoint(p, 200);

@@ -2,11 +2,13 @@ package dev.opeope.client.render;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.input.Bisturi;
 import dev.opeope.client.room.GroundLine;
 import dev.opeope.client.room.RoomFxClient;
 import dev.opeope.client.room.RoomVisuals;
+import dev.opeope.registry.ModItems;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.BufferBuilder;
@@ -118,7 +120,13 @@ public final class RoomRenderer {
 		if (world == null) return;
 		Identifier dim = world.getRegistryKey().getValue();
 		boolean rooms = RoomVisuals.anything(dim);
-		if (!rooms && !Bisturi.active) return;
+		boolean holdingHeart = mc.player != null && ModItems.HEART != null
+			&& (mc.player.getMainHandStack().isOf(ModItems.HEART) || mc.player.getOffHandStack().isOf(ModItems.HEART));
+		boolean kroomBlade = mc.player != null && ClientState.kroomBlade();
+		boolean eternalYouth = mc.player != null && ClientState.eternalYouth();
+		boolean zg = ClientState.zeroGravity() && ClientState.ownRoom() != null;
+		boolean glowPass = rooms || holdingHeart || kroomBlade || eternalYouth || zg;
+		if (!rooms && !Bisturi.active && !holdingHeart && !kroomBlade && !eternalYouth && !zg) return;
 
 		Vec3d cam = ctx.camera().getPos();
 		// Según la versión de Fabric, la rotación de la cámara va en la matriz del modelo o no: se mira y se añade si falta.
@@ -161,34 +169,45 @@ public final class RoomRenderer {
 			double[] cur = Bisturi.current(td);
 			if (cur != null) plane(buf, cur, cam, 0x70BFF4FF);
 		}
+		if (holdingHeart) {
+			heartCube(buf, mc.player, cam, td, now);
+		}
 		draw(buf);
 
-		if (rooms) {
-			// 2) luz que se suma
+		if (glowPass) {
+			// 2) luz aditiva (contornos, orbitas ROOM, K-ROOM 26m, halos, rayos y corazones)
 			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
 			buf = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
 			boolean flashes = false;
-			for (int i = 0; i < all.size(); i++) {
-				RoomVisuals.Vis v = all.get(i);
-				if (dim.equals(v.dim) && v.shown()) outline(buf, v, cam, td);
-			}
-			for (int i = 0; i < fx.size(); i++) {
-				RoomVisuals.Fx f = fx.get(i);
-				if (!dim.equals(f.dim)) continue;
-				switch (f.type) {
-					case RoomVisuals.Fx.ECHO, RoomVisuals.Fx.SHOCK, RoomVisuals.Fx.FOLD, RoomVisuals.Fx.CLOSE -> effectShell(buf, f, cam, now);
-					case RoomVisuals.Fx.COMET -> comet(buf, f, cam, now, calm);
-					case RoomVisuals.Fx.TETHER -> tether(buf, f, cam, td, now, calm, world);
-					case RoomVisuals.Fx.FLASH -> flashes |= f.progress(now) < 1;
-					default -> {
+			if (rooms) {
+				for (int i = 0; i < all.size(); i++) {
+					RoomVisuals.Vis v = all.get(i);
+					if (dim.equals(v.dim) && v.shown()) {
+						outline(buf, v, cam, td);
+						if (!calm) roomOrbits(buf, v, cam, td, now);
 					}
 				}
+				for (int i = 0; i < fx.size(); i++) {
+					RoomVisuals.Fx f = fx.get(i);
+					if (!dim.equals(f.dim)) continue;
+					switch (f.type) {
+						case RoomVisuals.Fx.ECHO, RoomVisuals.Fx.SHOCK, RoomVisuals.Fx.FOLD, RoomVisuals.Fx.CLOSE -> effectShell(buf, f, cam, now);
+						case RoomVisuals.Fx.COMET -> comet(buf, f, cam, now, calm);
+						case RoomVisuals.Fx.TETHER -> tether(buf, f, cam, td, now, calm, world);
+						case RoomVisuals.Fx.FLASH -> flashes |= f.progress(now) < 1;
+						default -> {}
+					}
+				}
+				seed(buf, mc, cam, td, now, calm);
 			}
-			seed(buf, mc, cam, td, now, calm);
+			if (holdingHeart) heartGlow(buf, mc.player, cam, td, now);
+			if (kroomBlade) kroomGiantSwordGlow(buf, mc.player, cam, td, now);
+			if (eternalYouth) eternalYouthHaloGlow(buf, mc.player, cam, td, now);
+			if (zg) zeroGravityRings(buf, ClientState.ownRoom(), cam, now);
 			draw(buf);
 
 			// 3) el destello del aterrizaje, por encima de todo
-			if (flashes) {
+			if (rooms && flashes) {
 				RenderSystem.disableDepthTest();
 				buf = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
 				int level = OpeSettings.flashLevel();
@@ -200,7 +219,6 @@ public final class RoomRenderer {
 				RenderSystem.enableDepthTest();
 			}
 		}
-
 		RenderSystem.defaultBlendFunc();
 		RenderSystem.depthMask(true);
 		RenderSystem.enableCull();
@@ -591,7 +609,7 @@ public final class RoomRenderer {
 		disc(b, x, y, z, size * 0.35, HI_RGB, a, HI_RGB, a * 0.4f);
 	}
 
-	// ------------------------------------------------------------------ Bisturí
+	// ------------------------------------------------------------------ Bisturí y Cubo del Corazón (Mes)
 
 	/** El plano del Bisturí: un rectángulo de 24 × 16 centrado en el punto que señalas (como antes). */
 	private static void plane(BufferBuilder buf, double[] pl, Vec3d cam, int argb) {
@@ -605,5 +623,133 @@ public final class RoomRenderer {
 		vtx(buf, px + sx * a - fx * b, py + sy * a - fy * b, pz + sz * a - fz * b, rgb, al);
 		vtx(buf, px + sx * a + fx * b, py + sy * a + fy * b, pz + sz * a + fz * b, rgb, al);
 		vtx(buf, px - sx * a + fx * b, py - sy * a + fy * b, pz - sz * a + fz * b, rgb, al);
+	}
+
+	/** Dos anillos ecuatoriales luminosos rotando suavemente sobre la cúpula del ROOM para que se sienta vivo. */
+	private static void roomOrbits(BufferBuilder b, RoomVisuals.Vis v, Vec3d cam, float td, double now) {
+		double r = v.radius(td);
+		if (r <= 1.0) return;
+		float a = v.strength * v.fade(td) * 0.22f;
+		if (a <= 0.005f) return;
+		double cx = v.x(td) - cam.x, cy = v.y(td) - cam.y, cz = v.z(td) - cam.z;
+		double band = Math.max(0.08, r * 0.012);
+		double a1 = now * 0.42;
+		double n1x = Math.cos(a1) * 0.32, n1z = Math.sin(a1) * 0.32;
+		double n1y = Math.sqrt(1.0 - n1x * n1x - n1z * n1z);
+		planeAxes(n1x, n1y, n1z);
+		ringBand(b, cx, cy, cz, Math.max(0.1, r - band), r, 0x8FE3FF, a, 0f);
+		double a2 = -now * 0.31 + 1.1;
+		double n2x = Math.cos(a2) * 0.55, n2y = Math.sin(a2) * 0.55;
+		double n2z = Math.sqrt(Math.max(0.01, 1.0 - n2x * n2x - n2y * n2y));
+		planeAxes(n2x, n2y, n2z);
+		ringBand(b, cx, cy, cz, Math.max(0.1, r - band * 0.8), r, 0xBFF4FF, a * 0.75f, 0f);
+	}
+
+	/** Halo aditivo y doble latido lumínico del Corazón extraído con Mes. */
+	private static void heartGlow(BufferBuilder b, PlayerEntity p, Vec3d cam, float td, double now) {
+		RoomVisuals.handPoint(p, td, P);
+		double cx = P[0] - cam.x, cy = P[1] - cam.y + 0.08 * Math.sin(now * 4.5), cz = P[2] - cam.z;
+		double lub = Math.pow(Math.max(0, Math.sin(now * 5.2)), 6.0);
+		double dub = 0.65 * Math.pow(Math.max(0, Math.sin(now * 5.2 - 0.8)), 8.0);
+		double beat = 1.0 + 0.20 * Math.max(lub, dub);
+		cubeFaces(b, cx, cy, cz, 0.25 * beat, 0x6FE6FF, 0.32f);
+		cubeFaces(b, cx, cy, cz, 0.12 * beat, 0xFF4466, 0.50f);
+		planeAxes(0, 1, 0);
+		ringBand(b, cx, cy, cz, 0.26 * beat, 0.34 * beat, 0x8FE3FF, (float) (0.28 + 0.35 * Math.max(lub, dub)), 0f);
+	}
+
+	/** Cubo quirúrgico 3D pulsante alrededor de la mano cuando llevas un Corazón extraído con Mes. */
+	private static void heartCube(BufferBuilder b, PlayerEntity p, Vec3d cam, float td, double now) {
+		RoomVisuals.handPoint(p, td, P);
+		double cx = P[0] - cam.x, cy = P[1] - cam.y + 0.08 * Math.sin(now * 4.5), cz = P[2] - cam.z;
+		double beat = 1.0 + 0.14 * Math.pow(Math.max(0, Math.sin(now * 6.5)), 3.0);
+		double hs = 0.22 * beat;
+		double core = 0.09 * beat;
+		cubeFaces(b, cx, cy, cz, core, 0xFF3355, 0.72f);
+		cubeFaces(b, cx, cy, cz, hs, 0x8FE3FF, 0.28f);
+	}
+
+	private static void cubeFaces(BufferBuilder b, double cx, double cy, double cz, double s, int rgb, float a) {
+		double x0 = cx - s, x1 = cx + s, y0 = cy - s, y1 = cy + s, z0 = cz - s, z1 = cz + s;
+		// Frente y dorso
+		vtx(b, x0, y0, z1, rgb, a); vtx(b, x1, y0, z1, rgb, a); vtx(b, x1, y1, z1, rgb, a); vtx(b, x0, y1, z1, rgb, a);
+		vtx(b, x1, y0, z0, rgb, a); vtx(b, x0, y0, z0, rgb, a); vtx(b, x0, y1, z0, rgb, a); vtx(b, x1, y1, z0, rgb, a);
+		// Izquierda y derecha
+		vtx(b, x0, y0, z0, rgb, a); vtx(b, x0, y0, z1, rgb, a); vtx(b, x0, y1, z1, rgb, a); vtx(b, x0, y1, z0, rgb, a);
+		vtx(b, x1, y0, z1, rgb, a); vtx(b, x1, y0, z0, rgb, a); vtx(b, x1, y1, z0, rgb, a); vtx(b, x1, y1, z1, rgb, a);
+		// Arriba y abajo
+		vtx(b, x0, y1, z1, rgb, a); vtx(b, x1, y1, z1, rgb, a); vtx(b, x1, y1, z0, rgb, a); vtx(b, x0, y1, z0, rgb, a);
+		vtx(b, x0, y0, z0, rgb, a); vtx(b, x1, y0, z0, rgb, a); vtx(b, x1, y0, z1, rgb, a); vtx(b, x0, y0, z1, rgb, a);
+	}
+
+	/**
+	 * K-ROOM: Espada Gigante 3D de 26 metros que se extiende desde la mano del jugador en la dirección de su mirada,
+	 * con hoja interior blanca incandescente, vaina quirúrgica azul-cian translúcida y anillos de energía pulsantes.
+	 */
+	private static void kroomGiantSwordGlow(BufferBuilder b, PlayerEntity p, Vec3d cam, float td, double now) {
+		RoomVisuals.handPoint(p, td, P);
+		Vec3d dir = p.getRotationVec(td).normalize();
+		double hx = P[0] - cam.x, hy = P[1] - cam.y, hz = P[2] - cam.z;
+		double len = 26.0;
+		double tx = hx + dir.x * len, ty = hy + dir.y * len, tz = hz + dir.z * len;
+		float pulse = (float) (0.85 + 0.15 * Math.sin(now * 16.0));
+		// Vaina exterior luminosa cian eléctrico + núcleo blanco incandescente de 26m
+		ribbon(b, hx, hy, hz, tx, ty, tz, 0.68, 0.18, 0x3FD8FF, 0.42f * pulse, 0.18f * pulse);
+		ribbon(b, hx, hy, hz, tx, ty, tz, 0.24, 0.06, 0xFFFFFF, 0.95f * pulse, 0.68f * pulse);
+		// Ondas quirúrgicas y hélice eléctrica espiral a lo largo de toda la hoja
+		planeAxes(dir.x, dir.y, dir.z);
+		for (int k = 0; k < 6; k++) {
+			double u = ((now * 1.9 + k / 6.0) % 1.0);
+			double rx = hx + dir.x * (u * len), ry = hy + dir.y * (u * len), rz = hz + dir.z * (u * len);
+			double rad = 0.25 + 0.45 * (1.0 - u);
+			ringBand(b, rx, ry, rz, rad * 0.72, rad, 0xBFF4FF, (float) ((1.0 - u) * 0.65), 0f);
+		}
+		int segs = 22;
+		double prevX = hx, prevY = hy, prevZ = hz;
+		for (int s = 1; s <= segs; s++) {
+			double u = s / (double) segs;
+			double ang = now * 11.0 - u * 18.0;
+			double rad = 0.46 * (1.0 - u * 0.72);
+			double cx = Math.cos(ang) * rad, sy = Math.sin(ang) * rad;
+			double nx = hx + dir.x * (u * len) + e1x * cx + e2x * sy;
+			double ny = hy + dir.y * (u * len) + e1y * cx + e2y * sy;
+			double nz = hz + dir.z * (u * len) + e1z * cx + e2z * sy;
+			ribbon(b, prevX, prevY, prevZ, nx, ny, nz, 0.08, 0.08, (s % 2 == 0) ? 0xFFF2AA : 0x80F0FF, 0.72f * pulse, 0.72f * pulse);
+			prevX = nx; prevY = ny; prevZ = nz;
+		}
+		if (billboard(tx, ty, tz)) disc(b, tx, ty, tz, 0.9 * pulse, 0xFFFFFF, 0.75f * pulse, 0x55E6FF, 0f);
+	}
+
+
+	/**
+	 * Halo Quirúrgico 3D dorado-carmesí de la Cirugía de Juventud Eterna (Furo Shujutsu).
+	 */
+	private static void eternalYouthHaloGlow(BufferBuilder b, PlayerEntity p, Vec3d cam, float td, double now) {
+		Vec3d pos = p.getLerpedPos(td);
+		double cx = pos.x - cam.x, cy = pos.y - cam.y + 1.05 + 0.12 * Math.sin(now * 3.2), cz = pos.z - cam.z;
+		double tiltX = 0.30 * Math.cos(now * 1.9), tiltZ = 0.30 * Math.sin(now * 1.9);
+		double ny = 1.0 / Math.sqrt(1.0 + tiltX * tiltX + tiltZ * tiltZ);
+		planeAxes(tiltX * ny, ny, tiltZ * ny);
+		ringBand(b, cx, cy, cz, 1.15, 1.44, 0xFFE066, 0.85f, 0.05f);
+		ringBand(b, cx, cy, cz, 1.42, 1.62, 0xFFF7C2, 0.42f, 0f);
+		planeAxes(-tiltX * ny, ny, -tiltZ * ny);
+		ringBand(b, cx, cy, cz, 0.90, 1.12, 0xFF3D68, 0.72f, 0.05f);
+	}
+
+
+	/**
+	 * Anillos 3D antigravitatorios cian-violeta que ascienden dentro de tu ROOM cuando la Gravedad Cero está activa.
+	 */
+	private static void zeroGravityRings(BufferBuilder b, ClientState.RoomInfo room, Vec3d cam, double now) {
+		double cx = room.center().x - cam.x, cy = room.center().y - cam.y, cz = room.center().z - cam.z;
+		double r = room.radius();
+		planeAxes(0, 1, 0);
+		for (int k = 0; k < 4; k++) {
+			double u = ((now * 0.35 + k * 0.25) % 1.0);
+			double yOff = (u - 0.35) * r * 1.1;
+			double ringR = Math.sqrt(Math.max(0.5, r * r - yOff * yOff)) * 0.72;
+			float alpha = (float) (Math.sin(u * Math.PI) * 0.38);
+			ringBand(b, cx, cy + yOff, cz, ringR - 0.25, ringR, (k % 2 == 0) ? 0x77EEFF : 0xB388FF, alpha, 0f);
+		}
 	}
 }

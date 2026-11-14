@@ -4,8 +4,10 @@ import dev.opeope.OpeOpeMod;
 import dev.opeope.net.Payloads;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.Nullable;
+import java.util.UUID;
 
 /**
  * Los momentos del ROOM (nace, se fija, cambia de tamaño, vuela, aterriza, vuelve, se cierra) para que los clientes los
@@ -19,6 +21,23 @@ public final class RoomEvents {
 
 	private static final double RANGE = 256;
 	private static boolean warned;
+
+	/** Envía una onda sísmica de impacto de rocota gigante a todos los jugadores en rango. */
+	public static void sendWorldImpact(ServerWorld world, @Nullable UUID owner, Vec3d pos, float craterRadius, float intensity) {
+		if (world == null || pos == null) return;
+		UUID id = owner != null ? owner : new UUID(0L, 0L);
+		Payloads.RoomFx fx = new Payloads.RoomFx(id, 0, Payloads.RoomFx.IMPACT, pos.x, pos.y, pos.z, pos.x, pos.y, pos.z,
+			craterRadius, intensity, 0, 0);
+		double reach = 160.0 + craterRadius * 4.0;
+		double reach2 = reach * reach;
+		try {
+			for (ServerPlayerEntity sp : world.getPlayers()) {
+				if (sp.getPos().squaredDistanceTo(pos) > reach2) continue;
+				if (ServerPlayNetworking.canSend(sp, Payloads.RoomFx.ID)) ServerPlayNetworking.send(sp, fx);
+			}
+		} catch (RuntimeException ignored) {
+		}
+	}
 
 	/** b puede ser null: entonces es igual que a. */
 	public static void send(ServerPlayerEntity owner, int slot, int kind, Vec3d a, @Nullable Vec3d b, float radius, float radius2, int ticks, int flags) {

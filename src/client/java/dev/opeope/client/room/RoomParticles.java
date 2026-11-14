@@ -58,6 +58,31 @@ public final class RoomParticles {
 
 	// ------------------------------------------------------------------ básicos
 
+	/** Ráfagas de chispas quirúrgicas a lo largo de la costura recién cortada. */
+	public static void cutSparks(float[] seg, boolean own) {
+		if (seg == null || seg.length < 9) return;
+		int total = seg.length / 9;
+		int step = Math.max(1, total / count(26, own));
+		for (int i = 0; i < total; i += step) {
+			int o = i * 9;
+			double mx = (seg[o] + seg[o + 3]) * 0.5;
+			double my = (seg[o + 1] + seg[o + 4]) * 0.5;
+			double mz = (seg[o + 2] + seg[o + 5]) * 0.5;
+			double fx = seg[o + 6], fy = seg[o + 7], fz = seg[o + 8];
+			double sp = 0.08 + RNG.nextDouble() * 0.14;
+			add(ParticleTypes.ELECTRIC_SPARK, mx, my, mz,
+				fx * sp + (RNG.nextDouble() - 0.5) * 0.08,
+				fy * sp + RNG.nextDouble() * 0.08,
+				fz * sp + (RNG.nextDouble() - 0.5) * 0.08);
+			if (RNG.nextFloat() < 0.45f) {
+				add(DUST, mx, my, mz,
+					(RNG.nextDouble() - 0.5) * 0.05,
+					0.03 + RNG.nextDouble() * 0.06,
+					(RNG.nextDouble() - 0.5) * 0.05);
+			}
+		}
+	}
+
 	/** n escalado por la opción de partículas (y a la mitad si es de otro). Nunca menos de 1. */
 	static int count(int n, boolean own) {
 		MinecraftClient mc = MinecraftClient.getInstance();
