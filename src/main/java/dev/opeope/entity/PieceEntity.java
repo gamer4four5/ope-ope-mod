@@ -53,6 +53,8 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
+import net.minecraft.world.explosion.Explosion;
+import net.minecraft.world.explosion.ExplosionBehavior;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -91,8 +93,8 @@ public class PieceEntity extends Entity {
 	/** Qué muelle la lleva (lo pone Takt.tick): en la mano, en órbita o aparcada. */
 	public static final int DRIVE_HAND = 0, DRIVE_ORBIT = 1, DRIVE_PARK = 2;
 
-	/** Solo en el hilo del servidor, desde el arranque: bloques que place() soltó como objeto o puso en otra celda (AutoTest). */
-	public static int DROPPED, RELOCATED;
+	/** Solo en el hilo del servidor, desde el arranque: bloques que place() soltó como objeto, puso en otra celda o fracturó (AutoTest). */
+	public static int DROPPED, RELOCATED, SHATTERED;
 
 	public BlockSet blocks = new BlockSet();
 	public Mode mode = Mode.FREE;
@@ -122,6 +124,7 @@ public class PieceEntity extends Entity {
 
 	private int restTicks, freeTicks;
 	private int lastImpactAge = -1000;     // el último impacto (age) y su energía: no revienta dos veces seguidas
+	private int wallGrazeAge = -1000;      // último roce contra muro/techo mientras cae hacia el piso
 	private double lastImpactE;
 	private final Map<Integer, Integer> hitCooldown = new HashMap<>();
 	public int chimeraHostId = -1;
@@ -460,6 +463,11 @@ public class PieceEntity extends Entity {
 	}
 
 	@Override
+	public boolean isImmuneToExplosion(Explosion explosion) {
+		return true;
+	}
+
+	@Override
 	public boolean isAttackable() {
 		return false;
 	}
@@ -742,6 +750,8 @@ public class PieceEntity extends Entity {
 		thrownTicks = 0;
 		restTicks = 0;
 		freeTicks = 0;
+		lastImpactAge = -1000;
+		wallGrazeAge = -1000;
 		noClip = false;
 		setNoGravity(false);
 		gravityMul = heavyGravity(radius());
@@ -886,7 +896,7 @@ public class PieceEntity extends Entity {
 		if (perTick.length() > 0.7) hitEntities(perTick, true);
 		if (!noClip && !placed && drive == DRIVE_HAND && blocks.size() >= 80
 			&& perTick.lengthSquared() > 1.0 && getWorld() instanceof ServerWorld sw) {
-			plowTreeBlocks(sw, moved, false);
+			plowTreeBlocks(sw, moved, false, true);
 		}
 	}
 
@@ -912,21 +922,29 @@ public class PieceEntity extends Entity {
 					(float) Math.min(2.2, 0.5 + blocks.size() / 80.0), 0.55f);
 				fallSoundCd = 14;
 			}
-			if (!debris && !slowFall && blocks.size() >= 18 && speedBefore > 0.55) {
-				plowTreeBlocks(sw, v, true);
+			if (!debris && !slowFall && (thrown || blocks.size() >= 12) && speedBefore > 0.45) {
+				boolean chopWood = blocks.size() >= 12 || (thrown && blocks.size() >= 6 && speedBefore > 1.1);
+				plowTreeBlocks(sw, v, blocks.size() >= 18, chopWood);
 			}
 		}
 		setVelocity(v);
 		move(MovementType.SELF, v);
 		boolean collided = horizontalCollision || verticalCollision;
 		if (v.length() > 0.5) hitEntities(v, debris);
-		if (collided && strikes(v)) {
-			impact(v);
-			return;
-		}
-		if (sewOnContact && collided) {
-			settle(true);
-			return;
+		if (collided) {
+			if (sewOnContact) {
+				settle(true);
+				return;
+			}
+			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), v);
+			if (hit.properFloor() && strikes(v, true)) {
+				impact(v, hit);
+				return;
+			}
+			if ((thrown || (!debris && !slowFall && blocks.size() >= 18 && maxFallSpeed > 0.8)) && !hit.properFloor()) {
+				deflectMidAir(v);
+				return;
+			}
 		}
 		Vec3d after = getVelocity();
 		double air = airDrag(radius());
@@ -934,6 +952,15 @@ public class PieceEntity extends Entity {
 		setVelocity(after.x * f, after.y * air, after.z * f);
 		if (isOnGround() && getVelocity().lengthSquared() < 0.004) restTicks++;
 		else restTicks = 0;
+		if (isOnGround() && restTicks >= 2 && lastImpactAge < 0 && !debris && !slowFall
+			&& (thrown || (maxFallSpeed > OpeConfig.IMPACT_FALL_SPEED && massKg() >= OpeConfig.IMPACT_FALL_KG))) {
+			Vec3d synthVel = new Vec3d(v.x, -Math.max(0.65, maxFallSpeed), v.z);
+			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), synthVel);
+			if (hit.properFloor() && strikes(synthVel, true)) {
+				impact(synthVel, hit);
+				return;
+			}
+		}
 		boolean keepCut = fromCut && !thrown && !slowFall && lastImpactAge < 0;
 		int maxRest = keepCut ? 20 * 25 : 6;
 		if (restTicks > maxRest || freeTicks > 20 * 30) settle(false);
@@ -1234,88 +1261,183 @@ public class PieceEntity extends Entity {
 
 	/**
 	 * La energía del golpe (julios) de un choque a velocidad v (b/t). Contra el suelo se clava: pierde toda la de caer y
-	 * casi toda la de lado (lo pesado; lo ligero sigue resbalando). Contra una pared o un techo, lo que pierde al pararse.
+	 * casi toda la de lado (lo pesado o lanzado con fuerza). Contra una pared o un techo, lo que pierde al pararse.
 	 */
 	private double blowEnergy(Vec3d v) {
 		double m = massKg();
-		if (verticalCollision && v.y < 0) {
-			double kh = keepOnGround(), h2 = v.x * v.x + v.z * v.z;
+		if (verticalCollision && v.y < 0 || thrown) {
+			double kh = thrown ? Math.min(keepOnGround(), 0.55) : keepOnGround();
+			double h2 = v.x * v.x + v.z * v.z;
 			return 0.5 * m * 400 * (v.y * v.y + h2 * (1 - kh * kh));
 		}
 		return 0.5 * m * 400 * Math.max(0, v.lengthSquared() - getVelocity().lengthSquared());
 	}
 
 	/**
-	 * ¿Es un impacto este choque (v: la velocidad con la que se movió)? Lo lanzado, si iba rápido. Lo que cae solo (soltado,
-	 * cortado, resbalado), si pesa, iba rápido y el golpe es de nivel 1 o más. El mismo trozo no revienta dos veces seguidas
-	 * (9 ticks) salvo con un golpe tres veces mayor. Ni un terrón de cráter, ni lo que baja despacio, ni lo que va a coserse.
+	 * ¿Es un impacto este choque contra el piso? Requiere tocar bien el piso (properFloor). Lo lanzado impacta incluso a
+	 * quemarropa (thrownTicks >= 1); lo que cae solo necesita masa y velocidad mínima.
 	 */
-	private boolean strikes(Vec3d v) {
-		if (sewOnContact) return false;
+	private boolean strikes(Vec3d v, boolean properFloor) {
+		if (sewOnContact || !properFloor || debris || slowFall) return false;
 		double s = v.length();
-		if (thrown) return thrownTicks > 2 && s > 1.0;
-		if (debris || slowFall || s < OpeConfig.IMPACT_FALL_SPEED || massKg() < OpeConfig.IMPACT_FALL_KG) return false;
+		if (thrown) return thrownTicks >= 1 && (s > 0.55 || maxFallSpeed > 0.9);
+		if (s < OpeConfig.IMPACT_FALL_SPEED || massKg() < OpeConfig.IMPACT_FALL_KG) return false;
 		double e = blowEnergy(v);
 		if (age - lastImpactAge < 9 && e < 3 * lastImpactE) return false;
 		return tierOf(e, radius(), massKg()) >= 1;
 	}
 
+	private record FloorHit(boolean properFloor, BlockState floor, Vec3d contact) {}
+
 	/**
-	 * Un trozo que choca fuerte (vel: su velocidad justo antes del choque). Con terreno debajo y nivel 2 o más abre un
-	 * cráter de su tamaño (Crater.dig): se mete dentro hasta apoyarse, saltan terrones y lo cavado queda alrededor; si
-	 * llegó rasante ara el suelo unos metros antes de pararse. Contra una pared, un tronco o un techo no cava nada: pierde
-	 * casi toda la velocidad y cae al suelo. Desde el nivel 1, la onda (shock). Nunca explota ni suelta objetos.
+	 * Exige contacto real contra el piso bajo la huella de la pieza (>= 25% de apoyo sólido bajo la base),
+	 * ignorando roces en pleno aire contra muros, techos o salientes mínimos, y detectando el terreno real incluso bajo
+	 * nieve fina o vegetación superficial.
 	 */
-	private void impact(Vec3d vel) {
+	private FloorHit inspectFloor(BlockView view, Vec3d moveVel) {
+		BlockState defaultFloor = view.getBlockState(BlockPos.ofFloored(getX(), getY() - 0.5, getZ()));
+		if (verticalCollision && moveVel.y > 0) {
+			return new FloorHit(false, defaultFloor, new Vec3d(getX(), getY() + blocks.sy, getZ()));
+		}
+		boolean downHit = verticalCollision && moveVel.y < -0.02;
+		boolean slideStepHit = horizontalCollision && !verticalCollision && isOnGround() && moveVel.y <= 0.05;
+		boolean restingHit = isOnGround() && restTicks >= 2;
+		if (!downHit && !slideStepHit && !restingHit) {
+			return new FloorHit(false, defaultFloor, getPos());
+		}
+
+		double insetHalfX = Math.max(0.18, blocks.sx * 0.5 - 0.16);
+		double insetHalfZ = Math.max(0.18, blocks.sz * 0.5 - 0.16);
+		int yBase = MathHelper.floor(getY() - 0.08);
+		int solidCount = 0;
+		int samples = 9;
+		BlockState bestTerrain = null;
+		int bestTerrainY = Integer.MIN_VALUE;
+		double bestDist2 = Double.MAX_VALUE;
+		BlockPos.Mutable m = new BlockPos.Mutable();
+
+		for (int gx = -1; gx <= 1; gx++) {
+			double sx = getX() + gx * insetHalfX;
+			int ix = MathHelper.floor(sx);
+			for (int gz = -1; gz <= 1; gz++) {
+				double sz = getZ() + gz * insetHalfZ;
+				int iz = MathHelper.floor(sz);
+				boolean colSolid = false;
+				for (int dy = 0; dy <= 1; dy++) {
+					if (solidAt(view, m, ix, yBase - dy, iz)) {
+						colSolid = true;
+						break;
+					}
+				}
+				if (colSolid) solidCount++;
+
+				for (int dy = 0; dy <= 2; dy++) {
+					int ty = yBase - dy;
+					BlockState st = view.getBlockState(m.set(ix, ty, iz));
+					if (GroundRules.terrain(st)) {
+						double d2 = (sx - getX()) * (sx - getX()) + (sz - getZ()) * (sz - getZ()) + dy * 0.25;
+						if (d2 < bestDist2) {
+							bestDist2 = d2;
+							bestTerrain = st;
+							bestTerrainY = ty;
+						}
+						break;
+					}
+					if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SNOW) && !GroundRules.plantLike(st, view, m)) {
+						break;
+					}
+				}
+			}
+		}
+
+		boolean properFloor = solidCount > 0 && (solidCount * 4 >= samples || restingHit);
+		BlockState floor = bestTerrain != null ? bestTerrain : defaultFloor;
+		double contactY = bestTerrain != null ? MathHelper.clamp(bestTerrainY + 1.0, getY() - 1.5, getY() + 0.5) : getY();
+		return new FloorHit(properFloor, floor, new Vec3d(getX(), contactY, getZ()));
+	}
+
+	/** Si tocó una pared o un techo en pleno vuelo, rebota/resbala sin gastar el impacto de piso todavía. */
+	private void deflectMidAir(Vec3d moveVel) {
+		Vec3d after = getVelocity();
+		boolean hitCeiling = verticalCollision && moveVel.y > 0;
+		double ny = hitCeiling ? Math.min(after.y, -0.22) : Math.min(after.y, -0.18);
+		setVelocity(after.x * 0.48, ny, after.z * 0.48);
+		restTicks = 0;
+		if (getWorld() instanceof ServerWorld sw && age - wallGrazeAge >= 5 && moveVel.length() > 0.75) {
+			wallGrazeAge = age;
+			Vec3d c = center();
+			BlockState mat = blocks != null && blocks.dominant() != null ? blocks.dominant() : Blocks.STONE.getDefaultState();
+			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, mat), c.x, c.y, c.z, 18,
+				Math.max(0.4, blocks.sx * 0.35), Math.max(0.4, blocks.sy * 0.35), Math.max(0.4, blocks.sz * 0.35), 0.14);
+			sw.playSound(null, c.x, c.y, c.z, mat.getSoundGroup().getBreakSound(), SoundCategory.BLOCKS, 1.15f, 0.75f);
+		}
+	}
+
+	/**
+	 * Impacto contra el piso: explota, fractura/daña la propia pieza lanzada sin perder bloques ni soltar objetos,
+	 * abre un cráter proporcional (Crater.dig) si hay terreno debajo, y lanza la onda expansiva.
+	 */
+	private void impact(Vec3d vel, FloorHit hit) {
+		boolean wasThrown = thrown;
 		thrown = false;
 		if (!(getWorld() instanceof ServerWorld w)) return;
 		BlockView view = GroundRules.loaded(w);
+		Vec3d effVel = vel.lengthSquared() < 0.64 && maxFallSpeed > 0.9
+			? (vel.lengthSquared() > 1e-6 ? vel.normalize().multiply(maxFallSpeed * 0.85) : new Vec3d(0, -maxFallSpeed * 0.85, 0))
+			: vel;
+		double speed = Math.max(effVel.length(), wasThrown ? maxFallSpeed * 0.85 : 0);
 		double m = massKg(), r = radius();
-		double e = blowEnergy(vel);
+		double e = blowEnergy(effVel);
 		int tier = tierOf(e, r, m);
+		if (wasThrown && blocks.size() >= 3 && speed >= 1.1) tier = Math.max(tier, 2);
 		double k = kOf(e);
 		lastImpactAge = age;
 		lastImpactE = e;
-		boolean ceiling = verticalCollision && vel.y > 0;
 		boolean ground = verticalCollision && vel.y < 0;
-		Vec3d contact;
-		if (ceiling) contact = new Vec3d(getX(), getY() + blocks.sy, getZ());
-		else if (verticalCollision) contact = getPos();
-		else contact = center().add(vel.normalize().multiply(0.5 * Math.min(blocks.sx, blocks.sz)));
-		boolean side = ceiling || (horizontalCollision && !verticalCollision && !groundUnder(view));
-		BlockState floor = view.getBlockState(BlockPos.ofFloored(contact.x, contact.y - 0.5, contact.z));
-		double vh = Math.hypot(vel.x, vel.z);
-		Vec3d dir = vh > 1e-3 ? new Vec3d(vel.x / vh, 0, vel.z / vh) : Vec3d.ZERO;
+		Vec3d contact = hit.contact();
+		BlockState floor = hit.floor();
+		double vh = Math.hypot(effVel.x, effVel.z);
+		Vec3d dir = vh > 1e-3 ? new Vec3d(effVel.x / vh, 0, effVel.z / vh) : Vec3d.ZERO;
 		double rf = 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sz * blocks.sz);
 		double R = 0, plow = 0, depth = 0;
-		boolean canCrater = !side && tier >= 2 && GroundRules.terrain(floor);
+		boolean canCrater = tier >= 2 && GroundRules.terrain(floor);
 		if (canCrater) {
-			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k), 1.4, OpeConfig.CRATER_MAX_RADIUS);
+			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k), 1.2, OpeConfig.CRATER_MAX_RADIUS);
 			depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k), 1, 10);
-			if (ground && vh > 0.3 * Math.abs(vel.y)) {
+			if (ground && vh > 0.3 * Math.abs(effVel.y)) {
 				// rasante: lo que el suelo le deja seguir lo frena el roce (μ 0,6) en unos metros
 				double sv = keepOnGround() * vh * 20;
 				plow = Math.min(sv * sv / (2 * 0.6 * 9.81), 1.5 * R);
 			}
 		}
-		if (!debris && tier >= 1) {
-			plowTreeBlocks(w, vel, true);
+		if (!debris && (tier >= 1 || wasThrown)) {
+			plowTreeBlocks(w, effVel, blocks.size() >= 18, true);
 			clearTreeCanopyAbove(w, BlockPos.ofFloored(contact), Math.max(2.0, R > 0 ? R : r), Math.max(4, blocks.sy + 4), 10);
 		}
-		if (!debris && !side && tier >= 2 && blocks.size() >= 18) {
-			damageRockOnImpact(w, vel.lengthSquared() > 1e-6 ? vel.normalize() : new Vec3d(0, -1, 0), vel.length());
+		DamageResult dmg = null;
+		if (!debris && (tier >= 1 || wasThrown)) {
+			Vec3d impactDir = effVel.lengthSquared() > 1e-6 ? effVel.normalize() : new Vec3d(0, -1, 0);
+			dmg = takeImpactDamage(impactDir, speed, tier, wasThrown);
 		}
+		if (tier >= 1 || wasThrown) {
+			triggerExplosion(w, contact, Math.max(R, r), Math.max(1, tier));
+		}
+		PieceEntity craterRock = (placed || isRemoved() || blocks == null || blocks.isEmpty()) ? null : this;
 		Crater.Result dug = null;
 		if (canCrater) {
-			dug = Crater.dig(w, this, contact, dir, plow, R, depth, tier);
+			dug = Crater.dig(w, craterRock, contact, dir, plow, R, depth, tier);
 			R = dug.radius();
 			plow = dug.plow();
 		}
+		double fxRad = Math.max(R, r);
+		if (dmg != null && !dmg.broken().isEmpty()) {
+			spawnDamageDebris(w, dmg, contact, fxRad, effVel);
+		}
 		if (tier >= 1) shock(w, contact, k, tier, r);
-		boolean big = blocks.size() >= 18 || tier >= 2 || r > OpeConfig.TAKT_BIG_RADIUS;
-		spawnImpactFx(w, contact, Math.max(R, r), vel.length(), floor, big, tier >= 3);
-		RoomEvents.sendWorldImpact(w, mover(), contact, (float) Math.max(R, r),
-			(float) MathHelper.clamp(vel.length() * (tier >= 3 ? 1.1 : big ? 0.7 : 0.35), 0.25, 2.5));
+		boolean big = (dmg != null ? dmg.prevCount() : blocks.size()) >= 18 || tier >= 2 || r > OpeConfig.TAKT_BIG_RADIUS;
+		spawnImpactFx(w, contact, fxRad, speed, floor, big, tier >= 3);
+		RoomEvents.sendWorldImpact(w, mover(), contact, (float) fxRad,
+			(float) MathHelper.clamp(speed * (tier >= 3 ? 1.1 : big ? 0.7 : 0.35), 0.25, 2.5));
 		int flags = chunkFx() | (r > OpeConfig.TAKT_BIG_RADIUS ? Payloads.TaktFx.F_BIG : 0);
 		int[] data = Payloads.TaktFx.impactData(r, dir, k, Block.getRawIdFromState(floor), plow, dug == null ? 0 : dug.removed());
 		UUID mv = mover();
@@ -1326,10 +1448,8 @@ public class PieceEntity extends Entity {
 				String.format(Locale.ROOT, "%.2f", R), MathHelper.floor(contact.x), MathHelper.floor(contact.y), MathHelper.floor(contact.z),
 				String.format(Locale.ROOT, "%.1f", m / 1000), String.format(Locale.ROOT, "%.1f", e / 1e6), String.format(Locale.ROOT, "%.1f", plow));
 		}
-		if (side) {
-			// Sin cráter ni bloques pegados a la pared: una pieza suelta normal que cae y se posa en el suelo de abajo.
-			Vec3d v = getVelocity();
-			setVelocity(v.x * 0.3, Math.min(v.y, 0), v.z * 0.3);
+		if (craterRock == null) {
+			discard();
 			return;
 		}
 		if (dug != null && dug.seated()) return;
@@ -1340,13 +1460,6 @@ public class PieceEntity extends Entity {
 			if (b != null && b.getY() < getY()) setPosition(b.getX() + blocks.sx / 2.0, b.getY(), b.getZ() + blocks.sz / 2.0);
 		}
 		settle(false);
-	}
-
-	/** ¿Hay suelo sólido justo debajo de la pieza (una o dos celdas por debajo de su base)? */
-	private boolean groundUnder(BlockView view) {
-		BlockPos.Mutable m = new BlockPos.Mutable();
-		int x = MathHelper.floor(getX()), y = MathHelper.floor(getY()), z = MathHelper.floor(getZ());
-		return solidAt(view, m, x, y - 1, z) || solidAt(view, m, x, y - 2, z);
 	}
 
 	/** El cráter le hizo sitio: queda posada con su esquina mínima en base (sus celdas ya están libres). */
@@ -1970,16 +2083,23 @@ public class PieceEntity extends Entity {
 
 	// ------------------------------------------------------------------ meteorito / árboles / daño propio
 
-	private static boolean isTreeBlock(BlockState st) {
-		return st.isIn(BlockTags.LOGS) || st.isIn(BlockTags.LEAVES) || st.isIn(BlockTags.PLANKS)
-			|| st.isIn(BlockTags.FENCES) || st.isIn(BlockTags.FENCE_GATES) || st.isIn(BlockTags.WOODEN_DOORS)
-			|| st.isIn(BlockTags.SAPLINGS) || st.isOf(Blocks.BAMBOO) || st.isOf(Blocks.VINE)
+	private static boolean isWoodBlock(BlockState st) {
+		return st.isIn(BlockTags.LOGS) || st.isIn(BlockTags.PLANKS) || st.isIn(BlockTags.FENCES)
+			|| st.isIn(BlockTags.FENCE_GATES) || st.isIn(BlockTags.WOODEN_DOORS)
 			|| st.isOf(Blocks.MANGROVE_ROOTS) || st.isOf(Blocks.MUDDY_MANGROVE_ROOTS);
 	}
 
-	private void plowTreeBlocks(ServerWorld sw, Vec3d moveVec, boolean spawnFalling) {
-		Vec3d dir = moveVec.lengthSquared() > 1e-6 ? moveVec.normalize() : Vec3d.ZERO;
-		Box scan = getBoundingBox().stretch(dir.multiply(0.95)).expand(0.35);
+	private static boolean isFoliageBlock(BlockState st) {
+		return st.isIn(BlockTags.LEAVES) || st.isIn(BlockTags.SAPLINGS) || st.isOf(Blocks.BAMBOO) || st.isOf(Blocks.VINE);
+	}
+
+	private static boolean isTreeBlock(BlockState st) {
+		return isWoodBlock(st) || isFoliageBlock(st);
+	}
+
+	private void plowTreeBlocks(ServerWorld sw, Vec3d moveVec, boolean spawnFalling, boolean includeWood) {
+		Vec3d stepVec = moveVec.length() > 4.5 ? moveVec.normalize().multiply(4.5) : moveVec;
+		Box scan = getBoundingBox().stretch(stepVec).expand(0.35);
 		int minX = MathHelper.floor(scan.minX), maxX = MathHelper.floor(scan.maxX);
 		int minY = Math.max(sw.getBottomY(), MathHelper.floor(scan.minY));
 		int maxY = Math.min(sw.getTopY() - 1, MathHelper.floor(scan.maxY));
@@ -1994,7 +2114,8 @@ public class PieceEntity extends Entity {
 				for (int z = minZ; z <= maxZ; z += step) {
 					m.set(x, y, z);
 					BlockState st = sw.getBlockState(m);
-					if (!isTreeBlock(st) || st.hasBlockEntity()) continue;
+					if (st.hasBlockEntity()) continue;
+					if (!(isFoliageBlock(st) || (includeWood && isWoodBlock(st)))) continue;
 					broken++;
 					BlockPos pos = m.toImmutable();
 					if (fxCount < 22) {
@@ -2007,6 +2128,7 @@ public class PieceEntity extends Entity {
 						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(sw, pos, st);
 						if (fb != null) {
 							fb.dropItem = false;
+							Vec3d dir = moveVec.lengthSquared() > 1e-6 ? moveVec.normalize() : Vec3d.ZERO;
 							fb.setVelocity(dir.x * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35, 0.22 + sw.random.nextDouble() * 0.25,
 								dir.z * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35);
 						}
@@ -2064,70 +2186,172 @@ public class PieceEntity extends Entity {
 		}
 	}
 
-	private void damageRockOnImpact(ServerWorld sw, Vec3d dir, double speed) {
-		if (blocks == null || blocks.size() < 18) return;
-		int minRemain = Math.max(12, (int) Math.ceil(blocks.size() * 0.68));
-		int wantChip = MathHelper.clamp((int) Math.round(blocks.size() * Math.min(0.22, 0.08 + speed * 0.05)), 2, 16);
-		wantChip = Math.min(wantChip, blocks.size() - minRemain);
-		if (wantChip <= 0) return;
+	private record DamageResult(List<BlockSet.Entry> broken, int prevCount, double cornerX, double cornerY, double cornerZ,
+								int prevSx, int prevSy, int prevSz) {}
 
-		double lcx = blocks.sx / 2.0, lcy = blocks.sy / 2.0, lcz = blocks.sz / 2.0;
-		List<BlockSet.Entry> outer = new ArrayList<>(blocks.surface());
-		outer.sort((a, b) -> {
-			double sa = outerScore(a, lcx, lcy, lcz, dir);
-			double sb = outerScore(b, lcx, lcy, lcz, dir);
-			return Double.compare(sb, sa);
-		});
-		if (outer.size() > wantChip) outer = outer.subList(0, wantChip);
-		Set<Long> chippedKeys = new HashSet<>(outer.size() * 2);
-		for (BlockSet.Entry e : outer) chippedKeys.add(BlockPos.asLong(e.x(), e.y(), e.z()));
-
-		int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
-		for (BlockSet.Entry e : blocks.entries) {
-			if (chippedKeys.contains(BlockPos.asLong(e.x(), e.y(), e.z()))) continue;
-			if (e.x() < minX) minX = e.x();
-			if (e.y() < minY) minY = e.y();
-			if (e.z() < minZ) minZ = e.z();
+	/**
+	 * Fractura y desprende bloques de la propia pieza lanzada o pesada al golpear contra el piso, según su velocidad,
+	 * dureza y frente de impacto. Conserva el 100% de los bloques (devuelve los rotos para lanzarlos como escombros).
+	 */
+	private DamageResult takeImpactDamage(Vec3d dir, double speed, int tier, boolean wasThrown) {
+		int total = blocks != null ? blocks.size() : 0;
+		double oldCornerX = getX() - blocks.sx * 0.5;
+		double oldCornerY = getY();
+		double oldCornerZ = getZ() - blocks.sz * 0.5;
+		int prevSx = blocks.sx, prevSy = blocks.sy, prevSz = blocks.sz;
+		if (total == 0) return new DamageResult(List.of(), 0, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
+		if (total == 1) {
+			if (wasThrown) debris = true;
+			return new DamageResult(List.of(), 1, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
 		}
-		if (minX == Integer.MAX_VALUE) return;
 
-		double cornerX = getX() - blocks.sx / 2.0;
-		double cornerY = getY();
-		double cornerZ = getZ() - blocks.sz / 2.0;
+		boolean soft = massKg() / total < 1200.0;
+		double imp = MathHelper.clamp(speed * (wasThrown ? 0.68 : 0.48) + Math.max(0, tier - 1) * 0.14, 0.35, 1.85);
+		double cx = (prevSx - 1) * 0.5, cy = (prevSy - 1) * 0.5, cz = (prevSz - 1) * 0.5;
+		double hx = Math.max(0.5, prevSx * 0.5), hy = Math.max(0.5, prevSy * 0.5), hz = Math.max(0.5, prevSz * 0.5);
+
+		record Scored(BlockSet.Entry e, double score) {}
+		List<Scored> scored = new ArrayList<>(total);
+		for (BlockSet.Entry e : blocks.entries) {
+			double lx = (e.x() - cx) / hx, ly = (e.y() - cy) / hy, lz = (e.z() - cz) / hz;
+			double front = lx * dir.x + ly * dir.y + lz * dir.z;
+			double edge = Math.sqrt(lx * lx + ly * ly + lz * lz) / 1.732;
+			float hard = Math.max(0.2f, e.state().getBlock().getHardness());
+			double topBias = (e.y() == prevSy - 1) ? 0.10 : 0.0;
+			double coreProtect = (!wasThrown && total >= 32 && e.y() == 0 && edge < 0.72) ? -0.35 : 0.0;
+			double frag = (0.48 * imp + 0.36 * front + 0.34 * edge + topBias + coreProtect
+				+ (random.nextDouble() - 0.5) * 0.16) / Math.pow(hard, 0.40);
+			scored.add(new Scored(e, frag));
+		}
+		scored.sort((a, b) -> Double.compare(b.score(), a.score()));
+
+		int maxBreak;
+		if (wasThrown && total <= 10) {
+			maxBreak = total;
+		} else if (!wasThrown && total >= 40) {
+			maxBreak = Math.max(4, (int) Math.floor(total * 0.42));
+		} else if (wasThrown) {
+			maxBreak = Math.max(2, (int) Math.floor(total * (soft ? 0.72 : 0.60)));
+		} else {
+			maxBreak = Math.max(1, (int) Math.floor(total * 0.40));
+		}
+
+		List<BlockSet.Entry> broken = new ArrayList<>();
+		Set<Long> brokenKeys = new HashSet<>();
+		for (Scored s : scored) {
+			if (broken.size() >= maxBreak) break;
+			if (s.score() <= 0.72) break;
+			broken.add(s.e());
+			brokenKeys.add(BlockPos.asLong(s.e().x(), s.e().y(), s.e().z()));
+		}
+		if (wasThrown && broken.isEmpty() && speed >= 0.9 && !scored.isEmpty() && scored.get(0).score() > 0.35) {
+			int minChip = Math.min(maxBreak, Math.max(1, (int) Math.round(total * 0.18)));
+			for (int i = 0; i < minChip; i++) {
+				BlockSet.Entry e = scored.get(i).e();
+				broken.add(e);
+				brokenKeys.add(BlockPos.asLong(e.x(), e.y(), e.z()));
+			}
+		}
+		if (broken.isEmpty()) {
+			return new DamageResult(List.of(), total, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
+		}
+		SHATTERED += broken.size();
+
 		BlockSet kept = new BlockSet();
 		for (BlockSet.Entry e : blocks.entries) {
-			if (chippedKeys.contains(BlockPos.asLong(e.x(), e.y(), e.z()))) continue;
-			kept.add(e.x() - minX, e.y() - minY, e.z() - minZ, e.state(), e.be(), e.faces());
+			if (!brokenKeys.contains(BlockPos.asLong(e.x(), e.y(), e.z()))) {
+				kept.add(e.x(), e.y(), e.z(), e.state(), e.be(), e.faces());
+			}
 		}
-		if (kept.isEmpty()) return;
-
-		UUID mv = mover();
-		Vec3d c = center();
-		for (BlockSet.Entry e : outer) {
-			double wx = cornerX + e.x() + 0.5;
-			double wy = cornerY + e.y() + 0.5;
-			double wz = cornerZ + e.z() + 0.5;
-			BlockSet shardSet = new BlockSet();
-			shardSet.add(0, 0, 0, e.state(), e.be(), 0x3F);
-			PieceEntity shard = spawn(sw, shardSet, new Vec3d(wx - 0.5, wy - 0.5, wz - 0.5), null, mv);
-			shard.debris = true;
-			Vec3d out = new Vec3d(wx - c.x, Math.max(0.2, wy - c.y), wz - c.z);
-			if (out.lengthSquared() < 1e-4) out = new Vec3d(sw.random.nextDouble() - 0.5, 0.5, sw.random.nextDouble() - 0.5);
-			out = out.normalize();
-			double sp = 0.25 + sw.random.nextDouble() * Math.min(0.45, 0.2 + speed * 0.15);
-			shard.release(new Vec3d(out.x * sp, 0.26 + sw.random.nextDouble() * 0.24, out.z * sp), false);
+		if (kept.isEmpty()) {
+			this.blocks = new BlockSet();
+			return new DamageResult(broken, total, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
 		}
+		BlockPos shift = kept.normalize();
 		setBlocks(kept);
-		setPosition(cornerX + minX + kept.sx / 2.0, cornerY + minY, cornerZ + minZ + kept.sz / 2.0);
-		sw.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_STONE_BREAK, SoundCategory.BLOCKS, 1.4f, 0.72f);
+		setPosition(oldCornerX + shift.getX() + kept.sx * 0.5, oldCornerY + shift.getY(), oldCornerZ + shift.getZ() + kept.sz * 0.5);
+		return new DamageResult(broken, total, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
 	}
 
-	private static double outerScore(BlockSet.Entry e, double lcx, double lcy, double lcz, Vec3d dir) {
-		double dx = e.x() + 0.5 - lcx, dy = e.y() + 0.5 - lcy, dz = e.z() + 0.5 - lcz;
-		double radial = dx * dx + dy * dy + dz * dz;
-		// Desprende esquinas superiores/laterales y bordes exteriores manteniendo la base más entera para asentarse en el cráter
-		double front = (dx * dir.x + dy * dir.y + dz * dir.z) * 1.4;
-		return radial + front + (e.y() == 0 ? -4.0 : 0.0);
+	private void spawnDamageDebris(ServerWorld sw, DamageResult dmg, Vec3d contact, double craterR, Vec3d moveVel) {
+		List<BlockSet.Entry> broken = dmg.broken();
+		if (broken.isEmpty()) return;
+		List<BlockSet> clusters = groupDebrisClusters(broken, dmg.prevSx(), dmg.prevSy(), dmg.prevSz());
+		UUID mv = mover();
+		double spd = moveVel.length();
+		double spawnY = Math.max(contact.y + 0.65, dmg.cornerY() + 0.5);
+		int count = clusters.size();
+		for (int i = 0; i < count; i++) {
+			BlockSet shardSet = clusters.get(i);
+			double ang = (Math.PI * 2.0 * i / Math.max(1, count)) + (sw.random.nextDouble() - 0.5) * 0.45;
+			double off = Math.min(2.0, Math.max(0.4, craterR * 0.25));
+			double px = contact.x + Math.cos(ang) * off - shardSet.sx * 0.5;
+			double pz = contact.z + Math.sin(ang) * off - shardSet.sz * 0.5;
+			double py = spawnY + sw.random.nextDouble() * 0.6;
+			PieceEntity shard = spawn(sw, shardSet, new Vec3d(px, py, pz), null, mv);
+			shard.debris = true;
+			double hSp = Math.min(0.46, 0.18 + sw.random.nextDouble() * 0.22 + spd * 0.04);
+			double vSp = 0.28 + sw.random.nextDouble() * 0.26;
+			shard.release(new Vec3d(Math.cos(ang) * hSp, vSp, Math.sin(ang) * hSp), false);
+		}
+		sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.BLOCK_STONE_BREAK, SoundCategory.BLOCKS, 1.5f, 0.70f);
+	}
+
+	private static List<BlockSet> groupDebrisClusters(List<BlockSet.Entry> broken, int sx, int sy, int sz) {
+		if (broken.size() <= 14) {
+			List<BlockSet> out = new ArrayList<>(broken.size());
+			for (BlockSet.Entry e : broken) {
+				BlockSet s = new BlockSet();
+				s.add(0, 0, 0, e.state(), e.be(), 0x3F);
+				out.add(s);
+			}
+			return out;
+		}
+		BlockSet[][][] grid = new BlockSet[3][2][3];
+		for (BlockSet.Entry e : broken) {
+			int gx = MathHelper.clamp(e.x() * 3 / Math.max(1, sx), 0, 2);
+			int gy = MathHelper.clamp(e.y() * 2 / Math.max(1, sy), 0, 1);
+			int gz = MathHelper.clamp(e.z() * 3 / Math.max(1, sz), 0, 2);
+			if (grid[gx][gy][gz] == null) grid[gx][gy][gz] = new BlockSet();
+			grid[gx][gy][gz].add(e.x(), e.y(), e.z(), e.state(), e.be(), 0x3F);
+		}
+		List<BlockSet> out = new ArrayList<>(18);
+		for (int gx = 0; gx < 3; gx++) {
+			for (int gy = 0; gy < 2; gy++) {
+				for (int gz = 0; gz < 3; gz++) {
+					BlockSet s = grid[gx][gy][gz];
+					if (s == null || s.isEmpty()) continue;
+					s.normalize();
+					out.add(s);
+				}
+			}
+		}
+		return out;
+	}
+
+	/** Explosión real al tocar el piso: onda visual/sonora y empuje a entidades sin romper bloques aleatorios ni dañar al lanzador. */
+	private void triggerExplosion(ServerWorld sw, Vec3d contact, double rad, int tier) {
+		float power = (float) MathHelper.clamp(1.3 + Math.max(rad, 1.0) * 0.42 + (tier >= 3 ? 1.2 : 0), 1.4, 5.5);
+		ExplosionBehavior behavior = new ExplosionBehavior() {
+			@Override
+			public boolean canDestroyBlock(Explosion explosion, BlockView bv, BlockPos pos, BlockState state, float pwr) {
+				return false;
+			}
+
+			@Override
+			public boolean shouldDamage(Explosion explosion, Entity entity) {
+				return !(entity instanceof PieceEntity) && !(entity instanceof ItemEntity) && !spares(entity);
+			}
+
+			@Override
+			public float getKnockbackModifier(Entity entity) {
+				return (entity instanceof PieceEntity) || (entity instanceof ItemEntity) || spares(entity)
+					? 0.0f
+					: super.getKnockbackModifier(entity);
+			}
+		};
+		sw.createExplosion(this, damageSource(), behavior, contact.x, contact.y + 0.35, contact.z,
+			power, false, World.ExplosionSourceType.NONE);
 	}
 
 	private void spawnFallTrail(ServerWorld sw, Vec3d v, double speed) {
@@ -2157,6 +2381,20 @@ public class PieceEntity extends Entity {
 		if (rockMat != null && !rockMat.isAir()) {
 			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, rockMat), contact.x, contact.y + 0.6, contact.z,
 				debrisCount / 2, r * 0.45, 0.5, r * 0.45, Math.min(1.0, 0.3 + speed * 0.22));
+		}
+		if (big || colossal) {
+			sw.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, contact.x, contact.y + 0.6, contact.z,
+				colossal ? 3 : 2, r * 0.22, 0.4, r * 0.22, 0);
+			sw.spawnParticles(ParticleTypes.FLAME, contact.x, contact.y + 0.4, contact.z,
+				colossal ? 38 : 18, r * 0.4, 0.35, r * 0.4, 0.16);
+			sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, SoundCategory.BLOCKS,
+				colossal ? 2.0f : 1.25f, 0.55f);
+			if (colossal) {
+				sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.BLOCKS,
+					1.9f, 0.48f);
+			}
+		} else {
+			sw.spawnParticles(ParticleTypes.EXPLOSION, contact.x, contact.y + 0.4, contact.z, 5, r * 0.35, 0.3, r * 0.35, 0);
 		}
 		sw.spawnParticles(ParticleTypes.POOF, contact.x, contact.y + 0.3, contact.z,
 			colossal ? 48 : big ? 28 : 12, r * 0.6, 0.25, r * 0.6, 0.16);

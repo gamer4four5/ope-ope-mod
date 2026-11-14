@@ -256,7 +256,7 @@ public final class AutoTest {
 	private static volatile int srvA = -1, srvB = -1, srvC = -1;
 	private static int solid0, items0, chunkId = -1, chunkB = -1;
 	/** Solo en el hilo del servidor. */
-	private static int dropped0, relocated0;
+	private static int dropped0, relocated0, shattered0;
 	private static Crater.Result crater0;
 	/** Los rugidos de roca que cae que había antes de soltar la rocota (cliente). */
 	private static int roars0;
@@ -961,6 +961,7 @@ public final class AutoTest {
 				patchFieldRing(w);
 				clearField(w, true);
 				dropped0 = PieceEntity.DROPPED;
+				shattered0 = PieceEntity.SHATTERED;
 				crater0 = Crater.last;
 				srvB = fieldItems(w);
 				srvA = fieldCount(w);
@@ -1049,6 +1050,8 @@ public final class AutoTest {
 
 		planRocota(mc, srv, id);
 
+		planPisoYDanio(mc, srv, id);
+
 		planRevision(mc, srv, id);
 
 		// dejarlo como estaba para (l)
@@ -1081,6 +1084,7 @@ public final class AutoTest {
 				clearField(w, true);
 				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 7.5, 180f, -8f);
 				dropped0 = PieceEntity.DROPPED;
+				shattered0 = PieceEntity.SHATTERED;
 				crater0 = Crater.last;
 				srvB = fieldItems(w);
 				srvA = fieldCount(w);
@@ -1147,6 +1151,84 @@ public final class AutoTest {
 			check((srvC & 2) != 0, "ningún bloque de la rocota ni del cráter cae como objeto", "PieceEntity.DROPPED cambió");
 			check((srvC & 12) == 12, "la rocota se queda metida en su cráter", "asentada " + ((srvC & 4) != 0) + ", al menos una capa hundida "
 				+ ((srvC & 8) != 0));
+		});
+	}
+
+	/**
+	 * Verifica que una pieza mediana (< 18 bloques) lanzada contra un obstáculo flotante en el aire no gaste el
+	 * impacto/cráter en el aire, sino que al caer y tocar bien el piso explote, abra cráter y se dañe a sí misma
+	 * conservando todos los bloques y sin soltar objetos.
+	 */
+	private static void planPisoYDanio(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int IMPACT = Payloads.TaktFx.IMPACT;
+		step(4, "pisoYDano: preparar", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				patchFieldRing(w);
+				clearField(w, true);
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 - 2; x <= gx0 + 2; x++)
+					for (int y = gfy + 4; y <= gfy + 8; y++)
+						for (int z = gz0 - 16; z <= gz0 - 15; z++) w.setBlockState(m.set(x, y, z), Blocks.STONE.getDefaultState(), 2 | 16);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 4.5, 180f, 0f);
+				dropped0 = PieceEntity.DROPPED;
+				shattered0 = PieceEntity.SHATTERED;
+				crater0 = Crater.last;
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("pisoYDano: preparado", 60, "el cliente no ve el obstáculo", () -> srvA >= 0 && srvB >= 0
+			&& mc.world.getBlockState(new BlockPos(gx0, gfy + 5, gz0 - 15)).isOf(Blocks.STONE), () -> {
+			solid0 = srvA + 12;   // se lanza una pieza de 12 bloques de adoquín
+			items0 = srvB;
+		});
+		step(2, "pisoYDano: lanzar contra muro alto", () -> {
+			tsnap(IMPACT);
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				BlockSet set = new BlockSet();
+				for (int x = 0; x < 3; x++)
+					for (int y = 0; y < 2; y++)
+						for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.COBBLESTONE.getDefaultState(), null);
+				set.normalize();
+				PieceEntity pe = PieceEntity.spawn(sp.getServerWorld(), set, new Vec3d(gx0 - 1, gfy + 5, gz0 - 10), null, sp.getUuid());
+				pe.release(new Vec3d(0, -0.05, -1.8), true);
+				srvC = pe.getId();
+			});
+		});
+		waitFor("pisoYDano: impacto en piso", 100, "la pieza no llegó a explotar en el piso", () -> tgot(IMPACT), () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
+			if (!tgot(IMPACT) || f == null) return;
+			check(f.y() <= gfy + 2.2 && f.state() >= 2 && f.a() > 0, "espera a tocar bien el piso para explotar y abrir cráter",
+				"y=" + fmt(f.y() - gfy) + " sobre piso, nivel " + f.state() + ", radio " + fmt(f.a()));
+		});
+		settleField(srv, id, "pisoYDano: terrones");
+		step(0, "pisoYDano: mide", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Crater.Result c = Crater.last;
+				int broken = PieceEntity.SHATTERED - shattered0;
+				OpeOpeMod.LOG.info("AUTOTEST pisoYDano: fracturados {} bloques de la pieza lanzada", broken);
+				srvC = (c != null && c != crater0 && c.balanced() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0)
+					| (broken > 0 ? 4 : 0);
+				logCrater(c);
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("pisoYDano: medido", 20, null, () -> srvA >= 0 && srvB >= 0 && srvC >= 0, () -> {
+			check(srvB == items0, "el impacto tras rozar muro no suelta objetos", (srvB - items0) + " objetos nuevos");
+			check(srvA == solid0, "la fractura conserva el 100% de bloques", solid0 + " → " + srvA);
+			check((srvC & 4) != 0, "la pieza mediana lanzada (< 18 bloques) también recibe daño propio", "fracturados " + (srvC & 4));
+			check((srvC & 3) == 3, "cráter equilibrado y sin PieceEntity.DROPPED", "flags " + srvC);
 		});
 	}
 
