@@ -45,7 +45,8 @@ public final class Send {
 			hy = (float) hit.getPos().y;
 			hz = (float) hit.getPos().z;
 		}
-		ClientPlayNetworking.send(new Payloads.TaktTap(kind, ClientState.chunkSize2(), aim, side, hx, hy, hz, window));
+		ClientPlayNetworking.send(new Payloads.TaktTap(kind, ClientState.chunkSize2(), ClientState.chunkDepth,
+			ClientState.chunkRiderMode, aim, side, hx, hy, hz, window));
 	}
 
 	/**

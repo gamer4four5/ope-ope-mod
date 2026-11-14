@@ -6,9 +6,11 @@ import dev.opeope.client.hud.HudCanvas.Rect;
 import dev.opeope.client.input.InputHandler;
 import dev.opeope.client.input.KeyLabels;
 import dev.opeope.client.input.Keys;
+import dev.opeope.client.render.TerrainFx;
 import dev.opeope.net.Payloads;
 import dev.opeope.power.Patterns;
 import dev.opeope.power.Tech;
+import dev.opeope.terrain.ChunkPlanner;
 import net.minecraft.client.MinecraftClient;
 
 import java.util.ArrayList;
@@ -93,17 +95,26 @@ public final class ChordStrip {
 	private static List<List<Entry>> taktRows(boolean none) {
 		List<Entry> r1 = new ArrayList<>(), r2 = new ArrayList<>(), r3 = new ArrayList<>();
 		int a = Theme.SOFT, f = Theme.FORGE;
-		r1.add(e(Keys.R_ORBIT, "orbita", a, ClientState.taktMode == 1 ? "A la mano" : "Órbita", null, none));
-		r1.add(e(Keys.R_PARK, "aparcar", a, "Aparcar", null, none));
-		r1.add(e(Keys.R_SETDOWN, "posar", a, "Posar", null, none));
-		r1.add(e(Keys.R_DROP, "soltar", a, "Soltar", null, none));
-		r1.add(new Entry(KeyLabels.mouseRight(), "lanzar_todo", a, "Lanzar todo", null, none));
-		String wheel = none ? "Trozo: " + ClientState.chunkSize2() : "Distancia";
-		r1.add(new Entry(KeyLabels.wheel(), "alcance", a, wheel, null, false));
+		if (none) {
+			String g = ClientState.chunkDepth == 0 ? "Auto" : ClientState.chunkDepth + "b";
+			String modo = ChunkPlanner.riderModeName(ClientState.chunkRiderMode);
+			r1.add(new Entry(KeyLabels.mouseLeft(), "alcance", a, "Arrancar", null, !TerrainFx.previewShown()));
+			r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Ancho: " + ClientState.chunkSize2(), null, false));
+			r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Ctrl+Grosor: " + g, null, false));
+			r1.add(new Entry(KeyLabels.mouseRight(), "zona", a, modo, null, false));
+		} else {
+			r1.add(e(Keys.R_ORBIT, "orbita", a, ClientState.taktMode == 1 ? "A la mano" : "Órbita", null, false));
+			r1.add(e(Keys.R_PARK, "aparcar", a, "Aparcar", null, false));
+			r1.add(e(Keys.R_SETDOWN, "posar", a, "Posar", null, false));
+			r1.add(e(Keys.R_DROP, "soltar", a, "Soltar", null, false));
+			r1.add(new Entry(KeyLabels.mouseRight(), "lanzar_todo", a, "Lanzar todo", null, false));
+			r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Distancia", null, false));
+		}
 		r2.add(e(Keys.R_ZONE, "zona", a, "Zona", null, false));
 		r2.add(e(Keys.R_CUT, "lo_cortado", a, "Lo cortado", null, false));
 		r2.add(e(Keys.R_GATHER, "rejuntar", a, "Rejuntar", null, none));
 		r2.add(e(Keys.R_UNITE, "unir", a, "Unir todo", null, false));
+		r2.add(e(Keys.R_TREE, "zona", a, "Encima", null, false));
 		Keys[] forge = {Keys.R_FORGE1, Keys.R_FORGE2, Keys.R_FORGE3, Keys.R_FORGE4, Keys.R_FORGE5};
 		String[] names = {"Lanza", "Hoja colosal", "Martillo", "Estacas", "Muralla"};
 		for (int i = 0; i < forge.length; i++) r3.add(e(forge[i], Icons.WEAPONS[i], f, names[i], null, none));
@@ -143,7 +154,13 @@ public final class ChordStrip {
 			boolean none = nothingHeld();
 			rows = taktRows(none);
 			if (none) {
-				REASONS.add(reason("Nada en Takt:", KeyLabels.of(Keys.TAKT), "sobre el suelo arranca un trozo"));
+				if (TerrainFx.previewShown()) {
+					REASONS.add(reason("Vista previa: " + TerrainFx.previewCount() + " bloques · ", KeyLabels.mouseLeft(), " o suelta " + KeyLabels.text(Keys.TAKT.key)));
+				} else if (ClientState.chunkRiderMode == ChunkPlanner.RIDER_TREE_ONLY) {
+					REASONS.add(reason("Modo Solo árbol: apunta a un árbol para arrancarlo entero", null, null));
+				} else {
+					REASONS.add(reason("Nada en Takt:", KeyLabels.of(Keys.TAKT), "sobre el suelo arranca un trozo"));
+				}
 				REASONS.add(reason("Forjar necesita material en Takt", null, null));
 			}
 		}

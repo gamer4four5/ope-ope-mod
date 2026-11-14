@@ -265,24 +265,26 @@ public final class Payloads {
 	 * (BlockPos.asLong), side: la cara tocada (Direction.ordinal) o NO_SIDE si no toca nada (entonces aim = 0 y h = 0);
 	 * h: el punto exacto. window: cuántos ticks espera la grieta a un segundo toque (0 al soltar sobre la vista previa).
 	 */
-	public record TaktTap(int kind, int size2, long aim, int side, float hx, float hy, float hz, int window) implements CustomPayload {
+	public record TaktTap(int kind, int size2, int depth, int riderMode, long aim, int side, float hx, float hy, float hz, int window) implements CustomPayload {
 		public static final int KIND_TAP = 0, KIND_DOUBLE = 1;
 		public static final int NO_SIDE = -1;
 		public static final Id<TaktTap> ID = new Id<>(OpeOpeMod.id("takt_tap"));
 		public static final PacketCodec<RegistryByteBuf, TaktTap> CODEC = PacketCodec.of(TaktTap::write, TaktTap::read);
 
 		static TaktTap read(RegistryByteBuf buf) {
-			int kind = buf.readVarInt(), size2 = buf.readVarInt();
+			int kind = buf.readVarInt(), size2 = buf.readVarInt(), depth = buf.readVarInt(), riderMode = buf.readVarInt();
 			long aim = buf.readLong();
 			int side = buf.readVarInt();
 			float hx = buf.readFloat(), hy = buf.readFloat(), hz = buf.readFloat();
 			int window = buf.readVarInt();
-			return new TaktTap(kind, size2, aim, side, hx, hy, hz, window);
+			return new TaktTap(kind, size2, depth, riderMode, aim, side, hx, hy, hz, window);
 		}
 
 		public void write(RegistryByteBuf buf) {
 			buf.writeVarInt(kind);
 			buf.writeVarInt(size2);
+			buf.writeVarInt(depth);
+			buf.writeVarInt(riderMode);
 			buf.writeLong(aim);
 			buf.writeVarInt(side);
 			buf.writeFloat(hx);

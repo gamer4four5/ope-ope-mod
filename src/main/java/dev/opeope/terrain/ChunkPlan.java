@@ -37,9 +37,18 @@ public final class ChunkPlan {
 	public final int topMax;
 	/** Suelo: T y la profundidad máxima de la última pasada; cara: el radio del pedazo y 0. */
 	public final double t, maxDepth;
+	/** Grosor pedido (0 = auto), modo de lo que va encima (0..3) y true si el pedazo es solo un arbol/estructura levantado. */
+	public final int depth, riderMode;
+	public final boolean tree;
 
 	public ChunkPlan(@Nullable BlockPos aim, boolean face, boolean closed, double[] outline, long[] blocks, long[] riders,
 			int[] columns, int[] cells, int[] usedCuts, double radius, int topMax, double t, double maxDepth) {
+		this(aim, face, closed, outline, blocks, riders, columns, cells, usedCuts, radius, topMax, t, maxDepth, 0, 0, false);
+	}
+
+	public ChunkPlan(@Nullable BlockPos aim, boolean face, boolean closed, double[] outline, long[] blocks, long[] riders,
+			int[] columns, int[] cells, int[] usedCuts, double radius, int topMax, double t, double maxDepth,
+			int depth, int riderMode, boolean tree) {
 		this.aim = aim;
 		this.face = face;
 		this.closed = closed;
@@ -53,6 +62,9 @@ public final class ChunkPlan {
 		this.topMax = topMax;
 		this.t = t;
 		this.maxDepth = maxDepth;
+		this.depth = depth;
+		this.riderMode = riderMode;
+		this.tree = tree;
 	}
 
 	/** Bloques de terreno más lo que va encima. */

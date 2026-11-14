@@ -32,8 +32,10 @@ public final class ClientState {
 	public static int[] cooldowns = new int[0];
 	/** Los ids de lo que llevas en Takt, en el orden del servidor (State.held). */
 	public static int[] heldIds = new int[0];
-	/** El ancho del trozo de suelo que arranca Takt (R + rueda sin nada en Takt). Solo esta sesión: no se guarda. */
+	/** El ancho, grosor (0 = auto) y modo de lo que va encima (0..3) del trozo de Takt. Solo esta sesión. */
 	public static double chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;
+	public static int chunkDepth = 0;
+	public static int chunkRiderMode = 0;
 	public static final Map<String, RoomInfo> ROOMS = new HashMap<>();
 	public static final Int2ObjectOpenHashMap<float[]> CUTS = new Int2ObjectOpenHashMap<>();
 	/** Los cortes del suelo recordados, por id. */
@@ -134,6 +136,26 @@ public final class ClientState {
 		return (int) Math.round(chunkSize * 2);
 	}
 
+	/** Avanza o retrocede el grosor entre los pasos de {@link OpeConfig#TAKT_DEPTH_STEPS}. */
+	public static void stepChunkDepth(int dir) {
+		int[] steps = OpeConfig.TAKT_DEPTH_STEPS;
+		int idx = 0;
+		for (int i = 0; i < steps.length; i++) {
+			if (steps[i] == chunkDepth) {
+				idx = i;
+				break;
+			}
+			if (steps[i] < chunkDepth) idx = i;
+		}
+		int next = Math.max(0, Math.min(steps.length - 1, idx + (dir > 0 ? 1 : -1)));
+		chunkDepth = steps[next];
+	}
+
+	/** Cambia el modo de lo que va encima (Normal → +Árbol → Solo árbol → Solo piso). */
+	public static void cycleChunkRiderMode() {
+		chunkRiderMode = (chunkRiderMode + 1) & 3;
+	}
+
 	/** Un corte del suelo que el servidor empieza a recordar (ADD), olvida (REMOVE) u olvida en bloque (CLEAR). */
 	public static void groundCut(Payloads.GroundCutSync s) {
 		if (s == null) return;
@@ -192,6 +214,8 @@ public final class ClientState {
 		cooldowns = new int[0];
 		heldIds = new int[0];
 		chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;
+		chunkDepth = 0;
+		chunkRiderMode = 0;
 		ROOMS.clear();
 		CUTS.clear();
 		GROUND_CUTS.clear();

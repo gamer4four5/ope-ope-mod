@@ -50,6 +50,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameMode;
 import net.minecraft.world.Heightmap;
@@ -634,6 +635,8 @@ public final class AutoTest {
 		step(1, "takt: suelta R", () -> {
 			key(GLFW.GLFW_KEY_R, RELEASE);
 			ClientState.chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;   // lo que espera la rueda de (k2)
+			ClientState.chunkDepth = 0;
+			ClientState.chunkRiderMode = ChunkPlanner.RIDER_AUTO;
 		});
 
 		// (k2) Takt sobre lo cortado
@@ -830,6 +833,14 @@ public final class AutoTest {
 					&& Arrays.equals(a.riders, b.riders) && Arrays.equals(a.usedCuts, b.usedCuts),
 				"el plan es el mismo con los cortes en otro orden (30 bloques, 4 cortes)",
 				a.blocks.length + "/" + b.blocks.length + " bloques, cortes " + Arrays.toString(a.usedCuts) + " / " + Arrays.toString(b.usedCuts));
+			if (r != null) {
+				ChunkPlan d1 = ChunkPlanner.plan(mc.world, hit, 6, 1, ChunkPlanner.RIDER_AUTO, Direction.UP, near, r.center(), (double) r.radius(), null);
+				ChunkPlan d4 = ChunkPlanner.plan(mc.world, hit, 6, 4, ChunkPlanner.RIDER_AUTO, Direction.UP, near, r.center(), (double) r.radius(), null);
+				boolean oneDeep = !d1.isEmpty() && d1.blocks.length < d4.blocks.length && d4.blocks.length > a.blocks.length;
+				for (long l : d1.blocks) if (BlockPos.unpackLongY(l) != gfy) { oneDeep = false; break; }
+				check(oneDeep && d1.depth == 1 && d4.depth == 4, "el grosor explícito ajusta la profundidad (1 vs 4)",
+					d1.blocks.length + " vs " + d4.blocks.length);
+			}
 		});
 
 		// vista previa y tamaño (R mantenida, nada en Takt)
@@ -1193,6 +1204,71 @@ public final class AutoTest {
 		final int R = GLFW.GLFW_KEY_R, V = GLFW.GLFW_KEY_V, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
 		final int TEAR_START = Payloads.TaktFx.TEAR_START, DETACH = Payloads.TaktFx.DETACH, HOME = Payloads.TaktFx.HOME;
 		final int DENY = Payloads.TaktFx.DENY;
+
+		// prueba de árboles adyacentes (+Árbol / Solo árbol / Solo piso) y grosor en pared antes de limpiar la escena
+		step(2, "rodaja: preparar árboles y muro", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				GroundCuts.clearOwner(sp.getUuid());
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				// Árbol A en (gx0 - 2, gz0 - 6) y árbol B en (gx0 + 2, gz0 - 6) con copas que se tocan en el medio
+				for (int y = 1; y <= 4; y++) w.setBlockState(m.set(gx0 - 2, gfy + y, gz0 - 6), Blocks.OAK_LOG.getDefaultState(), 2 | 16);
+				for (int y = 1; y <= 4; y++) w.setBlockState(m.set(gx0 + 2, gfy + y, gz0 - 6), Blocks.OAK_LOG.getDefaultState(), 2 | 16);
+				BlockState leaf = Blocks.OAK_LEAVES.getDefaultState().with(LeavesBlock.PERSISTENT, true);
+				for (int dx = -2; dx <= 2; dx++) {
+					for (int dz = -2; dz <= 2; dz++) {
+						for (int dy = 3; dy <= 5; dy++) {
+							BlockPos pA = new BlockPos(gx0 - 2 + dx, gfy + dy, gz0 - 6 + dz);
+							if (w.getBlockState(pA).isAir()) w.setBlockState(pA, leaf, 2 | 16);
+							BlockPos pB = new BlockPos(gx0 + 2 + dx, gfy + dy, gz0 - 6 + dz);
+							if (w.getBlockState(pB).isAir()) w.setBlockState(pB, leaf, 2 | 16);
+						}
+					}
+				}
+				// Muro grueso de piedra al fondo
+				for (int x = gx0 - 2; x <= gx0 + 2; x++)
+					for (int z = gz0 - 14; z <= gz0 - 10; z++)
+						for (int y = gfy + 1; y <= gfy + 3; y++) w.setBlockState(m.set(x, y, z), Blocks.STONE.getDefaultState(), 2 | 16);
+
+				Vec3d rc = new Vec3d(gx0, gfy + 1, gz0 - 6);
+				double rr = 14.0;
+				BlockPos trunkA = new BlockPos(gx0 - 2, gfy + 2, gz0 - 6);
+				BlockPos groundA = new BlockPos(gx0 - 2, gfy, gz0 - 6);
+				BlockPos wallHit = new BlockPos(gx0, gfy + 2, gz0 - 10);
+
+				ChunkPlan wall1 = ChunkPlanner.plan(w, wallHit, 6, 1, ChunkPlanner.RIDER_AUTO, Direction.SOUTH, List.of(), rc, rr, null);
+				ChunkPlan wall4 = ChunkPlanner.plan(w, wallHit, 6, 4, ChunkPlanner.RIDER_AUTO, Direction.SOUTH, List.of(), rc, rr, null);
+				boolean wallOk = wall1.face && wall4.face && !wall1.isEmpty() && wall1.blocks.length < wall4.blocks.length;
+
+				ChunkPlan treeOnly = ChunkPlanner.plan(w, trunkA, 6, 0, ChunkPlanner.RIDER_TREE_ONLY, null, List.of(), rc, rr, null);
+				LongOpenHashSet treeSet = new LongOpenHashSet(treeOnly.blocks);
+				boolean hasA = true, noB = true;
+				for (int y = 1; y <= 4; y++) {
+					if (!treeSet.contains(BlockPos.asLong(gx0 - 2, gfy + y, gz0 - 6))) hasA = false;
+					if (treeSet.contains(BlockPos.asLong(gx0 + 2, gfy + y, gz0 - 6))) noB = false;
+				}
+				ChunkPlan withTrees = ChunkPlanner.plan(w, groundA, 6, 1, ChunkPlanner.RIDER_WITH_TREES, Direction.UP, List.of(), rc, rr, null);
+				LongOpenHashSet wtRiders = new LongOpenHashSet(withTrees.riders);
+				boolean wtHasA = wtRiders.contains(BlockPos.asLong(gx0 - 2, gfy + 4, gz0 - 6));
+				boolean wtNoB = !wtRiders.contains(BlockPos.asLong(gx0 + 2, gfy + 2, gz0 - 6));
+				ChunkPlan groundOnly = ChunkPlanner.plan(w, groundA, 6, 1, ChunkPlanner.RIDER_NONE, Direction.UP, List.of(), rc, rr, null);
+
+				OpeOpeMod.LOG.info("AUTOTEST rodaja/árboles: muro 1 vs 4 = {}/{}, soloÁrbol={} (tree={}, hasA={}, noB={}), +Árbol riders={} (hasA={}, noB={}), soloPiso riders={}",
+					wall1.blocks.length, wall4.blocks.length, treeOnly.blocks.length, treeOnly.tree, hasA, noB,
+					withTrees.riders.length, wtHasA, wtNoB, groundOnly.riders.length);
+				srvA = (wallOk ? 1 : 0) | (treeOnly.tree && hasA && noB && treeOnly.blocks.length > 20 ? 2 : 0)
+					| (wtHasA && wtNoB && !withTrees.isEmpty() ? 4 : 0) | (groundOnly.riders.length == 0 && !groundOnly.isEmpty() ? 8 : 0);
+			});
+		});
+		waitFor("rodaja: medido", 20, "faltó resultado de rodaja/árboles", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "grosor en pared/cara orientado por normal (1 vs 4 bloques)", "fallo pared");
+			check((srvA & 2) != 0, "Solo árbol extrae el árbol completo sin robar el tronco vecino", "fallo solo árbol");
+			check((srvA & 4) != 0, "+Árbol incluye suelo y el árbol entero sin el árbol vecino", "fallo +árbol");
+			check((srvA & 8) != 0, "Solo piso deja las plantas y árboles en pie", "fallo solo piso");
+		});
 
 		// terreno nuevo y un tronco flotando sobre una columna que se va a arrancar (no toca el suelo: no va con el trozo)
 		step(5, "revisión: preparar", () -> {

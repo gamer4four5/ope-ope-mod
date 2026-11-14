@@ -60,6 +60,7 @@ public enum Keys {
 	R_CUT("key.keyboard.c", Group.TAKT, "Lo cortado", "lo_cortado"),
 	R_GATHER("key.keyboard.z", Group.TAKT, "Rejuntar", "rejuntar"),
 	R_UNITE("key.keyboard.x", Group.TAKT, "Unir todo", "unir"),
+	R_TREE("key.keyboard.t", Group.TAKT, "Modo encima / árbol", "zona"),
 	R_FORGE1("key.keyboard.1", Group.TAKT, "Forjar: lanza", "lanza"),
 	R_FORGE2("key.keyboard.2", Group.TAKT, "Forjar: hoja colosal", "hoja"),
 	R_FORGE3("key.keyboard.3", Group.TAKT, "Forjar: martillo", "martillo"),

@@ -19,6 +19,7 @@ import dev.opeope.terrain.Landing;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
@@ -73,9 +74,9 @@ public final class TerrainFx {
 	private static final int NEVER = Integer.MIN_VALUE / 2;
 
 	// presupuestos por fotograma (5.1)
-	private static final int PREVIEW_MAX = 2000, FACE_MAX = 1500, FILL_MAX = 4000, SCAR_MAX = 600, SCARS_MAX = 4000, GHOST_FACES = 3000,
-		GHOST_FOOTPRINT = 1500, CRACK_MAX = 1500, CRACKS_DRAWN = 3, CRACKS_KEPT = 16, RINGS_MAX = 8, SEAMS_MAX = 8,
-		BEAMS_MAX = 6, GLOW_PIECES = 12;
+	private static final int PREVIEW_MAX = 3000, FACE_MAX = 6000, RIDER_PREVIEW_MAX = 3500, FILL_MAX = 4000, SCAR_MAX = 600,
+		SCARS_MAX = 4000, GHOST_FACES = 3000, GHOST_FOOTPRINT = 1500, CRACK_MAX = 1500, CRACKS_DRAWN = 3, CRACKS_KEPT = 16,
+		RINGS_MAX = 8, SEAMS_MAX = 8, BEAMS_MAX = 6, GLOW_PIECES = 12;
 	private static final double GLOW_RANGE = 96, SCAR_RANGE = 64;
 
 	private static final int RING_SEG = 64;
@@ -187,11 +188,11 @@ public final class TerrainFx {
 	private static ChunkPlan plan = ChunkPlan.EMPTY;
 	private static int planAt = NEVER;
 	private static long keyPos;
-	private static int keySize;
+	private static int keySize, keyDepth = -1, keyRiderMode = -1, keySide = -1;
 	private static int[] keyCuts = new int[0];
 	private static float keyRadius;
 	@Nullable private static Vec3d keyCenter;
-	private static Lines planLines = Lines.NONE, idleLines = Lines.NONE;
+	private static Lines planLines = Lines.NONE, planBottomLines = Lines.NONE, planRiderLines = Lines.NONE, idleLines = Lines.NONE;
 	private static float[] planFill = EMPTY;
 	private static boolean shown, idleOn;
 	private static int count;
@@ -293,9 +294,14 @@ public final class TerrainFx {
 	public static void clear() {
 		plan = ChunkPlan.EMPTY;
 		planAt = NEVER;
+		keyDepth = -1;
+		keyRiderMode = -1;
+		keySide = -1;
 		keyCuts = new int[0];
 		keyCenter = null;
 		planLines = Lines.NONE;
+		planBottomLines = Lines.NONE;
+		planRiderLines = Lines.NONE;
 		idleLines = Lines.NONE;
 		planFill = EMPTY;
 		shown = false;
@@ -357,7 +363,8 @@ public final class TerrainFx {
 		if (wantPreview || wantIdle) {
 			BlockPos hb = hit.getBlockPos();
 			ClientState.RoomInfo room = ClientState.ownRoomAt(hit.getPos());
-			BlockPos aimS = ChunkPlanner.surfaceAim(mc.world, hb);
+			int riderMode = wantPreview ? ClientState.chunkRiderMode : ChunkPlanner.RIDER_AUTO;
+			BlockPos aimS = ChunkPlanner.surfaceAimForMode(mc.world, hb, riderMode);
 			List<GroundCut> near = aimS == null ? List.of() : ChunkPlanner.near(ClientState.ownGroundCuts(), mc.player.getUuid(),
 				mc.world.getRegistryKey().getValue(), ChunkPlanner.aimPoint(aimS), mc.world.getTime());
 			if (aimS == null || near.size() < 3) wantIdle = false;
@@ -365,7 +372,7 @@ public final class TerrainFx {
 				wantPreview = false;
 				wantIdle = false;
 			}
-			if (wantPreview || wantIdle) replan(mc, hb, room, near, now);
+			if (wantPreview || wantIdle) replan(mc, hb, hit.getSide(), room, near, wantPreview, now);
 		}
 		shown = wantPreview && !plan.isEmpty();
 		idleOn = wantIdle && plan.closed && !plan.face && !planLines.isEmpty();
@@ -376,17 +383,26 @@ public final class TerrainFx {
 	 * Recalcula el plan en cuanto cambia lo que lo decide (como mucho una vez por tick: lo dibujado es siempre lo que
 	 * se arrancaría al soltar) y, si nada cambia, cada 20 ticks de todos modos.
 	 */
-	private static void replan(MinecraftClient mc, BlockPos hb, ClientState.RoomInfo room, List<GroundCut> near, int now) {
+	private static void replan(MinecraftClient mc, BlockPos hb, Direction hitSide, ClientState.RoomInfo room,
+			List<GroundCut> near, boolean forPreview, int now) {
 		int size2 = ClientState.chunkSize2();
+		int depth = forPreview ? ClientState.chunkDepth : 0;
+		int riderMode = forPreview ? ClientState.chunkRiderMode : ChunkPlanner.RIDER_AUTO;
+		int sideOrd = hitSide.ordinal();
 		int[] ids = new int[near.size()];
 		for (int i = 0; i < ids.length; i++) ids[i] = near.get(i).id;
-		boolean same = planAt != NEVER && keyPos == hb.asLong() && keySize == size2 && Arrays.equals(keyCuts, ids)
+		boolean same = planAt != NEVER && keyPos == hb.asLong() && keySize == size2 && keyDepth == depth
+			&& keyRiderMode == riderMode && keySide == sideOrd && Arrays.equals(keyCuts, ids)
 			&& keyRadius == room.radius() && room.center().equals(keyCenter);
 		if (same && now - planAt < 20) return;
-		plan = ChunkPlanner.plan(mc.world, hb, size2, near, room.center(), (double) room.radius(), mc.player.getBoundingBox());
+		plan = ChunkPlanner.plan(mc.world, hb, size2, depth, riderMode, hitSide, near, room.center(),
+			(double) room.radius(), mc.player.getBoundingBox());
 		planAt = now;
 		keyPos = hb.asLong();
 		keySize = size2;
+		keyDepth = depth;
+		keyRiderMode = riderMode;
+		keySide = sideOrd;
 		keyCuts = ids;
 		keyRadius = room.radius();
 		keyCenter = room.center();
@@ -395,12 +411,24 @@ public final class TerrainFx {
 		BlockPos aim = plan.aim;
 		if (plan.isEmpty() || aim == null) {
 			planLines = Lines.NONE;
+			planBottomLines = Lines.NONE;
+			planRiderLines = Lines.NONE;
 			planFill = EMPTY;
 		} else if (plan.face) {
-			planLines = faceLines(mc.world, aim.getX(), aim.getY(), aim.getZ(), plan.cells, FACE_MAX);
+			planLines = plan.tree && plan.blocks.length > 400
+				? riderOutlineLines(aim.getX(), aim.getY(), aim.getZ(), plan.blocks, FACE_MAX)
+				: faceLines(mc.world, aim.getX(), aim.getY(), aim.getZ(), plan.cells, FACE_MAX);
+			planBottomLines = Lines.NONE;
+			planRiderLines = plan.riders.length == 0 ? Lines.NONE
+				: riderOutlineLines(aim.getX(), aim.getY(), aim.getZ(), plan.riders, RIDER_PREVIEW_MAX);
 			planFill = EMPTY;
 		} else {
 			planLines = columnLines(aim.getX(), aim.getY(), aim.getZ(), plan.columns, false, true, PREVIEW_MAX);
+			planBottomLines = depth > 0
+				? slabBottomLines(aim.getX(), aim.getY(), aim.getZ(), plan.blocks, plan.columns, PREVIEW_MAX)
+				: Lines.NONE;
+			planRiderLines = plan.riders.length == 0 ? Lines.NONE
+				: riderOutlineLines(aim.getX(), aim.getY(), aim.getZ(), plan.riders, RIDER_PREVIEW_MAX);
 			planFill = fill(plan.columns);
 		}
 	}
@@ -619,6 +647,79 @@ public final class TerrainFx {
 		return new Lines(ox, oy, oz, out.done());
 	}
 
+	/** El fondo y las esquinas verticales de una rodaja con grosor explícito, para ver la profundidad en el suelo. */
+	private static Lines slabBottomLines(int ox, int oy, int oz, long[] blocks, int[] cols, int max) {
+		if (blocks.length == 0 || cols.length == 0) return Lines.NONE;
+		Long2IntOpenHashMap minY = new Long2IntOpenHashMap(Math.max(16, cols.length * 2));
+		minY.defaultReturnValue(Integer.MAX_VALUE);
+		for (long b : blocks) {
+			int dx = BlockPos.unpackLongX(b) - ox, dy = BlockPos.unpackLongY(b) - oy, dz = BlockPos.unpackLongZ(b) - oz;
+			long k = ((long) dx << 32) | (dz & 0xFFFFFFFFL);
+			if (dy < minY.get(k)) minY.put(k, dy);
+		}
+		Seg out = new Seg(max);
+		for (int c : cols) {
+			if ((c & EDGE) == 0) continue;
+			int dx = Payloads.TaktFx.dx(c), dz = Payloads.TaktFx.dz(c);
+			long k = ((long) dx << 32) | (dz & 0xFFFFFFFFL);
+			int bot = minY.get(k);
+			if (bot == Integer.MAX_VALUE) continue;
+			float by = bot;
+			float ty = Payloads.TaktFx.dy(c) + 1;
+			boolean l = minY.containsKey(((long) (dx - 1) << 32) | (dz & 0xFFFFFFFFL));
+			boolean r = minY.containsKey(((long) (dx + 1) << 32) | (dz & 0xFFFFFFFFL));
+			boolean bk = minY.containsKey(((long) dx << 32) | ((dz - 1) & 0xFFFFFFFFL));
+			boolean fr = minY.containsKey(((long) dx << 32) | ((dz + 1) & 0xFFFFFFFFL));
+			if (!l && !out.add(dx, by, dz, dx, by, dz + 1, 0, -1, 0)) break;
+			if (!r && !out.add(dx + 1, by, dz, dx + 1, by, dz + 1, 0, -1, 0)) break;
+			if (!bk && !out.add(dx, by, dz, dx + 1, by, dz, 0, -1, 0)) break;
+			if (!fr && !out.add(dx, by, dz + 1, dx + 1, by, dz + 1, 0, -1, 0)) break;
+			if (ty > by + 0.05f) {
+				if (!l && !bk && !out.add(dx, by, dz, dx, ty, dz, -0.7f, 0, -0.7f)) break;
+				if (!r && !bk && !out.add(dx + 1, by, dz, dx + 1, ty, dz, 0.7f, 0, -0.7f)) break;
+				if (!l && !fr && !out.add(dx, by, dz + 1, dx, ty, dz + 1, -0.7f, 0, 0.7f)) break;
+				if (!r && !fr && !out.add(dx + 1, by, dz + 1, dx + 1, ty, dz + 1, 0.7f, 0, 0.7f)) break;
+			}
+		}
+		return new Lines(ox, oy, oz, out.done());
+	}
+
+	/** Contorno ligero exterior de árboles, plantas y edificios encima del trozo (para vista previa sin ruido interior). */
+	private static Lines riderOutlineLines(int ox, int oy, int oz, long[] cells, int max) {
+		if (cells.length == 0) return Lines.NONE;
+		LongOpenHashSet set = new LongOpenHashSet(Math.max(16, cells.length * 2));
+		for (long b : cells) {
+			set.add(BlockPos.asLong(BlockPos.unpackLongX(b) - ox, BlockPos.unpackLongY(b) - oy, BlockPos.unpackLongZ(b) - oz));
+		}
+		Seg out = new Seg(max);
+		for (long b : cells) {
+			int x = BlockPos.unpackLongX(b) - ox, y = BlockPos.unpackLongY(b) - oy, z = BlockPos.unpackLongZ(b) - oz;
+			boolean up = set.contains(BlockPos.asLong(x, y + 1, z));
+			boolean dn = set.contains(BlockPos.asLong(x, y - 1, z));
+			boolean l = set.contains(BlockPos.asLong(x - 1, y, z));
+			boolean r = set.contains(BlockPos.asLong(x + 1, y, z));
+			boolean bk = set.contains(BlockPos.asLong(x, y, z - 1));
+			boolean fr = set.contains(BlockPos.asLong(x, y, z + 1));
+			if (!up) {
+				if (!l && !out.add(x, y + 1, z, x, y + 1, z + 1, 0, 1, 0)) break;
+				if (!r && !out.add(x + 1, y + 1, z, x + 1, y + 1, z + 1, 0, 1, 0)) break;
+				if (!bk && !out.add(x, y + 1, z, x + 1, y + 1, z, 0, 1, 0)) break;
+				if (!fr && !out.add(x, y + 1, z + 1, x + 1, y + 1, z + 1, 0, 1, 0)) break;
+			}
+			if (!dn) {
+				if (!l && !out.add(x, y, z, x, y, z + 1, 0, -1, 0)) break;
+				if (!r && !out.add(x + 1, y, z, x + 1, y, z + 1, 0, -1, 0)) break;
+				if (!bk && !out.add(x, y, z, x + 1, y, z, 0, -1, 0)) break;
+				if (!fr && !out.add(x, y, z + 1, x + 1, y, z + 1, 0, -1, 0)) break;
+			}
+			if (!l && !bk && !out.add(x, y, z, x, y + 1, z, -0.7f, 0, -0.7f)) break;
+			if (!r && !bk && !out.add(x + 1, y, z, x + 1, y + 1, z, 0.7f, 0, -0.7f)) break;
+			if (!l && !fr && !out.add(x, y, z + 1, x, y + 1, z + 1, -0.7f, 0, 0.7f)) break;
+			if (!r && !fr && !out.add(x + 1, y, z + 1, x + 1, y + 1, z + 1, 0.7f, 0, 0.7f)) break;
+		}
+		return new Lines(ox, oy, oz, out.done());
+	}
+
 	/** La tapa de cada columna del plan (x, y, z de su esquina, desde aim), para el relleno suave de la vista previa. */
 	private static float[] fill(int[] cols) {
 		int n = Math.min(cols.length, FILL_MAX);
@@ -813,17 +914,28 @@ public final class TerrainFx {
 		}
 	}
 
-	/** La vista previa: el contorno de lo que R arrancaría (más claro si está cerrado) y una tapa muy suave. */
+	/** La vista previa: el contorno de lo que R arrancaría (más claro si está cerrado), grosor si es explícito, lo de encima y tapa suave. */
 	private static void drawPreview(BufferBuilder buf, Matrix4f m, Vec3d cam, double t, boolean under) {
 		if (!shown || planLines.isEmpty()) return;
 		Vec3d eye = planLines.eye(cam);
 		if (under) {
 			underlay(buf, m, eye, planLines.seg(), 0.05, 1);
+			if (!planBottomLines.isEmpty()) underlay(buf, m, planBottomLines.eye(cam), planBottomLines.seg(), 0.04, 0.75);
+			if (!planRiderLines.isEmpty()) underlay(buf, m, planRiderLines.eye(cam), planRiderLines.seg(), 0.045, 0.9);
 			return;
 		}
 		int rgb = closed ? HOT : ROOM;
 		CutFx.flat(buf, m, eye, planLines.seg(), 0.16, r(rgb), g(rgb), b(rgb), A(hc(0.25)));
 		CutFx.flat(buf, m, eye, planLines.seg(), 0.05, r(rgb), g(rgb), b(rgb), A(hc(0.9 * (0.75 + 0.25 * pulse(1.2, 0, t)))));
+		if (!planBottomLines.isEmpty()) {
+			Vec3d bEye = planBottomLines.eye(cam);
+			CutFx.flat(buf, m, bEye, planBottomLines.seg(), 0.04, r(GROUND), g(GROUND), b(GROUND), A(hc(0.75)));
+		}
+		if (!planRiderLines.isEmpty()) {
+			Vec3d rEye = planRiderLines.eye(cam);
+			double rp = 0.7 + 0.3 * pulse(1.4, 0.4, t);
+			CutFx.flat(buf, m, rEye, planRiderLines.seg(), 0.045, r(MINT), g(MINT), b(MINT), A(hc(0.85 * rp)));
+		}
 		int fa = A(hc(0.06));
 		if (fa <= 0) return;
 		for (int i = 0; i + 2 < planFill.length; i += 3) {

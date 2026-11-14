@@ -45,9 +45,12 @@ public final class OpeConfig {
 	public static final double TAKT_ZONE_RADIUS = 6;
 
 	// Takt sobre el suelo
-	public static final double TAKT_CHUNK_DEFAULT = 3.0, TAKT_CHUNK_MIN = 1.5, TAKT_CHUNK_MAX = 9.0, TAKT_CHUNK_STEP = 0.5;
-	public static final int TAKT_CHUNK_MAX_BLOCKS = 4000;  // terreno + lo que va encima, en un arranque
-	public static final int TAKT_RIDER_MAX = 600;          // lo que va encima, en un arranque
+	public static final double TAKT_CHUNK_DEFAULT = 3.0, TAKT_CHUNK_MIN = 0.5, TAKT_CHUNK_MAX = 14.0, TAKT_CHUNK_STEP = 0.5;
+	public static final int[] TAKT_DEPTH_STEPS = { 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16 }; // 0 = auto (forma natural)
+	public static final int TAKT_DEPTH_MAX = 16;
+	public static final int TAKT_CHUNK_MAX_BLOCKS = 5000;  // terreno + lo que va encima, en un arranque
+	public static final int TAKT_RIDER_MAX = 600;          // encima en modo normal
+	public static final int TAKT_TREE_MAX = 3500;          // arbol completo / estructura en modos de arbol
 	public static final double TAKT_CUT_REACH = 18.0;      // un corte cuenta si su plano está a menos de esto de la mira (y la mira en su caja ± esto)
 	public static final double TAKT_CLOSED_HALF = 11.25;   // medio lado del cuadrado de la prueba de "cerrado" (9 × 1,25)
 	public static final int TAKT_STEP_MAX = 3;             // la superficie de una columna se busca a ± esto de la de su vecina (4.2.3)
@@ -60,8 +63,8 @@ public final class OpeConfig {
 	public static final double TAKT_BIG_RADIUS = 6.0;      // PieceEntity.radius() por encima de esto = trozo grande
 	public static final int TAKT_UNDO_MAX_TICKS = 40;      // R R deshace el arranque del toque anterior si empezó hace como mucho esto
 	public static final int TAKT_TAP_MIN_TICKS = 2;        // los toques de un jugador más seguidos que esto no cuentan
-	public static final int TAKT_RIP_BUDGET = 8000;        // bloques que un jugador puede empezar a arrancar de golpe...
-	public static final int TAKT_RIP_REFILL = 400;         // ...que se recuperan a este ritmo por tick (8000 por segundo)
+	public static final int TAKT_RIP_BUDGET = 10000;       // bloques que un jugador puede empezar a arrancar de golpe...
+	public static final int TAKT_RIP_REFILL = 500;         // ...que se recuperan a este ritmo por tick (10000 por segundo)
 	public static final double TAKT_SLIDE_PROBE = 0.6;     // regla de la cuña: cuánto se prueba a bajar por el plano una loncha grande, bloques
 	public static final int TAKT_FRESH_TICKS = 240;        // F_FRESH se apaga pasado esto
 	public static final double TAKT_THROW_ALL_SPEED = 2.4; // bloques/tick (TAKT_LAUNCH 2,1 sigue para lanzar uno)

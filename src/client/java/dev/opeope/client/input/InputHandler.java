@@ -17,6 +17,7 @@ import dev.opeope.net.Payloads;
 import dev.opeope.power.Actions;
 import dev.opeope.power.Tech;
 import dev.opeope.registry.ModItems;
+import dev.opeope.terrain.ChunkPlanner;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.BlockState;
@@ -271,10 +272,20 @@ public final class InputHandler {
 		}
 		if (rDown) {
 			if (ClientState.heldIds.length == 0) {
-				// sin nada en Takt: el tamaño del trozo de suelo que arranca (solo en el cliente)
-				ClientState.chunkSize = MathHelper.clamp(ClientState.chunkSize + OpeConfig.TAKT_CHUNK_STEP * dir,
-					OpeConfig.TAKT_CHUNK_MIN, OpeConfig.TAKT_CHUNK_MAX);
-				TaktSounds.chunkSizeTick(ClientState.chunkSize);
+				// sin nada en Takt: rueda = ancho, Ctrl/Mayús+rueda = grosor (solo en el cliente)
+				long h = mc().getWindow().getHandle();
+				boolean mod = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_CONTROL)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_CONTROL)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_SHIFT)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_SHIFT);
+				if (mod) {
+					ClientState.stepChunkDepth(dir);
+					TaktSounds.chunkDepthTick(ClientState.chunkDepth);
+				} else {
+					ClientState.chunkSize = MathHelper.clamp(ClientState.chunkSize + OpeConfig.TAKT_CHUNK_STEP * dir,
+						OpeConfig.TAKT_CHUNK_MIN, OpeConfig.TAKT_CHUNK_MAX);
+					TaktSounds.chunkSizeTick(ClientState.chunkSize);
+				}
 				sizeToastAt = now + SIZE_TOAST_MS;
 			} else {
 				Send.action(Actions.TAKT_SCROLL, dir);
@@ -384,6 +395,15 @@ public final class InputHandler {
 		if (rowR()) {
 			for (Keys k : Keys.values()) {
 				if (k.group() == Keys.Group.TAKT && k.matches(type, code)) {
+					if (k == Keys.R_TREE) {
+						ClientState.cycleChunkRiderMode();
+						TaktSounds.chunkModeTick(ClientState.chunkRiderMode);
+						sizeToastAt = now + SIZE_TOAST_MS;
+						rUsed = true;
+						rLatchAt = now;
+						mark(markCode, NOTHING);
+						return true;
+					}
 					if (k == Keys.R_SETDOWN) Send.taktPlace();   // posar: con la base del fantasma de cada pieza
 					else Send.action(Actions.TAKT_ORDER, order(k));
 					rUsed = true;
@@ -824,6 +844,18 @@ public final class InputHandler {
 			return true;
 		}
 		if (rDown) {
+			if (ClientState.heldIds.length == 0) {
+				if (TerrainFx.previewShown()) {
+					Send.taktTap(Payloads.TaktTap.KIND_TAP, 0);
+					lastRTapAt = 0;
+					Onboarding.mark(Onboarding.STEP_TAKT);
+				}
+				rUsed = true;
+				rLatchAt = System.currentTimeMillis();
+				endOneKeyR();
+				mark(code, NOTHING);
+				return true;
+			}
 			Send.action(Actions.TAKT_THROW_ONE);
 			rUsed = true;
 			rLatchAt = System.currentTimeMillis();
@@ -890,6 +922,16 @@ public final class InputHandler {
 			return true;
 		}
 		if (rDown) {
+			if (ClientState.heldIds.length == 0) {
+				ClientState.cycleChunkRiderMode();
+				TaktSounds.chunkModeTick(ClientState.chunkRiderMode);
+				long now = System.currentTimeMillis();
+				sizeToastAt = now + SIZE_TOAST_MS;
+				rUsed = true;
+				rLatchAt = now;
+				mark(code, NOTHING);
+				return true;
+			}
 			Send.action(Actions.TAKT_ORDER, Actions.ORDER_THROW_ALL);
 			rUsed = true;
 			rLatchAt = System.currentTimeMillis();
@@ -1073,7 +1115,9 @@ public final class InputHandler {
 		OpeSettings s = OpeSettings.get();
 		if (sizeToastAt != 0 && now >= sizeToastAt) {
 			sizeToastAt = 0;
-			Toasts.push(Text.literal("Trozo de tierra: " + ClientState.chunkSize2() + " bloques de ancho"), Toasts.INFO);
+			String grosor = ClientState.chunkDepth == 0 ? "Auto" : ClientState.chunkDepth + " bloq.";
+			String modo = ChunkPlanner.riderModeName(ClientState.chunkRiderMode);
+			Toasts.push(Text.literal("Rodaja: ancho " + ClientState.chunkSize2() + " × grosor " + grosor + " · " + modo), Toasts.INFO);
 		}
 		if (leftHeld && ClientState.taktCount > 0) {
 			leftHeldTicks++;

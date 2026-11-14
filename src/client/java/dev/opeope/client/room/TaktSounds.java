@@ -154,6 +154,20 @@ public final class TaktSounds {
 		own("takt.tick", (float) (1 + 0.04 * (size - 3)), 0.35f, 0);
 	}
 
+	/** R + Ctrl/Mayús + rueda: cambia el grosor del trozo. */
+	public static void chunkDepthTick(int depth) {
+		long now = System.currentTimeMillis();
+		if (now - lastTickAt < TICK_MIN_MS) return;
+		lastTickAt = now;
+		own("takt.tick", 0.78f + 0.04f * depth, 0.35f, 0);
+	}
+
+	/** R + T / clic derecho sin nada en Takt: cambia entre Normal / +Árbol / Solo árbol / Solo piso. */
+	public static void chunkModeTick(int mode) {
+		lastTickAt = System.currentTimeMillis();
+		own("takt.tick", 1.15f + 0.14f * mode, 0.45f, 0);
+	}
+
 	/** R + V enviado: los trozos empiezan a bajar a su silueta. */
 	public static void setDownStart() {
 		own("takt.setdown", 1.0f, 0.5f, 0);

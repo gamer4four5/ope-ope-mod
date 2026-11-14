@@ -39,6 +39,7 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.BlockView;
@@ -83,8 +84,8 @@ public final class Takt {
 	/** Una cosa que la oleada coge cuando llega su momento. */
 	private record Wave(UUID owner, int id, long due, int delay, int flags) {}
 
-	/** Lo que se mira en el suelo: el bloque y el punto exacto. */
-	private record Aim(BlockPos pos, Vec3d point) {}
+	/** Lo que se mira en el suelo: el bloque, el punto exacto y la cara mirada. */
+	private record Aim(BlockPos pos, Vec3d point, @Nullable Direction side) {}
 
 	/** Un arranque pendiente o recién suelto (aún se puede deshacer). Vive en PlayerPower.rips. */
 	public static final class Rip {
@@ -244,10 +245,13 @@ public final class Takt {
 		}
 		ServerWorld w = p.getServerWorld();
 		BlockView view = GroundRules.loaded(w);
-		BlockPos aimS = ChunkPlanner.surfaceAim(view, aim.pos());
+		int size2 = tap != null ? MathHelper.clamp(tap.size2(), 1, 28) : 6;
+		int depth = tap != null ? MathHelper.clamp(tap.depth(), 0, OpeConfig.TAKT_DEPTH_MAX) : 0;
+		int riderMode = tap != null ? MathHelper.clamp(tap.riderMode(), 0, ChunkPlanner.RIDER_NONE) : ChunkPlanner.RIDER_AUTO;
+		BlockPos aimS = ChunkPlanner.surfaceAimForMode(view, aim.pos(), riderMode);
 		List<GroundCut> cuts = aimS == null ? List.of() : GroundCuts.usable(p.getUuid(), w, ChunkPlanner.aimPoint(aimS));
-		int size2 = tap != null ? MathHelper.clamp(tap.size2(), 3, 18) : 6;
-		ChunkPlan plan = ChunkPlanner.plan(view, aim.pos(), size2, cuts, room.center, (double) (float) room.radius, p.getBoundingBox());
+		ChunkPlan plan = ChunkPlanner.plan(view, aim.pos(), size2, depth, riderMode, aim.side(),
+			cuts, room.center, (double) (float) room.radius, p.getBoundingBox());
 		if (plan.isEmpty()) {
 			msg(p, "no_ground");
 			deny(p, TaktFx.NO_GROUND, aim.point());
@@ -289,10 +293,12 @@ public final class Takt {
 			BlockPos pos = BlockPos.fromLong(tap.aim());
 			if (sh.getPos().distanceTo(h) <= 2.5 && p.getEyePos().distanceTo(h) <= OpeConfig.TAKT_RANGE + 1
 				&& Vec3d.ofCenter(pos).squaredDistanceTo(h) <= 3.0) {
-				return new Aim(pos, h);
+				Direction[] dirs = Direction.values();
+				Direction side = tap.side() >= 0 && tap.side() < dirs.length ? dirs[tap.side()] : sh.getSide();
+				return new Aim(pos, h, side);
 			}
 		}
-		return hit ? new Aim(sh.getBlockPos(), sh.getPos()) : null;
+		return hit ? new Aim(sh.getBlockPos(), sh.getPos(), sh.getSide()) : null;
 	}
 
 	// ------------------------------------------------------------------ arrancar el suelo
@@ -393,6 +399,8 @@ public final class Takt {
 			// cuesta, la columna que pisa quien arranca); después choca como siempre (bajo un techo se queda debajo)
 			double depth = rip.plan.topMax + 1 - pe.corner().y;
 			pe.liftThrough(ticks, Math.max(2.6, depth + 1.4), depth);
+		} else if (rip.plan.tree) {
+			pe.lift(8, 2.2);   // un árbol entero sube limpio por encima de la hierba y el bosque
 		}
 		adopt(pw, p.getUuid(), pe);
 		pw.dirty = true;

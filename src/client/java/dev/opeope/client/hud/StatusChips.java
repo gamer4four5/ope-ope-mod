@@ -8,6 +8,7 @@ import dev.opeope.client.hud.HudCanvas.Rect;
 import dev.opeope.net.Payloads;
 import dev.opeope.power.Forge;
 import dev.opeope.power.Patterns;
+import dev.opeope.terrain.ChunkPlanner;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Vec3d;
@@ -100,6 +101,11 @@ public final class StatusChips {
 			if (pat > 0 && pat < Patterns.NAMES.length) out.add(new Chip("patron", Theme.TEXT2, Patterns.NAMES[pat], Theme.TEXT, -1f));
 			if (ClientState.has(Payloads.State.REACH_TARGET)) out.add(new Chip("alcance", Theme.TEXT2, "Solo el objetivo", Theme.TEXT, -1f));
 			if (ClientState.has(Payloads.State.SUSPEND)) out.add(new Chip("suspender", Theme.TEXT2, "Suspender", Theme.TEXT, -1f));
+			if (ClientState.chunkSize != OpeConfig.TAKT_CHUNK_DEFAULT || ClientState.chunkDepth != 0 || ClientState.chunkRiderMode != 0) {
+				String g = ClientState.chunkDepth == 0 ? "Auto" : String.valueOf(ClientState.chunkDepth);
+				String m = ClientState.chunkRiderMode == 0 ? "" : " · " + ChunkPlanner.riderModeName(ClientState.chunkRiderMode);
+				out.add(new Chip("alcance", Theme.SOFT, "Rodaja " + ClientState.chunkSize2() + "×" + g + m, Theme.TEXT, -1f));
+			}
 		}
 		String other = otherRoomOwner(mc);
 		if (other != null) out.add(new Chip("room", Theme.SOFT, "Dentro del ROOM de " + other, Theme.SOFT, -1f));
