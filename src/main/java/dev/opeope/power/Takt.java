@@ -34,6 +34,8 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -537,6 +539,7 @@ public final class Takt {
 			}
 		}
 		pw.lastTapRip = -1;
+		pw.orbitalBarrageTicks = 0;
 		UUID me = p.getUuid();
 		WAVES.removeIf(wv -> wv.owner().equals(me));
 	}
@@ -889,8 +892,21 @@ public final class Takt {
 	public static void order(ServerPlayerEntity p, PlayerPower pw, int order) {
 		switch (order) {
 			case Actions.ORDER_ORBIT -> {
-				pw.taktMode = pw.taktMode == PlayerPower.TaktMode.ORBIT ? PlayerPower.TaktMode.HAND : PlayerPower.TaktMode.ORBIT;
-				p.sendMessage(Text.translatable(pw.taktMode == PlayerPower.TaktMode.ORBIT ? "opeope.msg.orbit" : "opeope.msg.hand"), true);
+				if (p.isSneaking() && pw.taktMode == PlayerPower.TaktMode.ORBIT) {
+					pw.taktMode = PlayerPower.TaktMode.HAND;
+					pw.orbitalBarrageTicks = 0;
+					p.sendMessage(Text.translatable("opeope.msg.hand"), true);
+				} else if (pw.takt.isEmpty() && pendingRips(pw) == 0) {
+					if (summonOrbitalRing(p, pw)) {
+						p.sendMessage(Text.translatable("opeope.msg.orbit"), true);
+					}
+				} else if (pw.taktMode != PlayerPower.TaktMode.ORBIT) {
+					if (pw.takt.size() + pendingRips(pw) < 3) summonOrbitalRing(p, pw);
+					pw.taktMode = PlayerPower.TaktMode.ORBIT;
+					p.sendMessage(Text.translatable("opeope.msg.orbit"), true);
+				} else {
+					startOrbitalBarrage(p, pw);
+				}
 			}
 			case Actions.ORDER_PARK -> {
 				pw.taktMode = PlayerPower.TaktMode.PARK;
@@ -969,8 +985,105 @@ public final class Takt {
 		}
 		pw.takt.clear();
 		pw.parked.clear();
-		if (pw.taktMode == PlayerPower.TaktMode.PARK) pw.taktMode = PlayerPower.TaktMode.HAND;
+		pw.orbitalBarrageTicks = 0;
+		if (pw.taktMode != PlayerPower.TaktMode.HAND) pw.taktMode = PlayerPower.TaktMode.HAND;
 		pw.dirty = true;
+	}
+
+	/** Eleva hasta 6 trozos cortados o arrancados del suelo del ROOM en un anillo orbital elevado. */
+	public static boolean summonOrbitalRing(ServerPlayerEntity p, PlayerPower pw) {
+		ServerWorld w = p.getServerWorld();
+		Room room = pw.room != null && pw.room.dim == w.getRegistryKey() ? pw.room
+			: (pw.rroom != null && pw.rroom.dim == w.getRegistryKey() ? pw.rroom : null);
+		if (room == null) {
+			PowerManager.noRoom(p);
+			deny(p, TaktFx.NO_ROOM, p.getEyePos());
+			return false;
+		}
+		UUID me = p.getUuid();
+		Box box = new Box(room.center, room.center).expand(room.radius);
+		for (PieceEntity pe : w.getEntitiesByClass(PieceEntity.class, box, e -> looseCut(pw, me, room, e))) {
+			if (pw.takt.size() + pendingRips(pw) >= 6) break;
+			grab(p, pw, pe);
+		}
+		if (pw.takt.size() + pendingRips(pw) < 6) {
+			BlockView view = GroundRules.loaded(w);
+			RegistryKey<World> dim = w.getRegistryKey();
+			double rad = Math.min(8.0, Math.max(4.5, room.radius * 0.42));
+			long now = w.getTime();
+			int spawned = 0;
+			int yRef = MathHelper.floor(p.getY());
+			for (int i = 0; i < 8 && pw.takt.size() + pendingRips(pw) < 6 && pw.takt.size() + pendingRips(pw) < OpeConfig.TAKT_MAX; i++) {
+				double ang = i * (Math.PI * 2.0 / 8.0);
+				int rx = MathHelper.floor(p.getX() + Math.cos(ang) * rad);
+				int rz = MathHelper.floor(p.getZ() + Math.sin(ang) * rad);
+				int sy = GroundRules.surfaceNear(view, rx, rz, yRef, 8);
+				if (sy == GroundRules.NONE) continue;
+				BlockPos surf = new BlockPos(rx, sy, rz);
+				if (!room.contains(Vec3d.ofCenter(surf))) continue;
+				ChunkPlan plan = ChunkPlanner.plan(view, surf, 4, 2, ChunkPlanner.RIDER_NONE, Direction.UP,
+					List.of(), room.center, (double) (float) room.radius, p.getBoundingBox());
+				if (plan.isEmpty() || overlaps(dim, plan)) continue;
+				Rip rip = new Rip(nextRipId++, plan, dim, now, now + 2 + spawned * 2L,
+					plan.aim != null ? plan.aim : surf, plan.usedCuts);
+				pw.ripBudget = Math.max(0, pw.ripBudget - plan.size());
+				GroundCuts.reserve(plan.usedCuts, rip.id);
+				mark(rip);
+				pw.rips.add(rip);
+				sendTearStart(p, w, rip);
+				spawned++;
+			}
+		}
+		if (pw.takt.isEmpty() && pendingRips(pw) == 0) {
+			msg(p, "no_ground");
+			return false;
+		}
+		pw.taktMode = PlayerPower.TaktMode.ORBIT;
+		pw.dirty = true;
+		w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.ENTITY_BREEZE_WIND_BURST, SoundCategory.PLAYERS, 1.2f, 0.75f);
+		return true;
+	}
+
+	/** Descarga en picada sucesiva el anillo orbital sobre el punto al que apuntas. */
+	public static void startOrbitalBarrage(ServerPlayerEntity p, PlayerPower pw) {
+		if (pw.takt.size() + pendingRips(pw) < 3) summonOrbitalRing(p, pw);
+		if (pw.takt.isEmpty() && pendingRips(pw) == 0) return;
+		pw.taktMode = PlayerPower.TaktMode.ORBIT;
+		pw.orbitalBarrageTicks = Math.max(90, (pw.takt.size() + pendingRips(pw)) * 10 + 30);
+		pw.orbitalShotIndex = 0;
+		pw.dirty = true;
+		p.getServerWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.ENTITY_BREEZE_WIND_BURST, SoundCategory.PLAYERS, 1.5f, 0.55f);
+		p.sendMessage(Text.translatable("opeope.msg.orbital_barrage"), true);
+	}
+
+	private static void tickBarrage(ServerPlayerEntity p, PlayerPower pw) {
+		if (pw.orbitalBarrageTicks <= 0) return;
+		pw.orbitalBarrageTicks--;
+		List<Entity> list = resolve(p, pw);
+		if (list.isEmpty() && pendingRips(pw) == 0) {
+			pw.orbitalBarrageTicks = 0;
+			if (pw.taktMode == PlayerPower.TaktMode.ORBIT) pw.taktMode = PlayerPower.TaktMode.HAND;
+			pw.dirty = true;
+			return;
+		}
+		if (pw.orbitalBarrageTicks % 4 != 0 || list.isEmpty()) return;
+		Entity chosen = null;
+		for (Entity e : list) {
+			if (e instanceof PieceEntity pe && pe.noClip && pe.age < 6) continue;
+			if (chosen == null || e.getY() > chosen.getY()) chosen = e;
+		}
+		if (chosen == null) return;
+		Vec3d baseAim = PowerManager.aimPoint(p, OpeConfig.TAKT_RANGE);
+		int idx = pw.orbitalShotIndex++;
+		double rSpread = idx == 0 ? 0.0 : Math.min(3.2, 0.85 * Math.sqrt(idx));
+		double th = idx * 2.39996;
+		Vec3d to = baseAim.add(Math.cos(th) * rSpread, 0, Math.sin(th) * rSpread);
+		launch(p, pw, chosen, to, 2.65, idx, TaktFx.F_ALL);
+		ServerWorld w = p.getServerWorld();
+		Vec3d cc = chosen.getBoundingBox().getCenter();
+		w.spawnParticles(ParticleTypes.CLOUD, cc.x, cc.y, cc.z, 12, 0.6, 0.4, 0.6, 0.06);
+		w.spawnParticles(CutEngine.ROOM_DUST, cc.x, cc.y, cc.z, 10, 0.5, 0.5, 0.5, 0.02);
+		w.playSound(null, cc.x, cc.y, cc.z, SoundEvents.ENTITY_BREEZE_WIND_BURST, SoundCategory.PLAYERS, 1.2f, 0.8f);
 	}
 
 	/**
@@ -1015,7 +1128,8 @@ public final class Takt {
 		pw.takt.clear();
 		pw.parked.clear();
 		pw.taktOffsets.clear();
-		if (pw.taktMode == PlayerPower.TaktMode.PARK) pw.taktMode = PlayerPower.TaktMode.HAND;
+		pw.orbitalBarrageTicks = 0;
+		if (pw.taktMode != PlayerPower.TaktMode.HAND) pw.taktMode = PlayerPower.TaktMode.HAND;
 		pw.dirty = true;
 	}
 
@@ -1075,11 +1189,13 @@ public final class Takt {
 			double gmul = PieceEntity.heavyGravity(r);
 			double g = 0.06 * gmul, drag = PieceEntity.airDrag(r);
 			Vec3d aimC = aim;
+			boolean highDive = c.y > aim.y + 4.0;
 			for (int k = 0; k < 2; k++) {
 				double dist = aimC.distanceTo(c);
 				double q = (1 - drag) * dist / speed;
 				double t = q > 1e-9 && q < 0.9 ? Math.log(1 - q) / Math.log(drag) : dist / speed;   // ticks, con el roce del aire
-				aimC = aim.add(0, Math.min(0.5 * g * t * t, 0.3 * dist), 0);
+				double liftComp = highDive ? Math.min(0.10 * g * t * t, 0.05 * dist) : Math.min(0.5 * g * t * t, 0.3 * dist);
+				aimC = aim.add(0, liftComp, 0);
 			}
 			Vec3d dir = aimC.subtract(c);
 			if (dir.lengthSquared() < 1e-6) dir = p.getRotationVector();
@@ -1100,6 +1216,10 @@ public final class Takt {
 				THROWN_SPEED.put(e.getId(), dir.length());
 			}
 		}
+		if (pw.takt.isEmpty() && pendingRips(pw) == 0 && pw.taktMode == PlayerPower.TaktMode.ORBIT) {
+			pw.taktMode = PlayerPower.TaktMode.HAND;
+			pw.orbitalBarrageTicks = 0;
+		}
 		pw.dirty = true;
 		sendFx(p.getServerWorld(), fx(TaktFx.THROW, 0, e.getId(), p.getUuid(), c, (float) speed, mass, 0, flags, index, NONE));
 	}
@@ -1110,6 +1230,7 @@ public final class Takt {
 		pw.ripBudget = Math.min(OpeConfig.TAKT_RIP_BUDGET, pw.ripBudget + OpeConfig.TAKT_RIP_REFILL);
 		tickRips(p, pw);
 		tickWaves(p, pw);
+		tickBarrage(p, pw);
 		if (pw.takt.isEmpty()) return;
 		List<Entity> list = resolve(p, pw);
 		if (list.isEmpty()) return;
@@ -1135,7 +1256,25 @@ public final class Takt {
 		}
 		double time = p.age;
 		PlayerPower.TaktMode mode = pw.taktMode;
-		double orbitR = pw.taktDist + biggest * 0.5;
+		double orbitR = mode == PlayerPower.TaktMode.ORBIT
+			? Math.max(5.0, Math.min(16.0, pw.taktDist + biggest * 0.65 + n * 0.3))
+			: pw.taktDist + biggest * 0.5;
+		double orbitH = 1.3;
+		if (mode == PlayerPower.TaktMode.ORBIT) {
+			Room room = PowerManager.roomAt(p, p.getPos());
+			double roomCap = room != null ? Math.max(4.5, (room.center.y + room.radius * 0.72) - p.getY()) : 11.0;
+			orbitH = MathHelper.clamp(Math.min(roomCap, 7.5 + biggest * 0.5), 4.5, 13.0);
+			ServerWorld sw = p.getServerWorld();
+			BlockPos.Mutable cm = new BlockPos.Mutable();
+			int px = MathHelper.floor(p.getX()), pz = MathHelper.floor(p.getZ()), ey = MathHelper.floor(p.getEyeY());
+			for (int dy = 2; dy <= (int) Math.ceil(orbitH + biggest + 1); dy++) {
+				cm.set(px, ey + dy, pz);
+				if (!sw.getBlockState(cm).getCollisionShape(sw, cm).isEmpty()) {
+					orbitH = Math.max(2.2, (ey + dy - p.getY()) - biggest * 0.6 - 1.0);
+					break;
+				}
+			}
+		}
 		double omega = 1.35 * Math.sqrt(3.25 / orbitR) / Math.sqrt(maxS);   // rad/s
 		double ring = 1.0 + biggest * 0.7 + (n > 9 ? 0.8 : 0);
 		Vec3d anchor = Vec3d.ZERO;
@@ -1159,9 +1298,13 @@ public final class Takt {
 				drive = PieceEntity.DRIVE_PARK;
 			} else if (mode == PlayerPower.TaktMode.ORBIT) {
 				double beta = pw.orbitPhase + i * Math.PI * 2 / n;
-				target = p.getPos().add(Math.cos(beta) * orbitR, 1.3 + Math.sin(time * 0.05 + i) * 0.4, Math.sin(beta) * orbitR);
+				target = p.getPos().add(Math.cos(beta) * orbitR, orbitH + Math.sin(time * 0.07 + i * 0.9) * 0.45, Math.sin(beta) * orbitR);
 				vel = new Vec3d(-Math.sin(beta), 0, Math.cos(beta)).multiply(orbitR * omega);
 				drive = PieceEntity.DRIVE_ORBIT;
+				if (p.age % 3 == 0 && e instanceof PieceEntity pe) {
+					Vec3d pc = pe.center();
+					p.getServerWorld().spawnParticles(CutEngine.ROOM_DUST, pc.x, pc.y, pc.z, 1, 0.25, 0.25, 0.25, 0);
+				}
 			} else if (mode == PlayerPower.TaktMode.HAND && pw.taktOffsets.containsKey(e.getId())) {
 				target = anchor.add(pw.taktOffsets.get(e.getId()));
 				vel = Vec3d.ZERO;

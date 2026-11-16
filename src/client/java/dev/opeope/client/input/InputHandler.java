@@ -857,10 +857,13 @@ public final class InputHandler {
 				return true;
 			}
 			Send.action(Actions.TAKT_THROW_ONE);
+			p.swingHand(Hand.MAIN_HAND);
 			rUsed = true;
 			rLatchAt = System.currentTimeMillis();
+			leftHeld = true;
+			leftHeldTicks = 0;
 			endOneKeyR();
-			mark(code, NOTHING);
+			mark(code, () -> leftHeld = false);
 			return true;
 		}
 		if (ClientState.weapon >= 0 && free) {

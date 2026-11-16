@@ -29,6 +29,7 @@
   "opeope.msg.stolen": "Stolen: %s",
   "opeope.msg.takt_full": "Takt is carrying too much.",
   "opeope.msg.orbit": "Takt: orbit",
+  "opeope.msg.orbital_barrage": "Takt: orbital debris barrage",
   "opeope.msg.hand": "Takt: at hand",
   "opeope.msg.park": "Takt: parked",
   "opeope.msg.sew": "Sew: what you carry sews onto what it touches",

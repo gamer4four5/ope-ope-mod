@@ -883,6 +883,7 @@ public final class Techniques {
 			return;
 		}
 		pw.rainTicks = 60;
+		if (!pw.takt.isEmpty() || !pw.rips.isEmpty()) Takt.startOrbitalBarrage(p, pw);
 		sound(p, p.getPos(), SoundEvents.WEATHER_RAIN_ABOVE, 1.5f, 1.5f);
 		pw.cooldown(Tech.RAIN);
 	}

@@ -1054,6 +1054,8 @@ public final class AutoTest {
 
 		planTerrenoIrregular(mc, srv, id);
 
+		planBombardeoOrbital(mc, srv, id);
+
 		planRevision(mc, srv, id);
 
 		// dejarlo como estaba para (l)
@@ -1334,6 +1336,107 @@ public final class AutoTest {
 			check((srvC & 2) != 0 && srvB == items0, "ningún bloque cae como objeto en la ladera",
 				"DROPPED " + dropped0 + " -> " + PieceEntity.DROPPED + ", objetos " + items0 + " -> " + srvB);
 			check(srvA == solid0, "conservación de bloques en la ladera", "antes " + solid0 + ", después " + srvA);
+		});
+	}
+
+	/**
+	 * (k2d) Bombardeo orbital (Takt Orbital): con R+F sin piezas en mano arranca automáticamente un anillo de rocas,
+	 * lo eleva al techo del ROOM y con un segundo R+F las descarga en picada abriendo cráteres en cadena con 100% de
+	 * conservación de bloques.
+	 */
+	private static void planBombardeoOrbital(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int IMPACT = Payloads.TaktFx.IMPACT;
+		step(2, "orbital: preparar campo", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				Takt.cancelPending(sp, pw);
+				clearField(w, true);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				GroundCuts.clearOwner(sp.getUuid());
+				pw.ripBudget = OpeConfig.TAKT_RIP_BUDGET;
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 14.5, 180f, 20f);
+				sp.setYaw(180f);
+				sp.setPitch(20f);
+				dropped0 = PieceEntity.DROPPED;
+				crater0 = Crater.last;
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("orbital: preparado", 60, "el cliente no ve el campo orbital", () -> srvA >= 0 && srvB >= 0
+			&& mc.player.getZ() < gz0 - 13 && Math.abs(mc.player.getPitch() - 20f) < 5f, () -> {
+			solid0 = srvA;
+			items0 = srvB;
+		});
+		step(2, "orbital: elevar anillo", () -> {
+			srvA = 0;
+			srvB = 0;
+			srvC = 0;
+			server(srv, id, (sp, pw) -> {
+				Takt.order(sp, pw, Actions.ORDER_ORBIT);
+				srvC = pw.taktMode == PlayerPower.TaktMode.ORBIT && (pw.takt.size() + Takt.pendingRips(pw)) >= 3 ? 1 : 0;
+			});
+		});
+		waitFor("orbital: anillo invocado", 10, "R+F sin piezas no invocó el anillo orbital", () -> srvC == 1, () -> {
+			check(srvC == 1, "R+F sin piezas arranca un anillo orbital en el ROOM", "srvC=" + srvC);
+		});
+		repeatUntil("orbital: anillo elevado", 4, 60, () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			int maxY = Integer.MIN_VALUE;
+			for (Entity e : Takt.resolve(sp, pw)) maxY = Math.max(maxY, (int) Math.floor(e.getY()));
+			srvA = pw.takt.size();
+			srvB = Takt.pendingRips(pw);
+			srvC = maxY;
+		}), () -> srvB == 0 && srvA >= 3 && srvC >= gfy + 5);
+		waitFor("orbital: verifica altura", 10, "el anillo orbital no se elevó sobre el ROOM",
+			() -> srvB == 0 && srvA >= 3 && srvC >= gfy + 5, () -> {
+			check(srvA >= 3 && srvC >= gfy + 5,
+				"el anillo orbital eleva al menos 3 trozos a gran altura en el ROOM",
+				"piezas=" + srvA + " pendientes=" + srvB + " maxY=" + srvC + " suelo=" + gfy);
+		});
+		step(2, "orbital: descargar bombardeo", () -> {
+			tsnap(IMPACT);
+			srvC = 0;
+			server(srv, id, (sp, pw) -> {
+				sp.setYaw(180f);
+				sp.setPitch(20f);
+				Takt.order(sp, pw, Actions.ORDER_ORBIT);
+				srvC = pw.orbitalBarrageTicks > 0 ? 1 : 0;
+			});
+		});
+		waitFor("orbital: impacto", 100, "el bombardeo orbital no impactó contra el suelo", () -> srvC == 1 && tgot(IMPACT), () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
+			check(srvC == 1 && f != null && f.state() >= 2 && f.a() > 0,
+				"el bombardeo orbital descarga piezas en picada y abre cráteres",
+				"barrage=" + srvC + (f == null ? ", sin impacto" : ", nivel=" + f.state() + ", radio=" + fmt(f.a())));
+		});
+		settleField(srv, id, "orbital");
+		step(2, "orbital: cuentas", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = 0;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Crater.Result c = Crater.last;
+				logCrater(c);
+				srvC = (c != null && c != crater0 && c.balanced() ? 1 : 0)
+					| (PieceEntity.DROPPED == dropped0 ? 2 : 0)
+					| (pw.orbitalBarrageTicks == 0 ? 4 : 0);
+				pw.taktMode = PlayerPower.TaktMode.HAND;
+				pw.orbitalBarrageTicks = 0;
+				pw.dirty = true;
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("orbital: conservado", 20, "el servidor no devolvió las cuentas orbitales", () -> srvA >= 0 && srvB >= 0, () -> {
+			check((srvC & 1) != 0, "los cráteres orbitales devuelven todos los bloques que quitan", "cráter no equilibrado");
+			check((srvC & 2) != 0 && srvB == items0, "el bombardeo orbital no suelta objetos",
+				"DROPPED " + dropped0 + " -> " + PieceEntity.DROPPED + ", objetos " + items0 + " -> " + srvB);
+			check(srvA == solid0, "conservación de bloques en el bombardeo orbital", "antes " + solid0 + ", después " + srvA);
 		});
 	}
 

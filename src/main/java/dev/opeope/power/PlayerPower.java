@@ -44,6 +44,8 @@ public class PlayerPower {
 	public long lastTapTick = -1000;       // tiempo del mundo del último toque aceptado (límite de toques)
 	public long lastZoneTick = -1000;      // tiempo del mundo del último R R / R + E aceptado (el mismo límite)
 	public int ripBudget = OpeConfig.TAKT_RIP_BUDGET;   // lo gastan los arranques y lo recupera Takt.tick
+	public int orbitalBarrageTicks = 0;    // bombardeo orbital en cadena activo (> 0 descarga una tras otra)
+	public int orbitalShotIndex = 0;       // índice de disparo para dispersión en espiral cerrada
 
 	// Shambles y almas
 	public int shamblesMark = -1;

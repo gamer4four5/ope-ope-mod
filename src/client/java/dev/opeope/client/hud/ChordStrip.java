@@ -103,13 +103,14 @@ public final class ChordStrip {
 			r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Ctrl+Grosor: " + g, null, false));
 			r1.add(new Entry(KeyLabels.mouseRight(), "zona", a, modo, null, false));
 		} else {
-			r1.add(e(Keys.R_ORBIT, "orbita", a, ClientState.taktMode == 1 ? "A la mano" : "Órbita", null, false));
+			r1.add(e(Keys.R_ORBIT, "orbita", a, ClientState.taktMode == 1 ? "Bombardeo" : "Órbita", null, false));
 			r1.add(e(Keys.R_PARK, "aparcar", a, "Aparcar", null, false));
 			r1.add(e(Keys.R_SETDOWN, "posar", a, "Posar", null, false));
 			r1.add(e(Keys.R_DROP, "soltar", a, "Soltar", null, false));
 			r1.add(new Entry(KeyLabels.mouseRight(), "lanzar_todo", a, "Lanzar todo", null, false));
 			r1.add(new Entry(KeyLabels.wheel(), "alcance", a, "Distancia", null, false));
 		}
+		if (none) r2.add(e(Keys.R_ORBIT, "orbita", a, "Órbita", null, false));
 		r2.add(e(Keys.R_ZONE, "zona", a, "Zona", null, false));
 		r2.add(e(Keys.R_CUT, "lo_cortado", a, "Lo cortado", null, false));
 		r2.add(e(Keys.R_GATHER, "rejuntar", a, "Rejuntar", null, none));
