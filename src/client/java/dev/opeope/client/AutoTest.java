@@ -3111,8 +3111,14 @@ public final class AutoTest {
 					}
 				}
 				double bx = gx0 + DX + 0.5, by = gfy + 1, bz = gz0 + DZ - 5.5;
-				ZombieEntity z = spawnZombie(w, bx - 1.2, by, bz, 20f, false);
+				net.minecraft.entity.mob.HuskEntity z = EntityType.HUSK.create(w);   // un husk no arde de día
 				if (z != null) {
+					z.refreshPositionAndAngles(bx - 1.2, by, bz, 20f, 0f);
+					z.setBodyYaw(20f);
+					z.setHeadYaw(20f);
+					z.setAiDisabled(true);
+					z.setPersistent();
+					w.spawnEntity(z);
 					z.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_SWORD));
 					dev.opeope.power.Dismember.cut(z, List.of("right_arm"), sp);
 					dev.opeope.power.Dismember.cut(z, List.of("head"), sp);
@@ -3133,7 +3139,20 @@ public final class AutoTest {
 				sp.networkHandler.requestTeleport(gx0 + DX + 0.5, gfy + 1, gz0 + DZ + 0.5, 180f, 18f);
 			});
 		});
-		step(40, "D fotos", () -> shot(mc, "d-partes-vivas"));
+		step(40, "D fotos", () -> {
+			shot(mc, "d-partes-vivas");
+			server(srv, id, (sp, pw) -> {
+				for (dev.opeope.entity.BodyPartEntity p : sp.getServerWorld().getEntitiesByClass(dev.opeope.entity.BodyPartEntity.class,
+					sp.getBoundingBox().expand(16), x -> true)) {
+					Entity v = p.victim();
+					OpeOpeMod.LOG.info("AUTOTEST parte {} de {} en {} (dueño en {}), suelo={}, caja={}x{}", p.segments(), p.victimType(),
+						p.getPos(), v == null ? "-" : v.getPos(), p.isOnGround(), fmt(p.getWidth()), fmt(p.getHeight()));
+				}
+			});
+		});
+		step(2, "D fotos: cerca", () -> server(srv, id, (sp, pw) ->
+			sp.networkHandler.requestTeleport(gx0 + DX - 0.2, gfy + 1, gz0 + DZ - 2.6, 180f, 35f)));
+		step(10, "D fotos: cerca captura", () -> shot(mc, "d-partes-vivas-cerca"));
 		step(1, "D fotos: limpiar", () -> server(srv, id, (sp, pw) -> {
 			ServerWorld w = sp.getServerWorld();
 			Box arena = new Box(gx0 + DX - 14, gfy - 4, gz0 + DZ - 14, gx0 + DX + 15, gfy + 20, gz0 + DZ + 15);
