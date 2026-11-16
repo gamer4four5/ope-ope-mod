@@ -54,6 +54,34 @@ public class PlayerPower {
 	public int soulMark = -1;
 	public int soulMarkTicks;
 
+	// Shambles Táctico y Ventana Aérea de Remate
+	public int lastThrownPieceId = -1;
+	public long lastThrownTick = -1000;
+	public final List<Integer> recentThrownPieces = new ArrayList<>(8);
+	public int aerialWindowTicks = 0;
+	public int aerialWindowMaxTicks = 0;
+	public boolean aerialPerfect = false;
+	public int finisherTargetId = -1;
+	public int aerialChain = 0;
+	public float aerialFinisherMult = 1.0f;
+
+	public void recordThrownPiece(int pieceId, long worldTick) {
+		lastThrownPieceId = pieceId;
+		lastThrownTick = worldTick;
+		recentThrownPieces.remove((Integer) pieceId);
+		recentThrownPieces.add(0, pieceId);
+		while (recentThrownPieces.size() > 8) {
+			recentThrownPieces.remove(recentThrownPieces.size() - 1);
+		}
+	}
+
+	public void clearAerialWindow() {
+		aerialWindowTicks = 0;
+		aerialWindowMaxTicks = 0;
+		aerialPerfect = false;
+		finisherTargetId = -1;
+	}
+
 	// Técnicas con duración
 	public final int[] cooldowns = new int[Tech.values().length];
 	public int scanTicks;

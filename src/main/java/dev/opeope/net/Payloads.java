@@ -468,6 +468,40 @@ public final class Payloads {
 		}
 	}
 
+	/** Servidor → cliente: ventana aérea de remate tras Shambles táctico y lista de piezas tácticas propias en vuelo. */
+	public record AerialWindow(int ticks, int maxTicks, float gravMult, boolean perfect, int finisherTargetId, int[] tacticalIds) implements CustomPayload {
+		private static final int CAP = 16;
+		public static final Id<AerialWindow> ID = new Id<>(OpeOpeMod.id("aerial_window"));
+		public static final PacketCodec<RegistryByteBuf, AerialWindow> CODEC = PacketCodec.of(AerialWindow::write, AerialWindow::read);
+
+		static AerialWindow read(RegistryByteBuf buf) {
+			int ticks = buf.readVarInt(), max = buf.readVarInt();
+			float grav = buf.readFloat();
+			boolean perf = buf.readBoolean();
+			int fin = buf.readVarInt();
+			int n = len(buf.readVarInt(), CAP);
+			int[] ids = new int[n];
+			for (int i = 0; i < n; i++) ids[i] = buf.readVarInt();
+			return new AerialWindow(ticks, max, grav, perf, fin, ids);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(ticks);
+			buf.writeVarInt(maxTicks);
+			buf.writeFloat(gravMult);
+			buf.writeBoolean(perfect);
+			buf.writeVarInt(finisherTargetId);
+			int n = tacticalIds == null ? 0 : Math.min(tacticalIds.length, CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeVarInt(tacticalIds[i]);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
 	/** Cuántos elementos leer de un array: el largo que llega, entre 0 y su tope (como Cut.read, sin negativos). */
 	private static int len(int n, int cap) {
 		return Math.max(0, Math.min(n, cap));

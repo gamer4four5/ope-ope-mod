@@ -94,6 +94,28 @@ public final class OpeConfig {
 	public static final int SHAMBLES_MARK_TICKS = 20 * 6;
 	public static final int SOUL_MARK_TICKS = 20 * 8;
 
+	// Shambles Táctico con trozos en vuelo (PieceEntity)
+	public static final double SHAMBLES_VEL_MIN = 0.25;            // b/t mínima para considerar que la pieza sigue en vuelo táctico
+	public static final double SHAMBLES_ASSIST_ANGLE_DEG = 11.5;   // grados máximos del cono de asistencia hacia una pieza en vuelo
+	public static final int SHAMBLES_LEAD_TICKS = 3;               // ticks de predicción (center + vel * LEAD_TICKS) para el cono
+	public static final int SHAMBLES_FALLBACK_WINDOW = 30;         // ticks (1.5 s) para usar la última pieza lanzada si no apuntas a otra entidad
+	public static final double SHAMBLES_MOMENTUM_INHERIT = 0.35;   // fracción del impulso de la pieza que hereda el jugador
+	public static final double SHAMBLES_MOMENTUM_CAP = 1.15;       // tope de velocidad heredada por el jugador (b/t)
+	public static final int SHAMBLES_VEL_KEEP = 0, SHAMBLES_VEL_REAIM = 1;
+	public static final int SHAMBLES_PIECE_VEL_MODE_SELF = SHAMBLES_VEL_KEEP;   // jugador ↔ pieza: mantiene dirección
+	public static final int SHAMBLES_PIECE_VEL_MODE_ENEMY = SHAMBLES_VEL_REAIM; // enemigo ↔ pieza: redirige hacia el enemigo en el aire
+	public static final int SHAMBLES_OWNER_GRACE_TICKS = 6;        // ticks tras el swap en que la pieza no golpea a su dueño
+	public static final boolean SHAMBLES_PIECE_CRUSH_ON_OVERLAP = true; // si la pieza solapa bloques en destino, impacta en el siguiente tick
+	public static final int SHAMBLES_AERIAL_WINDOW = 16;           // duración de la ventana aérea de remate (ticks)
+	public static final int SHAMBLES_AERIAL_WINDOW_PERFECT = 24;   // duración de la ventana aérea en Shambles Perfecto (ticks)
+	public static final float SHAMBLES_AERIAL_GRAV_MULT = 0.28f;   // amortiguación de caída en cliente durante la ventana aérea
+	public static final double SHAMBLES_GAMMA_AERIAL_RANGE = 8.0;  // alcance de Gamma Knife durante la ventana aérea (con lunge si > 4.5)
+	public static final float SHAMBLES_AERIAL_DMG_MULT = 1.5f;     // multiplicador de daño de remate en ventana aérea
+	public static final float SHAMBLES_AERIAL_DMG_MULT_PERFECT = 2.0f; // multiplicador de daño en Shambles Perfecto
+	public static final int SHAMBLES_PERFECT_TICKS = 5;            // ticks restantes hasta el choque para activar Shambles Perfecto
+	public static final int SHAMBLES_MAX_AIR_CHAIN = 2;            // máximo de Shambles tácticos seguidos en el aire sin tocar suelo
+	public static final boolean SHAMBLES_ALLOW_FOREIGN_PIECES = false; // permitir usar piezas lanzadas por otros jugadores
+
 	// Técnicas con duración (el HUD cuenta los segundos con estos mismos números)
 	public static final int SCAN_TICKS = 160;
 	public static final int CURTAIN_TICKS = 120;

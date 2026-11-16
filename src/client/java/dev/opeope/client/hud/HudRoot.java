@@ -29,8 +29,9 @@ public final class HudRoot {
 
 	private static final String MSG = "opeope.msg.";
 	private static final Set<String> BAD = Set.of("sea", "no_room", "takt_full", "no_reattach", "nothing_cut",
-		"need_material", "too_far", "no_awakening", "heart_far", "no_ground", "zone_empty", "takt_busy");
-	private static final Set<String> GOLD = Set.of("forged", "awake_on", "united", "heart_back");
+		"need_material", "too_far", "no_awakening", "heart_far", "no_ground", "zone_empty", "takt_busy",
+		"shambles_no_space", "air_chain_limit");
+	private static final Set<String> GOLD = Set.of("forged", "awake_on", "united", "heart_back", "shambles_perfect");
 	/** Los módulos fijos que se comprueban también contra el chat. */
 	private static final Set<String> CHAT_CHECKED = Set.of("tarjeta", "primeros pasos", "scan");
 

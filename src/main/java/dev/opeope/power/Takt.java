@@ -1202,6 +1202,8 @@ public final class Takt {
 			pe.owner = p.getUuid();
 			pe.release(dir.normalize().multiply(speed), true);
 			pe.gravityMul = gmul;
+			pw.recordThrownPiece(pe.getId(), p.getServerWorld().getTime());
+			Shambles.syncAerialWindow(p, pw);
 			if (r > OpeConfig.TAKT_BIG_RADIUS) flags |= TaktFx.F_BIG;
 			if ((pe.flags() & PieceEntity.F_CHUNK) != 0) flags |= TaktFx.F_CHUNK;
 			mass = (float) (pe.massKg() / 1000.0);

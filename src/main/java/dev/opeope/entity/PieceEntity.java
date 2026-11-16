@@ -104,6 +104,7 @@ public class PieceEntity extends Entity {
 	public UUID owner;
 	public boolean thrown;
 	public int thrownTicks;
+	public int ownerGraceTicks;
 	public boolean slowFall;
 	public boolean sewOnContact;
 	public boolean solid;
@@ -918,6 +919,7 @@ public class PieceEntity extends Entity {
 	private void freeTick() {
 		freeTicks++;
 		thrownTicks++;
+		if (ownerGraceTicks > 0) ownerGraceTicks--;
 		Vec3d v = getVelocity();
 		if (!hasNoGravity()) v = v.add(0, slowFall ? -0.012 : -0.06 * gravityMul, 0);
 		if (slowFall && v.y < -0.12) v = new Vec3d(v.x, -0.12, v.z);
@@ -1233,7 +1235,7 @@ public class PieceEntity extends Entity {
 	private void hitEntities(Vec3d v, boolean sparingOwner) {
 		double speed = v.length();
 		List<LivingEntity> list = getWorld().getEntitiesByClass(LivingEntity.class, getBoundingBox().expand(0.25),
-			e -> e.isAlive() && !e.isSpectator() && !(spares(e) && (sparingOwner || thrownTicks < 12)));
+			e -> e.isAlive() && !e.isSpectator() && !(spares(e) && (sparingOwner || thrownTicks < 12 || ownerGraceTicks > 0)));
 		for (LivingEntity le : list) {
 			Integer until = hitCooldown.get(le.getId());
 			if (until != null && until > age) continue;
@@ -2469,5 +2471,39 @@ public class PieceEntity extends Entity {
 		}
 		sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.BLOCK_DEEPSLATE_BREAK, SoundCategory.BLOCKS,
 			colossal ? 2.4f : big ? 1.8f : 1.1f, 0.6f);
+	}
+
+	/** Predice cuántos ticks faltan (1..maxTicks) para que esta pieza en vuelo choque contra el suelo, un bloque o un ser vivo. */
+	public int predictTicksToImpact(int maxTicks) {
+		World w = getWorld();
+		Vec3d cPos = center();
+		Vec3d bPos = getPos();
+		Vec3d v = getVelocity();
+		double r = radius();
+		double air = airDrag(r);
+		double g = hasNoGravity() ? 0.0 : (slowFall ? -0.012 : -0.06 * gravityMul);
+		double max = OpeConfig.FALL_MAX_SPEED;
+		BlockView view = GroundRules.loaded(w);
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int t = 1; t <= maxTicks; t++) {
+			v = v.add(0, g, 0);
+			if (slowFall && v.y < -0.12) v = new Vec3d(v.x, -0.12, v.z);
+			if (v.lengthSquared() > max * max) v = v.multiply(max / v.length());
+			Vec3d nextC = cPos.add(v);
+			Vec3d nextB = bPos.add(v);
+			BlockHitResult bhr = w.raycast(new net.minecraft.world.RaycastContext(
+				cPos, nextC, net.minecraft.world.RaycastContext.ShapeType.COLLIDER, net.minecraft.world.RaycastContext.FluidHandling.NONE, this));
+			if (bhr.getType() != HitResult.Type.MISS) return t;
+			int ix = MathHelper.floor(nextB.x), iy = MathHelper.floor(nextB.y - 0.08), iz = MathHelper.floor(nextB.z);
+			if (solidAt(view, m, ix, iy, iz)) return t;
+			Box stepBox = getBoundingBox().offset(nextB.subtract(getPos())).expand(0.2);
+			if (!w.getEntitiesByClass(LivingEntity.class, stepBox, e -> e.isAlive() && !e.isSpectator() && !spares(e)).isEmpty()) {
+				return t;
+			}
+			v = new Vec3d(v.x * air, v.y * air, v.z * air);
+			cPos = nextC;
+			bPos = nextB;
+		}
+		return Integer.MAX_VALUE;
 	}
 }

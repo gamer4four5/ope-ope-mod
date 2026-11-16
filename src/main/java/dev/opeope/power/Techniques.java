@@ -24,6 +24,7 @@ import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.packet.s2c.play.EntityVelocityUpdateS2CPacket;
 import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
@@ -70,6 +71,28 @@ public final class Techniques {
 	private static LivingEntity livingInSight(ServerPlayerEntity p, double range) {
 		Entity e = PowerManager.raycastEntity(p, range, 0.4, ent -> ent instanceof LivingEntity && ent.isAlive());
 		return e instanceof LivingEntity le ? le : null;
+	}
+
+	private static LivingEntity resolveAerialTarget(ServerPlayerEntity p, PlayerPower pw, double range) {
+		LivingEntity t = livingInSight(p, range);
+		if (t != null) return t;
+		if (pw.aerialWindowTicks > 0 && pw.finisherTargetId >= 0
+			&& p.getWorld().getEntityById(pw.finisherTargetId) instanceof LivingEntity fin
+			&& fin != p && fin.isAlive()) {
+			Vec3d to = fin.getBoundingBox().getCenter().subtract(p.getEyePos());
+			if (to.lengthSquared() <= range * range && (to.lengthSquared() < 1e-4 || to.normalize().dotProduct(p.getRotationVector()) > 0.25)) {
+				return fin;
+			}
+		}
+		return null;
+	}
+
+	private static float consumeAerialWindow(ServerPlayerEntity p, PlayerPower pw) {
+		if (pw.aerialWindowTicks <= 0) return 1.0f;
+		float mult = pw.aerialPerfect ? OpeConfig.SHAMBLES_AERIAL_DMG_MULT_PERFECT : OpeConfig.SHAMBLES_AERIAL_DMG_MULT;
+		pw.clearAerialWindow();
+		Shambles.syncAerialWindow(p, pw);
+		return mult;
 	}
 
 	private static void sound(ServerPlayerEntity p, Vec3d at, net.minecraft.sound.SoundEvent s, float vol, float pitch) {
@@ -426,9 +449,11 @@ public final class Techniques {
 			mes(p, pw);
 			return;
 		}
-		if (pw.onCooldown(Tech.RADIO_KNIFE)) return;
-		LivingEntity t = livingInSight(p, 60);
+		boolean aerial = pw.aerialWindowTicks > 0;
+		if (!aerial && pw.onCooldown(Tech.RADIO_KNIFE)) return;
+		LivingEntity t = resolveAerialTarget(p, pw, 60);
 		Vec3d point = t != null ? t.getBoundingBox().getCenter() : PowerManager.aimPoint(p, 60);
+		float aerialMult = consumeAerialWindow(p, pw);
 		Room room = PowerManager.roomAt(p, point);
 		List<CutEngine.Plane> planes = new ArrayList<>();
 		Vec3d look = p.getRotationVector();
@@ -442,7 +467,7 @@ public final class Techniques {
 		CutEngine.Region region = room != null
 			? CutEngine.Region.of(room).withLimit(point, 4.5)
 			: CutEngine.Region.sphere(point, 4.5);
-		CutEngine.cut(p, planes, region, pw.suspend, OpeConfig.RADIO_KNIFE_NO_REATTACH, dmg(22), room != null);
+		CutEngine.cut(p, planes, region, pw.suspend, OpeConfig.RADIO_KNIFE_NO_REATTACH, dmg(22 * aerialMult), room != null);
 		ServerWorld w = p.getServerWorld();
 		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, point.x, point.y, point.z, 80, 1.5, 1.5, 1.5, 0.4);
 		w.spawnParticles(ParticleTypes.SWEEP_ATTACK, point.x, point.y, point.z, 3, 0.8, 0.8, 0.8, 0);
@@ -454,7 +479,7 @@ public final class Techniques {
 		sound(p, point, SoundEvents.ITEM_TRIDENT_THROW.value(), 1.0f, 1.85f);
 		sound(p, point, SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, 1f, 1.6f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1f, 0.8f);
-		pw.cooldown(Tech.RADIO_KNIFE);
+		if (!aerial) pw.cooldown(Tech.RADIO_KNIFE);
 	}
 
 	/** Injection Shot: embestida que dispara al clavarse. */
@@ -468,10 +493,20 @@ public final class Techniques {
 			return;
 		}
 		if (pw.onCooldown(Tech.INJECTION)) return;
+		Vec3d dashDir = p.getRotationVector();
+		LivingEntity aimTarget = resolveAerialTarget(p, pw, 24.0);
+		if (aimTarget != null && pw.aerialWindowTicks > 0) {
+			Vec3d to = aimTarget.getBoundingBox().getCenter().subtract(p.getEyePos());
+			if (to.lengthSquared() > 1e-4) dashDir = to.normalize();
+		}
+		pw.aerialFinisherMult = consumeAerialWindow(p, pw);
 		pw.dashTicks = 7;
-		pw.dashDir = p.getRotationVector();
+		pw.dashDir = dashDir;
 		p.setVelocity(pw.dashDir.multiply(1.6));
 		p.velocityModified = true;
+		if (p.networkHandler != null) {
+			p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), p.getVelocity()));
+		}
 		ring(p.getServerWorld(), p.getPos().add(0, 1.0, 0), 1.4, 20, CutEngine.ROOM_DUST);
 		sound(p, p.getPos(), SoundEvents.ITEM_TRIDENT_RIPTIDE_3.value(), 1.0f, 1.45f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_BREEZE_WIND_BURST.value(), 1.0f, 1.25f);
@@ -489,7 +524,8 @@ public final class Techniques {
 		w.spawnParticles(CutEngine.ROOM_DUST, p.getX(), p.getY() + 1, p.getZ(), 5, 0.25, 0.4, 0.25, 0);
 		w.spawnParticles(ParticleTypes.END_ROD, p.getX(), p.getY() + 1, p.getZ(), 2, 0.15, 0.3, 0.15, 0.03);
 		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, p.getBoundingBox().expand(0.9), e -> e != p && e.isAlive())) {
-			le.damage(w.getDamageSources().playerAttack(p), dmg(45));
+			le.damage(w.getDamageSources().playerAttack(p), dmg(45 * pw.aerialFinisherMult));
+			pw.aerialFinisherMult = 1.0f;
 			Vec3d push = pw.dashDir.multiply(1.8).add(0, 0.45, 0);
 			le.addVelocity(push.x, push.y, push.z);
 			le.velocityModified = true;
@@ -512,6 +548,7 @@ public final class Techniques {
 			p.velocityModified = true;
 			break;
 		}
+		if (pw.dashTicks == 0) pw.aerialFinisherMult = 1.0f;
 	}
 
 	/** Gamma Knife: destruye por dentro y no mira la armadura. */
@@ -525,12 +562,32 @@ public final class Techniques {
 			return;
 		}
 		if (pw.onCooldown(Tech.GAMMA)) return;
-		LivingEntity t = livingInSight(p, 4.5);
+		boolean aerial = pw.aerialWindowTicks > 0;
+		double range = aerial ? OpeConfig.SHAMBLES_GAMMA_AERIAL_RANGE : 4.5;
+		LivingEntity t = resolveAerialTarget(p, pw, range);
 		if (t == null) {
 			p.sendMessage(Text.translatable("opeope.msg.too_far"), true);
 			return;
 		}
-		t.damage(ModDamage.of(p.getWorld(), ModDamage.GAMMA, p), dmg(70));
+		if (aerial && t.getBoundingBox().getCenter().squaredDistanceTo(p.getEyePos()) > 4.5 * 4.5) {
+			Vec3d toTarget = t.getBoundingBox().getCenter().subtract(p.getEyePos());
+			Vec3d dir = toTarget.lengthSquared() > 1e-4 ? toTarget.normalize() : p.getRotationVector();
+			Vec3d startEye = p.getEyePos();
+			Vec3d lungePos = t.getBoundingBox().getCenter().subtract(dir.multiply(2.1));
+			if (p.getWorld().isSpaceEmpty(p, p.getBoundingBox().offset(lungePos.subtract(p.getPos())))) {
+				p.requestTeleport(lungePos.x, lungePos.y, lungePos.z);
+			}
+			p.setVelocity(dir.multiply(1.4));
+			p.velocityModified = true;
+			p.fallDistance = 0f;
+			pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 100);
+			if (p.networkHandler != null) {
+				p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), p.getVelocity()));
+			}
+			beam(p, startEye, t.getBoundingBox().getCenter(), GAMMA_DUST);
+		}
+		float aerialMult = consumeAerialWindow(p, pw);
+		t.damage(ModDamage.of(p.getWorld(), ModDamage.GAMMA, p), dmg(70 * aerialMult));
 		t.addStatusEffect(new StatusEffectInstance(StatusEffects.WITHER, 60, 0));
 		ServerWorld w = p.getServerWorld();
 		Box b = t.getBoundingBox();
@@ -1085,12 +1142,15 @@ public final class Techniques {
 	public static void counterShock(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.onCooldown(Tech.COUNTER)) return;
 		ServerWorld w = p.getServerWorld();
-		LivingEntity t = livingInSight(p, 3.5);
+		boolean aerial = pw.aerialWindowTicks > 0;
+		LivingEntity t = resolveAerialTarget(p, pw, aerial ? 5.5 : 3.5);
 		List<LivingEntity> hit = new ArrayList<>();
 		if (t != null) hit.add(t);
-		else hit.addAll(w.getEntitiesByClass(LivingEntity.class, p.getBoundingBox().expand(2.5), e -> e != p && e.isAlive()));
+		else hit.addAll(w.getEntitiesByClass(LivingEntity.class, p.getBoundingBox().expand(aerial ? 4.0 : 2.5), e -> e != p && e.isAlive()));
+		float aerialMult = consumeAerialWindow(p, pw);
 		for (LivingEntity le : hit) {
-			le.damage(w.getDamageSources().playerAttack(p), t != null ? dmg(30) : 3f);
+			float wetMult = (aerial && (le.isWet() || le.isTouchingWaterOrRain())) ? 1.35f : 1.0f;
+			le.damage(w.getDamageSources().playerAttack(p), (t != null ? dmg(30) : 3f) * aerialMult * wetMult);
 			le.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, t != null ? 60 : 30, 0, false, true));
 			Vec3d push = le.getPos().subtract(p.getPos()).normalize().multiply(t != null ? 2.1 : 1.0).add(0, 0.4, 0);
 			le.addVelocity(push.x, push.y, push.z);

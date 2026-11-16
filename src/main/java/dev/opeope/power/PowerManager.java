@@ -216,6 +216,12 @@ public final class PowerManager {
 		Takt.dropAll(p, pw, false, from);
 		Forge.dropWeapons(p, pw);
 		Techniques.releaseSuspended(p, pw);
+		pw.clearAerialWindow();
+		pw.aerialChain = 0;
+		pw.recentThrownPieces.clear();
+		pw.lastThrownPieceId = -1;
+		pw.aerialFinisherMult = 1.0f;
+		Shambles.syncAerialWindow(p, pw);
 	}
 
 	private static void tick(MinecraftServer server) {

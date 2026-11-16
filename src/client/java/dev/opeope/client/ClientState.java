@@ -3,10 +3,12 @@ package dev.opeope.client;
 import dev.opeope.OpeConfig;
 import dev.opeope.client.room.RoomFxClient;
 import dev.opeope.client.room.RoomVisuals;
+import dev.opeope.entity.PieceEntity;
 import dev.opeope.net.Payloads;
 import dev.opeope.terrain.GroundCut;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.Nullable;
@@ -32,6 +34,11 @@ public final class ClientState {
 	public static int[] cooldowns = new int[0];
 	/** Los ids de lo que llevas en Takt, en el orden del servidor (State.held). */
 	public static int[] heldIds = new int[0];
+	/** Ventana aérea de Shambles Táctico y piezas en vuelo propias elegibles para trueque en 1 toque. */
+	public static int aerialTicks, aerialMaxTicks, finisherTargetId = -1, highlightedTacticalPieceId = -1;
+	public static float aerialGravMult = OpeConfig.SHAMBLES_AERIAL_GRAV_MULT;
+	public static boolean aerialPerfect;
+	public static int[] tacticalPieceIds = new int[0];
 	/** El ancho, grosor (0 = auto) y modo de lo que va encima (0..3) del trozo de Takt. Solo esta sesión. */
 	public static double chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;
 	public static int chunkDepth = 0;
@@ -89,6 +96,17 @@ public final class ClientState {
 		cooldowns = s.cooldowns();
 		// el array del paquete puede ser el del servidor (un jugador): copia
 		heldIds = s.held() == null ? new int[0] : s.held().clone();
+	}
+
+	public static void applyAerial(Payloads.AerialWindow a) {
+		aerialTicks = Math.max(0, a.ticks());
+		aerialMaxTicks = Math.max(0, a.maxTicks());
+		aerialGravMult = a.gravMult();
+		aerialPerfect = a.perfect();
+		finisherTargetId = a.finisherTargetId();
+		tacticalPieceIds = a.tacticalIds() == null ? new int[0] : a.tacticalIds().clone();
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (a.ticks() > 0 && mc.player != null) mc.player.setOnGround(false);
 	}
 
 	public static void room(Payloads.Room r) {
@@ -200,9 +218,49 @@ public final class ClientState {
 
 	public static void tick() {
 		// con el juego en pausa el servidor tampoco avanza: los tiempos de espera no deben bajar
-		if (MinecraftClient.getInstance().isPaused()) return;
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.isPaused()) return;
 		for (int i = 0; i < cooldowns.length; i++) if (cooldowns[i] > 0) cooldowns[i]--;
 		if (scanTicks > 0) scanTicks--;
+		if (aerialTicks > 0) {
+			aerialTicks--;
+			if (mc.player != null && !mc.player.isOnGround() && !mc.player.getAbilities().flying) {
+				Vec3d v = mc.player.getVelocity();
+				if (v.y < 0) {
+					mc.player.setVelocity(v.x, v.y * aerialGravMult, v.z);
+					mc.player.fallDistance = 0f;
+				}
+			}
+		} else {
+			finisherTargetId = -1;
+			aerialPerfect = false;
+		}
+		highlightedTacticalPieceId = -1;
+		if (mc.player != null && mc.world != null && tacticalPieceIds.length > 0 && hasFruit()) {
+			Vec3d eye = mc.player.getEyePos();
+			Vec3d look = mc.player.getRotationVec(1f);
+			double maxCos = Math.cos(Math.toRadians(OpeConfig.SHAMBLES_ASSIST_ANGLE_DEG));
+			double minVelSq = OpeConfig.SHAMBLES_VEL_MIN * OpeConfig.SHAMBLES_VEL_MIN;
+			double bestDot = maxCos;
+			for (int pid : tacticalPieceIds) {
+				Entity ent = mc.world.getEntityById(pid);
+				if (!(ent instanceof PieceEntity pe) || !pe.isAlive() || pe.mode != PieceEntity.Mode.FREE || pe.isOnGround()) continue;
+				Vec3d pv = pe.getVelocity();
+				if (pv.lengthSquared() <= minVelSq) continue;
+				Vec3d nowC = pe.center();
+				if (ownRoomAt(nowC) == null) continue;
+				Vec3d leadC = nowC.add(pv.multiply(OpeConfig.SHAMBLES_LEAD_TICKS));
+				Vec3d toNow = nowC.subtract(eye);
+				Vec3d toLead = leadC.subtract(eye);
+				double dotNow = toNow.lengthSquared() > 1e-4 ? toNow.normalize().dotProduct(look) : -1;
+				double dotLead = toLead.lengthSquared() > 1e-4 ? toLead.normalize().dotProduct(look) : -1;
+				double dot = Math.max(dotNow, dotLead);
+				if (dot >= bestDot) {
+					bestDot = dot;
+					highlightedTacticalPieceId = pid;
+				}
+			}
+		}
 	}
 
 	public static void clear() {
@@ -211,6 +269,13 @@ public final class ClientState {
 		taktCount = 0;
 		weapon = -1;
 		scanTicks = 0;
+		aerialTicks = 0;
+		aerialMaxTicks = 0;
+		finisherTargetId = -1;
+		highlightedTacticalPieceId = -1;
+		aerialGravMult = OpeConfig.SHAMBLES_AERIAL_GRAV_MULT;
+		aerialPerfect = false;
+		tacticalPieceIds = new int[0];
 		cooldowns = new int[0];
 		heldIds = new int[0];
 		chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;

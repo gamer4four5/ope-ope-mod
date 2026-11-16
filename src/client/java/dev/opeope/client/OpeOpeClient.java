@@ -50,6 +50,8 @@ public class OpeOpeClient implements ClientModInitializer {
 		// Takt sobre el suelo: los cortes del suelo que recuerda el servidor y los momentos de Takt
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.GroundCutSync.ID, (payload, ctx) -> ClientState.groundCut(payload));
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.TaktFx.ID, (payload, ctx) -> TaktFxClient.receive(payload));
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.AerialWindow.ID, (payload, ctx) ->
+			ctx.client().execute(() -> ClientState.applyAerial(payload)));
 		// Fabric puede avisar de la desconexión desde el hilo de red: lo de limpiar va al hilo del juego, que es el
 		// que dibuja y lee todo esto (si no, una ConcurrentModificationException podía cortar el guardado del progreso)
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {

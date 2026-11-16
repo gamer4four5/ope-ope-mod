@@ -85,6 +85,12 @@ public final class StatusChips {
 			float f = Anim.clamp01(ClientState.scanTicks / (float) OpeConfig.SCAN_TICKS);
 			out.add(new Chip("scan", Theme.HI, "Scan " + Txt.secs(ClientState.scanTicks), Theme.HI, f));
 		}
+		if (ClientState.aerialTicks > 0) {
+			float af = Anim.clamp01(ClientState.aerialTicks / (float) Math.max(1, ClientState.aerialMaxTicks));
+			int acol = ClientState.aerialPerfect ? Theme.FORGE : Theme.HI;
+			String atxt = (ClientState.aerialPerfect ? "★ Shambles Perfecto · " : "Remate Aéreo · ") + "[Z/X/C]";
+			out.add(new Chip("shambles", acol, atxt, acol, af));
+		}
 		if (!simple) {
 			if (ClientState.has(Payloads.State.CURTAIN)) {
 				out.add(new Chip("curtain", Theme.HI, countdown("Curtain", curtainAt, OpeConfig.CURTAIN_TICKS, now), Theme.HI, -1f));

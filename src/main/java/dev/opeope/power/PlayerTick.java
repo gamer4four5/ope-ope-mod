@@ -29,6 +29,7 @@ final class PlayerTick {
 		RoomOps.tick(p, pw);
 		Takt.tick(p, pw);
 		Shambles.tickProjectiles(p, pw);
+		Shambles.tickAerialWindow(p, pw);
 		if (p.age % 20 == 0) Forge.weapons(p, pw);
 		Terrain.tick(p, pw);
 		Union.surgeryTick(p, pw);

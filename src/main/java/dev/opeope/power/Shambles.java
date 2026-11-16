@@ -3,15 +3,22 @@ package dev.opeope.power;
 import dev.opeope.OpeConfig;
 import dev.opeope.entity.MarkerStoneEntity;
 import dev.opeope.entity.PieceEntity;
+import dev.opeope.net.Payloads;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.TntEntity;
+import net.minecraft.entity.boss.WitherEntity;
+import net.minecraft.entity.boss.dragon.EnderDragonEntity;
+import net.minecraft.entity.boss.dragon.EnderDragonPart;
 import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ArrowEntity;
 import net.minecraft.entity.projectile.ProjectileEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.packet.s2c.play.EntityVelocityUpdateS2CPacket;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -25,9 +32,14 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Shambles: cambiar de sitio lo que quieras dentro del ROOM, tú incluido, además de proyectiles, flechas y TNT en vuelo.
@@ -46,8 +58,23 @@ public final class Shambles {
 			return;
 		}
 
+		cleanTacticalQueue(p, pw);
+		Entity marked = pw.shamblesMark >= 0 ? p.getWorld().getEntityById(pw.shamblesMark) : null;
+		if (marked != null && (marked.isRemoved() || !marked.isAlive() || pw.shamblesMarkTicks <= 0)) marked = null;
+		if (marked == null) pw.shamblesMark = -1;
+
+		PieceEntity conePiece = findTacticalConePiece(p, pw);
+
+		// Con Shambles sin marca previa: el cono de asistencia hacia un trozo en vuelo tiene prioridad en 1 toque
+		if (marked == null && conePiece != null) {
+			if (swapPiece(p, pw, p, conePiece)) {
+				pw.cooldown(Tech.SHAMBLES);
+			}
+			return;
+		}
+
 		// Si hay proyectiles o TNT en vuelo dentro del ROOM y no tienes marca previa, redirígelos todos al objetivo en la mira
-		if (pw.shamblesMark < 0 && redirectAirborneProjectiles(p, pw)) {
+		if (marked == null && redirectAirborneProjectiles(p, pw)) {
 			pw.cooldown(Tech.SHAMBLES);
 			return;
 		}
@@ -67,12 +94,11 @@ public final class Shambles {
 			return;
 		}
 
-		Entity marked = pw.shamblesMark >= 0 ? p.getWorld().getEntityById(pw.shamblesMark) : null;
-		if (marked != null && (marked.isRemoved() || pw.shamblesMarkTicks <= 0)) marked = null;
-
 		if (marked == null) {
 			if (target instanceof MarkerStoneEntity) {
 				swap(p, p, target);
+			} else if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
+				if (!swapPiece(p, pw, p, pe)) return;
 			} else if (target != null) {
 				pw.shamblesMark = target.getId();
 				pw.shamblesMarkTicks = OpeConfig.SHAMBLES_MARK_TICKS;
@@ -81,34 +107,147 @@ public final class Shambles {
 				p.getWorld().playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 1.8f);
 				return;
 			} else {
-				Vec3d dest = emptyPoint(p);
-				if (dest == null) {
-					PowerManager.noRoom(p);
-					return;
+				PieceEntity fallback = findFallbackPiece(p, pw);
+				if (fallback != null) {
+					if (!swapPiece(p, pw, p, fallback)) return;
+				} else {
+					Vec3d dest = emptyPoint(p);
+					if (dest == null) {
+						PowerManager.noRoom(p);
+						return;
+					}
+					Vec3d from = p.getPos();
+					teleport(p, dest);
+					fx(p, from, dest);
 				}
-				Vec3d from = p.getPos();
-				teleport(p, dest);
-				fx(p, from, dest);
 			}
 		} else {
 			marked.setGlowing(false);
 			pw.shamblesMark = -1;
-			if (target == marked) {
+			if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
+				if (!swapPiece(p, pw, marked, pe)) return;
+			} else if (target == marked) {
 				swap(p, p, marked);
 			} else if (target != null) {
 				swap(p, marked, target);
 			} else {
-				Vec3d dest = emptyPoint(p);
-				if (dest == null) {
-					PowerManager.noRoom(p);
-					return;
+				PieceEntity piece = conePiece != null ? conePiece : findFallbackPiece(p, pw);
+				if (piece != null) {
+					if (!swapPiece(p, pw, marked, piece)) return;
+				} else {
+					Vec3d dest = emptyPoint(p);
+					if (dest == null) {
+						PowerManager.noRoom(p);
+						return;
+					}
+					Vec3d from = marked.getPos();
+					teleport(marked, dest);
+					fx(p, from, dest);
 				}
-				Vec3d from = marked.getPos();
-				teleport(marked, dest);
-				fx(p, from, dest);
 			}
 		}
 		pw.cooldown(Tech.SHAMBLES);
+	}
+
+	/** ¿Es este trozo elegible para Shambles Táctico en vuelo dentro del ROOM? */
+	public static boolean isTacticalPiece(ServerPlayerEntity p, @Nullable PieceEntity pe) {
+		if (pe == null || !pe.isAlive() || pe.isRemoved() || pe.weapon != null) return false;
+		if (pe.mode != PieceEntity.Mode.FREE || !pe.thrown || pe.isOnGround()) return false;
+		if (!OpeConfig.SHAMBLES_ALLOW_FOREIGN_PIECES && !p.getUuid().equals(pe.owner)) return false;
+		if (pe.getVelocity().lengthSquared() <= OpeConfig.SHAMBLES_VEL_MIN * OpeConfig.SHAMBLES_VEL_MIN) return false;
+		return PowerManager.inRoom(p, pe.center());
+	}
+
+	private static void cleanTacticalQueue(ServerPlayerEntity p, PlayerPower pw) {
+		ServerWorld w = p.getServerWorld();
+		Iterator<Integer> it = pw.recentThrownPieces.iterator();
+		while (it.hasNext()) {
+			Entity e = w.getEntityById(it.next());
+			if (!(e instanceof PieceEntity pe) || !isTacticalPiece(p, pe)) it.remove();
+		}
+		if (pw.lastThrownPieceId >= 0) {
+			Entity last = w.getEntityById(pw.lastThrownPieceId);
+			if (!(last instanceof PieceEntity pe) || !isTacticalPiece(p, pe)) pw.lastThrownPieceId = -1;
+		}
+	}
+
+	@Nullable
+	private static PieceEntity findTacticalConePiece(ServerPlayerEntity p, PlayerPower pw) {
+		ServerWorld w = p.getServerWorld();
+		Vec3d eye = p.getEyePos();
+		Vec3d look = p.getRotationVector();
+		double maxCos = Math.cos(Math.toRadians(OpeConfig.SHAMBLES_ASSIST_ANGLE_DEG));
+		Set<PieceEntity> candidates = new LinkedHashSet<>();
+		for (int id : pw.recentThrownPieces) {
+			if (w.getEntityById(id) instanceof PieceEntity pe && isTacticalPiece(p, pe)) candidates.add(pe);
+		}
+		Room active = pw.room != null && pw.room.dim == w.getRegistryKey() ? pw.room : pw.rroom;
+		if (active != null && active.dim == w.getRegistryKey()) {
+			Box box = new Box(active.center, active.center).expand(active.radius);
+			for (PieceEntity pe : w.getEntitiesByClass(PieceEntity.class, box, piece -> isTacticalPiece(p, piece))) {
+				candidates.add(pe);
+			}
+		}
+		PieceEntity best = null;
+		double bestDot = maxCos;
+		double bestDist2 = Double.MAX_VALUE;
+		for (PieceEntity pe : candidates) {
+			Vec3d nowC = pe.center();
+			Vec3d leadC = nowC.add(pe.getVelocity().multiply(OpeConfig.SHAMBLES_LEAD_TICKS));
+			Vec3d toNow = nowC.subtract(eye);
+			Vec3d toLead = leadC.subtract(eye);
+			double dotNow = toNow.lengthSquared() > 1e-4 ? toNow.normalize().dotProduct(look) : -1;
+			double dotLead = toLead.lengthSquared() > 1e-4 ? toLead.normalize().dotProduct(look) : -1;
+			double dot = Math.max(dotNow, dotLead);
+			double dist2 = eye.squaredDistanceTo(nowC);
+			if (dot > bestDot + 1e-4 || (Math.abs(dot - bestDot) <= 1e-4 && dist2 < bestDist2)) {
+				bestDot = dot;
+				bestDist2 = dist2;
+				best = pe;
+			}
+		}
+		return best;
+	}
+
+	@Nullable
+	private static PieceEntity findFallbackPiece(ServerPlayerEntity p, PlayerPower pw) {
+		ServerWorld w = p.getServerWorld();
+		long ageTicks = w.getTime() - pw.lastThrownTick;
+		if (pw.lastThrownPieceId >= 0 && ageTicks <= OpeConfig.SHAMBLES_FALLBACK_WINDOW) {
+			if (w.getEntityById(pw.lastThrownPieceId) instanceof PieceEntity pe && isTacticalPiece(p, pe)) return pe;
+		}
+		for (int id : pw.recentThrownPieces) {
+			if (w.getEntityById(id) instanceof PieceEntity pe && isTacticalPiece(p, pe)) return pe;
+		}
+		return null;
+	}
+
+	private static boolean canSwapWithPiece(Entity e) {
+		if (e == null || !e.isAlive() || e.isRemoved() || e.isSpectator()) return false;
+		return !(e instanceof EnderDragonEntity || e instanceof EnderDragonPart || e instanceof WitherEntity);
+	}
+
+	@Nullable
+	private static Vec3d findSafeEntityPos(ServerWorld w, Entity e, Vec3d basePos, double maxR) {
+		Box baseBox = e.getBoundingBox().offset(basePos.subtract(e.getPos()));
+		if (w.isSpaceEmpty(e, baseBox)) return basePos;
+		for (double dy = 0.5; dy <= maxR; dy += 0.5) {
+			if (w.isSpaceEmpty(e, baseBox.offset(0, dy, 0))) return basePos.add(0, dy, 0);
+		}
+		double step = 0.65;
+		double[] ys = {0.0, 0.65, -0.65, 1.3, -1.3};
+		for (double r = step; r <= maxR; r += step) {
+			for (int a = 0; a < 8; a++) {
+				double ang = a * (Math.PI / 4.0);
+				double dx = Math.cos(ang) * r;
+				double dz = Math.sin(ang) * r;
+				for (double dy : ys) {
+					if (dx * dx + dy * dy + dz * dz > maxR * maxR + 0.05) continue;
+					if (w.isSpaceEmpty(e, baseBox.offset(dx, dy, dz))) return basePos.add(dx, dy, dz);
+				}
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -294,18 +433,26 @@ public final class Shambles {
 	}
 
 	public static void teleport(Entity e, Vec3d pos) {
+		teleport(e, pos, false);
+	}
+
+	public static void teleport(Entity e, Vec3d pos, boolean keepVelocity) {
+		Vec3d prevVel = keepVelocity ? e.getVelocity() : Vec3d.ZERO;
 		if (e instanceof PieceEntity pe) {
 			pe.setPosition(pos);
 			if (pe.mode == PieceEntity.Mode.CONTROLLED) pe.target = pe.center();
 		} else {
 			e.requestTeleport(pos.x, pos.y, pos.z);
 		}
-		e.setVelocity(Vec3d.ZERO);
+		e.setVelocity(prevVel);
 		e.fallDistance = 0;
 		e.velocityModified = true;
 		if (e instanceof ServerPlayerEntity sp) {
 			PlayerPower pw = PowerManager.get(sp);
 			pw.fallImmunityTicks = 600;
+			if (keepVelocity && sp.networkHandler != null) {
+				sp.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(sp.getId(), prevVel));
+			}
 		}
 	}
 
@@ -314,6 +461,172 @@ public final class Shambles {
 		teleport(a, pb);
 		teleport(b, pa);
 		fx(p, pa, pb);
+	}
+
+	/** Intercambio táctico centrado entre jugador/enemigo y un PieceEntity en vuelo, conservando impulso y abriendo ventana aérea. */
+	public static boolean swapPiece(ServerPlayerEntity p, PlayerPower pw, Entity other, PieceEntity pe) {
+		if (pe == null || !isTacticalPiece(p, pe) || !canSwapWithPiece(other)) return false;
+		ServerWorld w = p.getServerWorld();
+		boolean selfSwap = other == p;
+		if (!selfSwap && other instanceof ServerPlayerEntity spTarget && w.getServer() != null
+			&& (!w.getServer().isPvpEnabled() || spTarget.isCreative())) {
+			return false;
+		}
+		if (selfSwap && !p.isOnGround() && pw.aerialChain >= OpeConfig.SHAMBLES_MAX_AIR_CHAIN) {
+			p.sendMessage(Text.translatable("opeope.msg.air_chain_limit"), true);
+			w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), SoundCategory.PLAYERS, 0.8f, 0.6f);
+			return false;
+		}
+
+		Vec3d cPiece = pe.center();
+		Vec3d cOther = other.getBoundingBox().getCenter();
+		Vec3d rawOtherPos = new Vec3d(cPiece.x, cPiece.y - other.getHeight() * 0.5, cPiece.z);
+		Vec3d safeOtherPos = findSafeEntityPos(w, other, rawOtherPos, 2.0);
+		if (safeOtherPos == null) {
+			p.sendMessage(Text.translatable("opeope.msg.shambles_no_space"), true);
+			w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_BASS.value(), SoundCategory.PLAYERS, 0.8f, 0.5f);
+			return false;
+		}
+
+		Vec3d pieceCenterOffset = cPiece.subtract(pe.getPos());
+		Vec3d rawPieceBase = cOther.subtract(pieceCenterOffset);
+		if (rawPieceBase.y < w.getBottomY() + 1) rawPieceBase = new Vec3d(rawPieceBase.x, w.getBottomY() + 1.0, rawPieceBase.z);
+		Vec3d safePieceBase = rawPieceBase;
+		if (!OpeConfig.SHAMBLES_PIECE_CRUSH_ON_OVERLAP) {
+			Box pBox = pe.getBoundingBox().offset(rawPieceBase.subtract(pe.getPos()));
+			for (double dy = 0; dy <= 4.0; dy += 0.5) {
+				if (w.isBlockSpaceEmpty(pe, pBox.offset(0, dy, 0))) {
+					safePieceBase = rawPieceBase.add(0, dy, 0);
+					break;
+				}
+			}
+		}
+
+		int ticksToImpact = pe.predictTicksToImpact(20);
+		boolean perfect = selfSwap && ticksToImpact <= OpeConfig.SHAMBLES_PERFECT_TICKS;
+		int finId = selfSwap ? findTrajectoryTarget(w, p, cPiece, pe.getVelocity()) : -1;
+
+		Vec3d pieceVel = pe.getVelocity();
+		double velMag = pieceVel.length();
+		int velMode = selfSwap ? OpeConfig.SHAMBLES_PIECE_VEL_MODE_SELF : OpeConfig.SHAMBLES_PIECE_VEL_MODE_ENEMY;
+		Vec3d newPieceVel = pieceVel;
+		if (velMode == OpeConfig.SHAMBLES_VEL_REAIM) {
+			Vec3d reaimTarget = selfSwap ? PowerManager.aimPoint(p, 120) : safeOtherPos.add(0, other.getHeight() * 0.5, 0);
+			Vec3d diff = reaimTarget.subtract(cOther);
+			if (diff.lengthSquared() > 1e-4) {
+				newPieceVel = diff.normalize().multiply(Math.max(velMag, 0.85));
+			}
+		}
+
+		if (pe.isRemoved() || !pe.isAlive()) return false;
+		if (other.hasVehicle()) other.stopRiding();
+		if (other.hasPassengers()) other.removeAllPassengers();
+
+		pe.setPosition(safePieceBase);
+		pe.setVelocity(newPieceVel);
+		pe.thrown = true;
+		pe.ownerGraceTicks = OpeConfig.SHAMBLES_OWNER_GRACE_TICKS;
+		pe.velocityModified = true;
+
+		if (selfSwap) {
+			Vec3d inherit = pieceVel.multiply(OpeConfig.SHAMBLES_MOMENTUM_INHERIT);
+			double cap = OpeConfig.SHAMBLES_MOMENTUM_CAP;
+			if (inherit.lengthSquared() > cap * cap) inherit = inherit.multiply(cap / inherit.length());
+			inherit = new Vec3d(inherit.x, Math.max(inherit.y, 0.14), inherit.z);
+			p.requestTeleport(safeOtherPos.x, safeOtherPos.y, safeOtherPos.z);
+			p.setOnGround(false);
+			p.setVelocity(inherit);
+			p.fallDistance = 0f;
+			p.velocityModified = true;
+			pw.fallImmunityTicks = 600;
+			if (p.networkHandler != null) {
+				p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), inherit));
+			}
+
+			pw.aerialChain++;
+			int dur = perfect ? OpeConfig.SHAMBLES_AERIAL_WINDOW_PERFECT : OpeConfig.SHAMBLES_AERIAL_WINDOW;
+			pw.aerialWindowTicks = dur;
+			pw.aerialWindowMaxTicks = dur;
+			pw.aerialPerfect = perfect;
+			pw.finisherTargetId = finId;
+			syncAerialWindow(p, pw);
+			p.sendMessage(Text.translatable(perfect ? "opeope.msg.shambles_perfect" : "opeope.msg.shambles_tactical"), true);
+		} else {
+			teleport(other, safeOtherPos, false);
+			p.sendMessage(Text.translatable("opeope.msg.shambles_enemy_piece", other.getDisplayName()), true);
+		}
+
+		tacticalFx(p, cOther, cPiece, perfect);
+		return true;
+	}
+
+	private static int findTrajectoryTarget(ServerWorld w, ServerPlayerEntity p, Vec3d origin, Vec3d vel) {
+		Vec3d dir = vel.lengthSquared() > 1e-4 ? vel.normalize() : p.getRotationVector();
+		LivingEntity best = null;
+		double bestScore = Double.MAX_VALUE;
+		Box search = new Box(origin, origin.add(dir.multiply(24.0))).expand(7.5);
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, search,
+			e -> e != p && e.isAlive() && !e.isSpectator() && PowerManager.inRoom(p, e.getBoundingBox().getCenter()))) {
+			Vec3d to = le.getBoundingBox().getCenter().subtract(origin);
+			double proj = to.dotProduct(dir);
+			if (proj < -1.0 || proj > 26.0) continue;
+			double perp2 = to.subtract(dir.multiply(Math.max(0.0, proj))).lengthSquared();
+			if (perp2 > 36.0) continue;
+			double score = perp2 + Math.abs(proj) * 0.25;
+			if (score < bestScore) {
+				bestScore = score;
+				best = le;
+			}
+		}
+		return best != null ? best.getId() : -1;
+	}
+
+	public static void tickAerialWindow(ServerPlayerEntity p, PlayerPower pw) {
+		boolean sync = false;
+		if (pw.aerialWindowTicks > 0) {
+			p.fallDistance = 0f;
+			pw.aerialWindowTicks--;
+			int elapsed = pw.aerialWindowMaxTicks - pw.aerialWindowTicks;
+			if (pw.aerialWindowTicks == 0 || (elapsed >= 4 && p.isOnGround())) {
+				pw.clearAerialWindow();
+				if (elapsed >= 4 && p.isOnGround()) pw.aerialChain = 0;
+				sync = true;
+			}
+		} else if (pw.aerialChain > 0 && p.isOnGround()) {
+			pw.aerialChain = 0;
+		}
+		if (!pw.recentThrownPieces.isEmpty() && p.age % 2 == 0) {
+			int before = pw.recentThrownPieces.size();
+			cleanTacticalQueue(p, pw);
+			if (pw.recentThrownPieces.size() != before) sync = true;
+		}
+		if (sync) syncAerialWindow(p, pw);
+	}
+
+	public static void syncAerialWindow(ServerPlayerEntity p, PlayerPower pw) {
+		if (p.networkHandler == null) return;
+		cleanTacticalQueue(p, pw);
+		int[] ids = new int[pw.recentThrownPieces.size()];
+		for (int i = 0; i < ids.length; i++) ids[i] = pw.recentThrownPieces.get(i);
+		ServerPlayNetworking.send(p, new Payloads.AerialWindow(
+			pw.aerialWindowTicks, pw.aerialWindowMaxTicks, OpeConfig.SHAMBLES_AERIAL_GRAV_MULT,
+			pw.aerialPerfect, pw.finisherTargetId, ids));
+	}
+
+	private static void tacticalFx(ServerPlayerEntity p, Vec3d cA, Vec3d cB, boolean perfect) {
+		fx(p, cA.subtract(0, 1.0, 0), cB.subtract(0, 1.0, 0));
+		ServerWorld w = p.getServerWorld();
+		for (Vec3d v : new Vec3d[]{cA, cB}) {
+			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, v.x, v.y, v.z, perfect ? 28 : 14, 0.45, 0.45, 0.45, 0.14);
+			if (perfect) {
+				w.spawnParticles(ParticleTypes.END_ROD, v.x, v.y, v.z, 18, 0.5, 0.5, 0.5, 0.08);
+			}
+		}
+		w.playSound(null, cB.x, cB.y, cB.z, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS,
+			1.2f, perfect ? 2.0f : 1.85f);
+		if (perfect) {
+			w.playSound(null, cB.x, cB.y, cB.z, SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 0.65f, 1.9f);
+		}
 	}
 
 	public static void fx(ServerPlayerEntity p, Vec3d a, Vec3d b) {

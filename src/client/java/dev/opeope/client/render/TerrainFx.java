@@ -1212,6 +1212,7 @@ public final class TerrainFx {
 	/** El color del borde de una pieza según su estado (0 = sin borde). */
 	private static int rim(PieceEntity e, int f) {
 		if ((f & PieceEntity.F_LANDED) != 0) return 0;
+		if (e.getId() == ClientState.highlightedTacticalPieceId) return HOT;
 		if ((f & PieceEntity.F_SEAM) != 0) return MINT;
 		if ((f & PieceEntity.F_HELD) != 0) return contains(ClientState.heldIds, e.getId()) && ClientState.taktMode == 2 ? PARK : ROOM;
 		if ((f & PieceEntity.F_SUSPENDED) != 0) return ROOM;
@@ -1219,6 +1220,7 @@ public final class TerrainFx {
 	}
 
 	private static double rimK(PieceEntity e, int f) {
+		if (e.getId() == ClientState.highlightedTacticalPieceId) return 1.0;
 		if ((f & PieceEntity.F_SEAM) != 0) return 1.0;
 		if ((f & PieceEntity.F_HELD) != 0) return contains(ClientState.heldIds, e.getId()) && ClientState.taktMode == 2 ? 1.0 : 0.6;
 		return 0.8;

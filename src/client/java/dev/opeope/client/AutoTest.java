@@ -27,7 +27,9 @@ import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.Room;
 import dev.opeope.power.RoomOps;
+import dev.opeope.power.Shambles;
 import dev.opeope.power.Takt;
+import dev.opeope.power.Tech;
 import dev.opeope.terrain.ChunkPlan;
 import dev.opeope.terrain.ChunkPlanner;
 import dev.opeope.terrain.GroundCut;
@@ -1056,6 +1058,8 @@ public final class AutoTest {
 
 		planBombardeoOrbital(mc, srv, id);
 
+		planShamblesTactico(mc, srv, id);
+
 		planRevision(mc, srv, id);
 
 		// dejarlo como estaba para (l)
@@ -1253,9 +1257,10 @@ public final class AutoTest {
 
 	/** En el hilo del servidor: rehace llano lo del campo que queda fuera de la parcela de (k2) (x ±16, z gz0−34..gz0+2). */
 	private static void patchFieldRing(ServerWorld w) {
-		patch(w, gx0 - 30, gx0 - 17, gz0 - 62, gz0 + 2, gfy);
-		patch(w, gx0 + 17, gx0 + 30, gz0 - 62, gz0 + 2, gfy);
-		patch(w, gx0 - 16, gx0 + 16, gz0 - 62, gz0 - 35, gfy);
+		patch(w, gx0 - 32, gx0 - 17, gz0 - 64, gz0 + 4, gfy);
+		patch(w, gx0 + 17, gx0 + 32, gz0 - 64, gz0 + 4, gfy);
+		patch(w, gx0 - 16, gx0 + 16, gz0 - 64, gz0 - 35, gfy);
+		patch(w, gx0 - 16, gx0 + 16, gz0 + 3, gz0 + 4, gfy);
 	}
 
 	/**
@@ -1274,7 +1279,9 @@ public final class AutoTest {
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
 				clearField(w, true);
-				patch(w, gx0 - 16, gx0 + 16, gz0 - 26, gz0 + 2, gfy);
+				patchFieldRing(w);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				clearField(w, true);
 				BlockPos.Mutable m = new BlockPos.Mutable();
 				for (int x = gx0 - 6; x <= gx0 + 6; x++) {
 					for (int z = gz0 - 22; z <= gz0 - 15; z++) {
@@ -1437,6 +1444,143 @@ public final class AutoTest {
 			check((srvC & 2) != 0 && srvB == items0, "el bombardeo orbital no suelta objetos",
 				"DROPPED " + dropped0 + " -> " + PieceEntity.DROPPED + ", objetos " + items0 + " -> " + srvB);
 			check(srvA == solid0, "conservación de bloques en el bombardeo orbital", "antes " + solid0 + ", después " + srvA);
+		});
+	}
+
+	/**
+	 * (k2e) Shambles Táctico con tus propios trozos en vuelo:
+	 * 1) Al lanzar una pieza y usar Shambles en 1 toque, el jugador pasa a su centro con impulso/ventana aérea y la roca
+	 *    conserva velocidad en la posición anterior del jugador sin dañarlo.
+	 * 2) Con un enemigo marcado, usar Shambles tras lanzar un trozo cambia al enemigo por la roca y la redirige contra él.
+	 */
+	private static void planShamblesTactico(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		step(2, "shamblesT: preparar", () -> {
+			srvA = 0;
+			srvB = -1;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Takt.dropAll(sp, pw, false);
+				Takt.cancelPending(sp, pw);
+				clearField(w, true);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				pw.clearAerialWindow();
+				pw.aerialChain = 0;
+				pw.recentThrownPieces.clear();
+				pw.lastThrownPieceId = -1;
+				pw.shamblesMark = -1;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 8.5, 180f, -15f);
+				sp.setYaw(180f);
+				sp.setPitch(-15f);
+				srvA = 1;
+			});
+		});
+		waitFor("shamblesT: preparado", 40, "no se preparó el campo de Shambles táctico",
+			() -> srvA == 1 && mc.player.getZ() < gz0 - 7 && mc.player.getZ() > gz0 - 10, null);
+		step(2, "shamblesT: lanza pieza", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			BlockSet set = new BlockSet();
+			for (int x = 0; x < 2; x++)
+				for (int y = 0; y < 2; y++)
+					for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
+			set.normalize();
+			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 2.0, gz0 - 10.5), null, sp.getUuid());
+			pe.release(new Vec3d(0, 0.32, -1.75), true);
+			pw.recordThrownPiece(pe.getId(), w.getTime());
+			srvB = pe.getId();
+		}));
+		step(2, "shamblesT: swap jugador", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				sp.setYaw(180f);
+				sp.setPitch(-8f);
+				Shambles.use(sp, pw, false);
+				Entity ent = sp.getServerWorld().getEntityById(srvB);
+				boolean swappedPlayer = sp.getY() >= gfy + 2.0 && sp.getZ() <= gz0 - 11.0;
+				boolean rockKept = ent instanceof PieceEntity pe && pe.thrown && pe.getVelocity().length() > 0.5
+					&& pe.ownerGraceTicks > 0 && pe.getZ() > gz0 - 10.0;
+				boolean aerialOpen = pw.aerialWindowTicks > 0 && pw.aerialChain >= 1;
+				srvA = (swappedPlayer ? 1 : 0) | (rockKept ? 2 : 0) | (aerialOpen ? 4 : 0);
+				if (ent != null) ent.discard();
+				pw.clearAerialWindow();
+				pw.aerialChain = 0;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+			});
+		});
+		waitFor("shamblesT: verifica jugador", 20, "falló Shambles táctico jugador <-> trozo", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "Shambles 1 toque lleva al jugador al centro de la pieza en vuelo", "srvA=" + srvA);
+			check((srvA & 2) != 0, "el trozo conserva su impulso y gracia de dueño en la posición previa del jugador", "srvA=" + srvA);
+			check((srvA & 4) != 0, "se abre la ventana aérea de remate tras el intercambio", "srvA=" + srvA);
+		});
+		step(2, "shamblesT: preparar enemigo", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				pw.clearAerialWindow();
+				pw.aerialChain = 0;
+				pw.recentThrownPieces.clear();
+				pw.lastThrownPieceId = -1;
+				pw.shamblesMark = -1;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 6.5, 180f, -20f);
+				sp.setYaw(180f);
+				sp.setPitch(-20f);
+				Shambles.syncAerialWindow(sp, pw);
+				PigEntity pig = EntityType.PIG.create(w);
+				if (pig != null) {
+					pig.refreshPositionAndAngles(gx0 + 0.5, gfy + 1, gz0 - 10.5, 0f, 0f);
+					w.spawnEntity(pig);
+					pw.shamblesMark = pig.getId();
+					pw.shamblesMarkTicks = OpeConfig.SHAMBLES_MARK_TICKS;
+					srvC = pig.getId();
+				}
+				srvA = 1;
+			});
+		});
+		waitFor("shamblesT: enemigo listo", 40, "no se preparó el enemigo táctico",
+			() -> srvA == 1 && mc.player.getY() < gfy + 1.5, null);
+		step(1, "shamblesT: lanza roca enemigo", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			BlockSet set = new BlockSet();
+			for (int x = 0; x < 2; x++)
+				for (int y = 0; y < 2; y++)
+					for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
+			set.normalize();
+			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 5.5, gz0 - 15.5), null, sp.getUuid());
+			pe.release(new Vec3d(0, 0.12, -1.2), true);
+			pw.recordThrownPiece(pe.getId(), w.getTime());
+			srvB = pe.getId();
+		}));
+		step(1, "shamblesT: swap enemigo", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				sp.setYaw(180f);
+				sp.setPitch(-35f);   // no apunta al cerdo: el trozo en vuelo tiene prioridad frente a emptyPoint
+				Shambles.use(sp, pw, false);
+				Entity enemy = w.getEntityById(srvC);
+				Entity rock = w.getEntityById(srvB);
+				boolean enemyLifted = enemy != null && enemy.getY() >= gfy + 4.0 && enemy.getZ() <= gz0 - 13.5;
+				boolean rockReaimed = rock instanceof PieceEntity pe && pe.getZ() >= gz0 - 12.5 && pe.getVelocity().z < -0.4;
+				srvA = (enemyLifted ? 1 : 0) | (rockReaimed ? 2 : 0);
+				if (enemy != null) enemy.discard();
+				if (rock != null) rock.discard();
+				clearField(w, true);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
+				pw.clearAerialWindow();
+				pw.aerialChain = 0;
+				pw.recentThrownPieces.clear();
+				pw.lastThrownPieceId = -1;
+				pw.shamblesMark = -1;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+			});
+		});
+		waitFor("shamblesT: verifica enemigo", 20, "falló Shambles táctico enemigo <-> trozo", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "enemigo marcado pasa al aire en lugar de la roca lanzada", "srvA=" + srvA);
+			check((srvA & 2) != 0, "la roca redirige su velocidad hacia el enemigo intercambiado", "srvA=" + srvA);
 		});
 	}
 
