@@ -40,14 +40,16 @@ import net.minecraft.util.math.Vec3d;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** Las técnicas de cirujano, las del Despertar y las técnicas de Espada (Kikoku) y Pelea (Palma Quirúrgica). */
 public final class Techniques {
 	private Techniques() {}
 
-	private static final DustParticleEffect GAMMA_DUST = new DustParticleEffect(new Vector3f(0.55f, 1f, 0.6f), 1.0f);
+	public static final DustParticleEffect GAMMA_DUST = new DustParticleEffect(new Vector3f(0.55f, 1f, 0.6f), 1.0f);
 	private static final DustParticleEffect CURTAIN_DUST = new DustParticleEffect(new Vector3f(0.7f, 0.9f, 1f), 1.6f);
 	public static final DustParticleEffect KROOM_DUST = new DustParticleEffect(new Vector3f(0.65f, 0.96f, 1.0f), 1.4f);
 	public static final DustParticleEffect YOUTH_DUST = new DustParticleEffect(new Vector3f(1.0f, 0.35f, 0.55f), 1.5f);
@@ -1165,7 +1167,30 @@ public final class Techniques {
 		ring(w, p.getPos().add(0, 1.0, 0), 2.2, 22, CutEngine.ROOM_DUST);
 		sound(p, p.getPos(), SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.2f, 1.85f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, 1f, 1.6f);
+
+		List<Vec3d> origins = new ArrayList<>();
+		if (t != null) {
+			origins.add(t.getBoundingBox().getCenter());
+		} else {
+			origins.add(p.getPos().add(0, 1.0, 0));
+			for (LivingEntity le : hit) origins.add(le.getBoundingBox().getCenter());
+		}
+		if (hasConductiveInHandOrNear(p, pw)) origins.add(p.getPos().add(0, 1.0, 0));
+		Set<LivingEntity> already = new HashSet<>(hit);
+		Conduction.chain(p, pw, origins, already, dmg(30) * 0.6f * aerialMult, 60, false);
+
 		pw.cooldown(Tech.COUNTER);
+	}
+
+	private static boolean hasConductiveInHandOrNear(ServerPlayerEntity p, PlayerPower pw) {
+		for (int id : pw.weapons) {
+			if (p.getWorld().getEntityById(id) instanceof PieceEntity pe && pe.trait() == dev.opeope.terrain.MaterialTrait.CONDUCTIVE) return true;
+		}
+		for (int id : pw.takt) {
+			if (p.getWorld().getEntityById(id) instanceof PieceEntity pe && pe.trait() == dev.opeope.terrain.MaterialTrait.CONDUCTIVE) return true;
+		}
+		return !p.getWorld().getEntitiesByClass(PieceEntity.class, p.getBoundingBox().expand(2.5),
+			pe -> pe.isAlive() && pe.trait() == dev.opeope.terrain.MaterialTrait.CONDUCTIVE).isEmpty();
 	}
 
 	/** Bisturí: casi para el tiempo (solo en una partida de un jugador) mientras eliges el plano exacto. */
@@ -1336,6 +1361,16 @@ public final class Techniques {
 			sound(p, c, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 1.6f, 1.3f);
 			sound(p, c, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 1.2f, 1.5f);
 		}
+		List<Vec3d> origins = new ArrayList<>();
+		for (LivingEntity t : victims) origins.add(t.getBoundingBox().getCenter());
+		Vec3d rayVec = endPoint.subtract(eye);
+		double rayLen = rayVec.length();
+		int samples = Math.max(2, (int) Math.ceil(rayLen / 2.0));
+		for (int i = 1; i <= samples; i++) {
+			origins.add(eye.add(rayVec.multiply(i / (double) samples)));
+		}
+		Conduction.chainAlongRay(p, pw, origins, new HashSet<>(victims), dmg(200) * 0.35f, 60, true, eye, endPoint);
+
 		p.sendMessage(Text.literal("§b⚡ K-ROOM: ¡SHOCK WILLE!"), true);
 		pw.cooldown(Tech.SHOCK_WILLE);
 	}

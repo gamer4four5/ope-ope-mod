@@ -8,6 +8,7 @@ import dev.opeope.entity.BlockSet;
 import dev.opeope.entity.PieceEntity;
 import dev.opeope.net.Payloads;
 import dev.opeope.terrain.GroundRules;
+import dev.opeope.terrain.MaterialTrait;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -598,7 +599,7 @@ public final class TaktFxClient {
 	 * es tuyo y a qué distancia está la cámara.
 	 */
 	private record Hit(Vec3d c, int tier, double k, double r, double sc, double crater, double plow, Vec3d dir,
-					   BlockState ground, int[] color, double kg, boolean own, double dist) {}
+					   BlockState ground, int[] color, double kg, boolean own, double dist, MaterialTrait trait) {}
 
 	/**
 	 * Impacto. Todo crece con el tamaño de la roca y la fuerza del golpe, y baja con la distancia. Como en la realidad, de
@@ -615,10 +616,11 @@ public final class TaktFxClient {
 		BlockState ground = Block.getStateFromRawId(fx.datum(Payloads.TaktFx.I_GROUND, 0));
 		if (ground.isAir() || !ground.getFluidState().isEmpty()) ground = Blocks.DIRT.getDefaultState();
 		Entity e = mc.world.getEntityById(fx.entityId());
+		MaterialTrait tr = e instanceof PieceEntity pe ? pe.trait() : MaterialTrait.NONE;
 		double kg = e instanceof PieceEntity pe ? massOf(pe) : 3000 * r * r * r;
 		Hit h = new Hit(c, tier, k, r, MathHelper.clamp(r / 3, 0.5, 4), Math.max(0, fx.a()),
 			Math.max(0, fx.datum(Payloads.TaktFx.I_PLOW, 0) / 100.0), dir, ground,
-			dustColor(mc.world, ground, BlockPos.ofFloored(c.x, c.y - 0.5, c.z)), kg, own, dist);
+			dustColor(mc.world, ground, BlockPos.ofFloored(c.x, c.y - 0.5, c.z)), kg, own, dist, tr);
 		int delay = soundDelay(dist);
 		quake(h, delay);
 		impactSounds(h, delay);
@@ -673,7 +675,7 @@ public final class TaktFxClient {
 		Vec3d c = h.c();
 		int tier = h.tier();
 		double sc = h.sc(), k = h.k(), d = h.dist();
-		float rate = TaktSounds.massRate(h.kg()) * (tier >= 2 ? 0.8f : 1f);
+		float rate = TaktSounds.massRate(h.kg()) * (tier >= 2 ? 0.8f : 1f) * (h.trait() == MaterialTrait.HEAVY_PIERCING ? 0.7f : 1f);
 		double nearReach = (16 + 10 * tier) * (0.8 + 0.2 * sc);
 		heard("takt.impact", c, rate, IMPACT_VOL[tier] * fade(d, nearReach, 1.0), delay);
 		if (h.crater() > 0) {
@@ -803,6 +805,19 @@ public final class TaktFxClient {
 		}
 		if (h.plow() >= 1) furrow(h, own);
 		if (tier == 3 && OpeSettings.flashLevel() == 2) add(ParticleTypes.FLASH, c.x, c.y + 1, c.z, 0, 0, 0);
+		if (h.trait() != MaterialTrait.NONE) {
+			for (int i = n(18 * q, own); i > 0; i--) {
+				double a = RNG.nextDouble() * 2 * Math.PI, rho = R * range(0.2, 1.15);
+				Vec3d p = around(h, a, rho);
+				switch (h.trait()) {
+					case IGNEOUS -> add(ParticleTypes.FLAME, p.x, c.y + range(0.2, 1.4), p.z, rnd() * 0.08, range(0.05, 0.16), rnd() * 0.08);
+					case CRYO -> add(ParticleTypes.SNOWFLAKE, p.x, c.y + range(0.2, 1.4), p.z, rnd() * 0.08, range(0.03, 0.12), rnd() * 0.08);
+					case CONDUCTIVE -> add(ParticleTypes.ELECTRIC_SPARK, p.x, c.y + range(0.2, 1.4), p.z, rnd() * 0.18, range(0.05, 0.2), rnd() * 0.18);
+					case HEAVY_PIERCING -> add(dust(darker(col, 0.35), 4.2f), p.x, c.y + range(0.2, 1.0), p.z, Math.cos(a) * 0.16, 0.04, Math.sin(a) * 0.16);
+					case NONE -> {}
+				}
+			}
+		}
 	}
 
 	/** Iba rasante: la ola de tierra a los lados del surco, que avanza hasta donde se paró la roca. */

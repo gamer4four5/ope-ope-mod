@@ -57,8 +57,13 @@ public final class Crater {
 		}
 	}
 
+	/** Reglas de excavación: normal (solo terreno natural) o heavy (puede fracturar estructuras duras). */
+	public record CarveRules(boolean allowHard, double k) {
+		public static final CarveRules DEFAULT = new CarveRules(false, 0.0);
+	}
+
 	/** El último cráter (solo en el hilo del servidor; lo mira la prueba automática). */
-	public static Result last = new Result(0, 0, 0, 0, 0, false, 0, 0, 0);
+	public static volatile Result last = new Result(0, 0, 0, 0, 0, false, 0, 0, 0);
 
 	// lo que llevan cavado los cráteres de este tick (CRATER_TICK_BUDGET)
 	private static long budgetTick = Long.MIN_VALUE;
@@ -91,6 +96,12 @@ public final class Crater {
 	 */
 	public static Result dig(ServerWorld w, @Nullable PieceEntity rock, Vec3d contact, Vec3d dir, double plow, double R,
 							 double depth, int tier) {
+		return dig(w, rock, contact, dir, plow, R, depth, tier, CarveRules.DEFAULT);
+	}
+
+	public static Result dig(ServerWorld w, @Nullable PieceEntity rock, Vec3d contact, Vec3d dir, double plow, double R,
+							 double depth, int tier, CarveRules rules) {
+		if (rules == null) rules = CarveRules.DEFAULT;
 		long now = w.getTime();
 		if (now != budgetTick) {
 			budgetTick = now;
@@ -128,7 +139,7 @@ public final class Crater {
 
 		List<Dug> dug = new ArrayList<>();
 		LongOpenHashSet dugSet = new LongOpenHashSet();
-		carve(w, view, ax, az, bx, bz, R, depth, yRef, cap, dug, dugSet, hung);
+		carve(w, view, ax, az, bx, bz, R, depth, yRef, cap, dug, dugSet, hung, rules);
 		budgetUsed += 2 * dug.size();
 
 		// el trozo baja dentro del cuenco hasta apoyarse: si ara, desde lo más lejos que llega por el surco sin atravesar
@@ -182,8 +193,8 @@ public final class Crater {
 			cx = seat.getX() + rock.blocks.sx / 2.0;
 			cz = seat.getZ() + rock.blocks.sz / 2.0;
 		}
-		int ejected = pool.isEmpty() ? 0 : eject(w, view, rock, pool, cx, contact.y, cz, R, dir, tier, rnd);
-		List<Col> cols = rim(view, ax, az, ex, ez, R, outer, yRef, dir);
+		int ejected = pool.isEmpty() ? 0 : eject(w, view, rock, pool, cx, contact.y, cz, R, dir, tier, rnd, rules);
+		List<Col> cols = rim(view, ax, az, ex, ez, R, outer, yRef, dir, rules);
 		int piled = pile(w, view, bl, cols, pool, R, rnd);
 		int putBack = putBack(w, view, bl, dug, pool, cols);
 		scorch(w, view, cols, R, rnd);
@@ -218,14 +229,36 @@ public final class Crater {
 		return Math.hypot(x - ax - ex * u, z - az - ez * u);
 	}
 
+	private static boolean diggable(BlockState st, BlockView view, BlockPos pos, CarveRules rules) {
+		if (!GroundRules.cuttable(st, view, pos) || st.hasBlockEntity() || GroundRules.unfracturable(st)) return false;
+		if (GroundRules.terrain(st) || st.isOf(Blocks.POWDER_SNOW)) {
+			return st.getHardness(view, pos) < 50 || (rules.allowHard() && GroundRules.fracturable(st, view, pos, rules.k()));
+		}
+		return rules.allowHard() && GroundRules.fracturable(st, view, pos, rules.k());
+	}
+
+	private static int surfaceNear(BlockView v, int x, int z, int yRef, int span, CarveRules rules) {
+		if (!rules.allowHard()) return GroundRules.surfaceNear(v, x, z, yRef, span);
+		int bottom = v.getBottomY(), top = v.getTopY();
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int k = 0; k <= 2 * span; k++) {
+			int y = yRef + (k == 0 ? 0 : (k & 1) == 1 ? -(k + 1) / 2 : k / 2);
+			if (y < bottom || y >= top - 1) continue;
+			BlockState st = v.getBlockState(m.set(x, y, z));
+			if (!diggable(st, v, m, rules)) continue;
+			BlockState above = v.getBlockState(m.set(x, y + 1, z));
+			if (!diggable(above, v, m, rules)) return y;
+		}
+		return GroundRules.NONE;
+	}
+
 	/**
 	 * El cuenco: las columnas a menos de R del surco, de la más cercana a la más lejana (si se llega al tope, el cráter
-	 * queda redondo); en cada una, desde su superficie hacia abajo hasta la hondura de esa columna, solo terreno y solo
-	 * lo que no sujeta nada (holdsNothing). Las plantas de encima se van con el golpe (sin soltar nada); una columna con
-	 * algo encima que no es una planta no se cava.
+	 * queda redondo); en cada una, desde su superficie hacia abajo hasta la hondura de esa columna, solo terreno (o
+	 * estructuras duras si rules.allowHard()) y solo lo que no sujeta nada (holdsNothing).
 	 */
 	private static void carve(ServerWorld w, BlockView view, double ax, double az, double bx, double bz, double R, double depth,
-							  int yRef, int cap, List<Dug> out, LongOpenHashSet set, LongOpenHashSet hung) {
+							  int yRef, int cap, List<Dug> out, LongOpenHashSet set, LongOpenHashSet hung, CarveRules rules) {
 		int x0 = MathHelper.floor(Math.min(ax, bx) - R), x1 = MathHelper.floor(Math.max(ax, bx) + R);
 		int z0 = MathHelper.floor(Math.min(az, bz) - R), z1 = MathHelper.floor(Math.max(az, bz) + R);
 		List<double[]> cols = new ArrayList<>();
@@ -242,7 +275,7 @@ public final class Crater {
 			int x = (int) c[0], z = (int) c[1];
 			double d = depth * (1 - c[2] * c[2] / r2);
 			if (d < 0.5) continue;
-			int top = GroundRules.surfaceNear(view, x, z, yRef, 4);
+			int top = surfaceNear(view, x, z, yRef, 4, rules);
 			if (top == GroundRules.NONE) continue;
 			// la nieve polvo de encima también es suelo: se cava y se reparte como lo demás
 			for (int j = 0; j < 4 && view.getBlockState(m.set(x, top + 1, z)).isOf(Blocks.POWDER_SNOW); j++) top++;
@@ -250,8 +283,7 @@ public final class Crater {
 			for (int y = top, k = 0; y + 0.5 >= top + 1 - d; y--, k++) {
 				m.set(x, y, z);
 				BlockState st = view.getBlockState(m);
-				if (!(GroundRules.terrain(st) || st.isOf(Blocks.POWDER_SNOW)) || !GroundRules.cuttable(st, view, m) || st.hasBlockEntity()
-					|| st.getHardness(view, m) >= 50 || hung.contains(m.asLong()) || !holdsNothing(view, m, set)) break;
+				if (!diggable(st, view, m, rules) || hung.contains(m.asLong()) || !holdsNothing(view, m, set, rules)) break;
 				BlockPos p = m.toImmutable();
 				out.add(new Dug(p, st, k));
 				set.add(p.asLong());
@@ -315,14 +347,14 @@ public final class Crater {
 	 * un raíl que sube por ella, una puerta, una valla o un farol colgado debajo dicen que no: esa tierra se queda (y con
 	 * ella, lo que queda de su columna).
 	 */
-	private static boolean holdsNothing(BlockView view, BlockPos m, LongOpenHashSet dug) {
+	private static boolean holdsNothing(BlockView view, BlockPos m, LongOpenHashSet dug, CarveRules rules) {
 		BlockPos.Mutable n = new BlockPos.Mutable();
 		for (Direction d : HOLDS) {
 			n.set(m, d);
 			if (dug.contains(n.asLong())) continue;
 			BlockState s = view.getBlockState(n);
 			if (s.isAir() || s.getBlock() instanceof FluidBlock || GroundRules.terrain(s) || s.isOf(Blocks.POWDER_SNOW)
-				|| s.isFullCube(view, n)) continue;
+				|| s.isFullCube(view, n) || (rules.allowHard() && GroundRules.fracturable(s, view, n, rules.k()))) continue;
 			if (d != Direction.DOWN && !s.hasBlockEntity() && (s.getBlock() instanceof PlantBlock
 				|| s.getBlock() instanceof AbstractPlantPartBlock || s.isOf(Blocks.SNOW) || stalk(s))) continue;
 			return false;
@@ -359,7 +391,7 @@ public final class Crater {
 	 * solo hacia donde hay suelo en el que caer (en el borde de una isla no se pierden en el vacío: se quedan en el manto).
 	 */
 	private static int eject(ServerWorld w, BlockView view, @Nullable PieceEntity rock, ArrayDeque<Dug> pool, double cx, double cy,
-							 double cz, double R, Vec3d dir, int tier, Random rnd) {
+							 double cz, double R, Vec3d dir, int tier, Random rnd, CarveRules rules) {
 		int want = MathHelper.clamp((int) Math.round(pool.size() * 0.08), tier >= 3 ? 6 : 3, OpeConfig.EJECTA_MAX);
 		Box near = new Box(cx - 96, cy - 64, cz - 96, cx + 96, cy + 64, cz + 96);
 		int live = w.getEntitiesByClass(PieceEntity.class, near, pe -> pe.debris && !pe.isRemoved()).size();
@@ -377,7 +409,7 @@ public final class Crater {
 				a = aimed && rnd.nextDouble() < 0.6 ? heading + rnd.nextGaussian() * 0.9 : rnd.nextDouble() * 2 * Math.PI;
 				dist = Math.max(1.5, R * (1.15 + 1.6 * Math.pow(rnd.nextDouble(), 1.4)) - rr);
 				int lx = MathHelper.floor(cx + Math.cos(a) * (rr + dist)), lz = MathHelper.floor(cz + Math.sin(a) * (rr + dist));
-				ground = GroundRules.surfaceNear(view, lx, lz, yRef, 12) != GroundRules.NONE;
+				ground = surfaceNear(view, lx, lz, yRef, 12, rules) != GroundRules.NONE;
 			}
 			if (!ground) break;   // ni así: lo que queda va al manto
 			Dug d = pool.pollLast();
@@ -399,7 +431,8 @@ public final class Crater {
 	 * Las columnas del manto (entre R y outer del surco) con suelo, de la más cercana a la más lejana, cada una con su
 	 * parte: (R/ρ)³, más hacia donde iba y menos hacia atrás.
 	 */
-	private static List<Col> rim(BlockView view, double ax, double az, double bx, double bz, double R, double outer, int yRef, Vec3d dir) {
+	private static List<Col> rim(BlockView view, double ax, double az, double bx, double bz, double R, double outer, int yRef, Vec3d dir,
+								 CarveRules rules) {
 		List<Col> out = new ArrayList<>();
 		int x0 = MathHelper.floor(Math.min(ax, bx) - outer), x1 = MathHelper.floor(Math.max(ax, bx) + outer);
 		int z0 = MathHelper.floor(Math.min(az, bz) - outer), z1 = MathHelper.floor(Math.max(az, bz) + outer);
@@ -408,7 +441,7 @@ public final class Crater {
 			for (int z = z0; z <= z1; z++) {
 				double rho = seg(x + 0.5, z + 0.5, ax, az, bx, bz);
 				if (rho <= R || rho > outer) continue;
-				int s = GroundRules.surfaceNear(view, x, z, yRef, 5);
+				int s = surfaceNear(view, x, z, yRef, 5, rules);
 				if (s == GroundRules.NONE) continue;
 				double wgt = Math.pow(R / rho, 3);
 				if (aimed) {

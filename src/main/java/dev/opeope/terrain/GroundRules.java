@@ -1,5 +1,7 @@
 package dev.opeope.terrain;
 
+import dev.opeope.OpeConfig;
+import dev.opeope.OpeOpeMod;
 import dev.opeope.entity.BlockSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -39,8 +41,57 @@ public final class GroundRules {
 		tag("diamond_ores"), tag("emerald_ores"));
 	private static final TagKey<Block> DIRT = tag("dirt");
 
+	public static final TagKey<Block> CONDUCTIVE_TAG = opeTag("conductive");
+	public static final TagKey<Block> IGNEOUS_TAG = opeTag("igneous");
+	public static final TagKey<Block> CRYO_TAG = opeTag("cryo");
+	public static final TagKey<Block> HEAVY_PIERCING_TAG = opeTag("heavy_piercing");
+	public static final TagKey<Block> UNFRACTURABLE_TAG = opeTag("unfracturable");
+
 	private static TagKey<Block> tag(String name) {
 		return TagKey.of(RegistryKeys.BLOCK, Identifier.ofVanilla(name));
+	}
+
+	private static TagKey<Block> opeTag(String name) {
+		return TagKey.of(RegistryKeys.BLOCK, OpeOpeMod.id(name));
+	}
+
+	/**
+	 * Rasgo elemental o físico de un bloque según etiquetas de datos de opeope.
+	 * Orden de prioridad: HEAVY_PIERCING > CONDUCTIVE > IGNEOUS > CRYO > NONE.
+	 */
+	public static MaterialTrait trait(@Nullable BlockState st) {
+		if (st == null || st.isAir()) return MaterialTrait.NONE;
+		if (st.isIn(HEAVY_PIERCING_TAG)) return MaterialTrait.HEAVY_PIERCING;
+		if (st.isIn(CONDUCTIVE_TAG)) return MaterialTrait.CONDUCTIVE;
+		if (st.isIn(IGNEOUS_TAG)) return MaterialTrait.IGNEOUS;
+		if (st.isIn(CRYO_TAG)) return MaterialTrait.CRYO;
+		return MaterialTrait.NONE;
+	}
+
+	/** Bloques prohibidos para fracturar/cavar incluso con heavy (bedrock, barreras, portales, deepslate reforzada…). */
+	public static boolean unfracturable(@Nullable BlockState st) {
+		if (st == null) return true;
+		if (st.isIn(UNFRACTURABLE_TAG)) return true;
+		Block b = st.getBlock();
+		return b == Blocks.BEDROCK || b == Blocks.BARRIER || b == Blocks.REINFORCED_DEEPSLATE
+			|| b == Blocks.END_PORTAL_FRAME || b == Blocks.END_PORTAL || b == Blocks.END_GATEWAY
+			|| b == Blocks.NETHER_PORTAL || b == Blocks.COMMAND_BLOCK || b == Blocks.REPEATING_COMMAND_BLOCK
+			|| b == Blocks.CHAIN_COMMAND_BLOCK || b == Blocks.STRUCTURE_BLOCK || b == Blocks.JIGSAW || b == Blocks.LIGHT;
+	}
+
+	/** ¿Puede un impacto pesado (heavy, intensidad k) fracturar o cavar este bloque artificial o duro? */
+	public static boolean fracturable(@Nullable BlockState st, BlockView view, BlockPos pos, double k) {
+		if (st == null || st.isAir() || st.getBlock() instanceof FluidBlock) return false;
+		if (st.hasBlockEntity() || unfracturable(st)) return false;
+		float hard = st.getHardness(view, pos);
+		if (hard < 0f) return false;
+		if (hard <= 3.0f) return k >= 0.15;
+		if (hard <= 25.0f) return k >= 0.50;
+		return k >= OpeConfig.HEAVY_OBSIDIAN_K;
+	}
+
+	public static boolean fracturable(@Nullable BlockState st, double k) {
+		return fracturable(st, EmptyBlockView.INSTANCE, BlockPos.ORIGIN, k);
 	}
 
 	/** Lo que el corte puede separar (la regla de siempre de CutEngine): no aire, no un fluido, no irrompible. */
@@ -120,8 +171,21 @@ public final class GroundRules {
 		return st.getCollisionShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN).isEmpty();
 	}
 
-	/** Kilos por bloque según la familia. */
+	/** Kilos por bloque: overrides puntuales por bloque/rasgo y, si no, según la familia. */
 	public static double density(BlockState st) {
+		if (st != null) {
+			Block b = st.getBlock();
+			if (b == Blocks.OBSIDIAN || b == Blocks.CRYING_OBSIDIAN || b == Blocks.RESPAWN_ANCHOR) return 5200;
+			if (b == Blocks.ANCIENT_DEBRIS) return 6000;
+			// Netherite supera al hierro estándar (METAL 7800) por aleación ultradensa
+			if (b == Blocks.NETHERITE_BLOCK) return 9000;
+			if (st.getSoundGroup() == BlockSoundGroup.DEEPSLATE || trait(st) == MaterialTrait.HEAVY_PIERCING) return 4300;
+			if (b == Blocks.ICE || b == Blocks.FROSTED_ICE) return 920;
+			if (b == Blocks.PACKED_ICE) return 940;
+			if (b == Blocks.BLUE_ICE) return 980;
+			if (b == Blocks.MAGMA_BLOCK || b == Blocks.BASALT || b == Blocks.POLISHED_BASALT || b == Blocks.SMOOTH_BASALT) return 2900;
+			if (b == Blocks.NETHERRACK || b == Blocks.NETHER_QUARTZ_ORE || b == Blocks.NETHER_GOLD_ORE) return 2100;
+		}
 		return switch (family(st)) {
 			case SOIL -> 1900;
 			case STONE -> 2600;

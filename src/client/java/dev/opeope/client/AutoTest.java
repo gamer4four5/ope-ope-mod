@@ -30,9 +30,14 @@ import dev.opeope.power.RoomOps;
 import dev.opeope.power.Shambles;
 import dev.opeope.power.Takt;
 import dev.opeope.power.Tech;
+import dev.opeope.power.Techniques;
+import dev.opeope.power.Forge;
+import dev.opeope.registry.ModEffects;
 import dev.opeope.terrain.ChunkPlan;
 import dev.opeope.terrain.ChunkPlanner;
 import dev.opeope.terrain.GroundCut;
+import dev.opeope.terrain.GroundRules;
+import dev.opeope.terrain.MaterialTrait;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.BlockState;
@@ -45,8 +50,11 @@ import net.minecraft.client.util.Window;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.entity.passive.PigEntity;
+import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -167,7 +175,9 @@ public final class AutoTest {
 		w.setTimeOfDay(6000);
 		w.setWeather(20 * 600, 0, false, false);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_DAYLIGHT_CYCLE).set(false, srv);
+		w.getGameRules().get(net.minecraft.world.GameRules.DO_WEATHER_CYCLE).set(false, srv);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_MOB_SPAWNING).set(false, srv);
+		w.getGameRules().get(net.minecraft.world.GameRules.RANDOM_TICK_SPEED).set(0, srv);
 
 		int x0 = sp.getBlockX(), z0 = sp.getBlockZ();
 		int fy = w.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x0, z0) - 1;   // el suelo donde estás
@@ -178,7 +188,7 @@ public final class AutoTest {
 		// Un terreno llano: 14 de tierra y piedra hacia abajo (pegado al mundo de verdad), aire encima.
 		for (int x = x0 - 18; x <= x0 + 18; x++) {
 			for (int z = z0 - 10; z <= z0 + 26; z++) {
-				for (int y = fy - 14; y <= fy + 26; y++) {
+				for (int y = fy - 14; y <= fy + 45; y++) {
 					BlockState st = y > fy ? air : y == fy ? grass : y > fy - 4 ? dirt : stone;
 					w.setBlockState(m.set(x, y, z), st, 2 | 16);
 				}
@@ -256,6 +266,9 @@ public final class AutoTest {
 	private static volatile int gx0, gfy, gz0;
 	/** Resultados que se escriben en el hilo del servidor; −1 = todavía no. */
 	private static volatile int srvA = -1, srvB = -1, srvC = -1;
+	private static volatile int elemZ1 = -1, elemZ2 = -1, elemZ3 = -1;
+	private static volatile double srvD1 = 0, srvD2 = 0;
+	private static volatile String srvMsg = "";
 	private static int solid0, items0, chunkId = -1, chunkB = -1;
 	/** Solo en el hilo del servidor. */
 	private static int dropped0, relocated0, shattered0;
@@ -788,6 +801,8 @@ public final class AutoTest {
 				ServerWorld w = sp.getServerWorld();
 				savedRoom = pw.room;
 				savedPos = sp.getPos();
+				Takt.dropAll(sp, pw, false);
+				clearField(w, true);
 				patch(w, gx0 - 16, gx0 + 16, gz0 - 34, gz0 + 2, gfy);
 				for (Entity e : w.getEntitiesByClass(Entity.class, new Box(gx0 - 16, gfy - 14, gz0 - 34, gx0 + 17, gfy + 27, gz0 + 3),
 					en -> en instanceof PieceEntity || en instanceof ItemEntity)) e.discard();
@@ -1061,6 +1076,8 @@ public final class AutoTest {
 		planShamblesTactico(mc, srv, id);
 
 		planRevision(mc, srv, id);
+
+		planEfectosElementales(mc, srv, id);
 
 		// dejarlo como estaba para (l)
 		step(5, "suelo: fin", () -> server(srv, id, (sp, pw) -> {
@@ -1601,6 +1618,536 @@ public final class AutoTest {
 		if (c == null) return;
 		OpeOpeMod.LOG.info("AUTOTEST cráter radio {} hondo {} arado {}: {} cavados = {} al borde + {} devueltos + {} bajo la roca + {} volando; asentada {}",
 			fmt(c.radius()), fmt(c.depth()), fmt(c.plow()), c.removed(), c.piled(), c.putBack(), c.backfill(), c.ejected(), c.seated());
+	}
+
+	private static BlockSet uniformCube(int side, BlockState st) {
+		BlockSet set = new BlockSet();
+		for (int x = 0; x < side; x++)
+			for (int y = 0; y < side; y++)
+				for (int z = 0; z < side; z++) set.add(x, y, z, st, null);
+		set.normalize();
+		return set;
+	}
+
+	private static void patchElemArena(ServerWorld w, int ax0, int ay0, int az0) {
+		BlockState air = Blocks.AIR.getDefaultState(), stone = Blocks.STONE.getDefaultState();
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int x = ax0 - 26; x <= ax0 + 26; x++) {
+			for (int z = az0 - 26; z <= az0 + 12; z++) {
+				for (int y = ay0 - 14; y <= ay0 + 22; y++) {
+					w.setBlockState(m.set(x, y, z), y <= ay0 ? stone : air, 2 | 16);
+				}
+			}
+		}
+	}
+
+	private static void clearElemArena(ServerWorld w, int ax0, int ay0, int az0) {
+		Box b = new Box(ax0 - 28, ay0 - 16, az0 - 28, ax0 + 29, ay0 + 24, az0 + 14);
+		for (Entity e : w.getEntitiesByClass(Entity.class, b,
+			en -> en instanceof ItemEntity || en instanceof MobEntity || en instanceof PieceEntity)) e.discard();
+	}
+
+	private static ZombieEntity spawnDummyZombie(ServerWorld w, double x, double y, double z) {
+		ZombieEntity zmb = EntityType.ZOMBIE.create(w);
+		if (zmb != null) {
+			zmb.refreshPositionAndAngles(x, y, z, 0f, 0f);
+			zmb.setAiDisabled(true);
+			zmb.setPersistent();
+			zmb.setHealth(zmb.getMaxHealth());
+			w.spawnEntity(zmb);
+		}
+		return zmb;
+	}
+
+	/**
+	 * (k2f) Efectos elementales y físicos por bloque (T0-T4): clasificación por tags/densidad/BlockSet,
+	 * conducción eléctrica (Counter Shock / Shock Wille), explosión ígnea + fuego efímero, ráfaga cryo +
+	 * ChillTracker, y fractura/perforación heavy (Obsidiana/Deepslate) con 100% de conservación y 0 ítems.
+	 */
+	private static void planEfectosElementales(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int DX = 80;
+
+		// Preparar y teletransportar jugador a la arena aislada (x = gx0 + 80, noche para que no ardan zombies)
+		step(2, "elem: preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				Takt.dropAll(sp, pw, false);
+				Forge.dropWeapons(sp, pw);
+				w.setTimeOfDay(18000);
+				pw.room = new Room(w.getRegistryKey(), new Vec3d(ax0 + 0.5, ay0 + 2, az0 - 6.0), 28);
+				pw.room.state = Room.State.FIXED;
+				PowerManager.broadcastRoom(sp, 0, pw.room);
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				sp.networkHandler.requestTeleport(ax0 + 0.5, ay0 + 1, az0 + 0.5, 180f, 0f);
+				sp.setYaw(180f);
+				sp.setPitch(0f);
+				dropped0 = PieceEntity.DROPPED;
+				srvA = 1;
+			});
+		});
+		waitFor("elem: arena lista", 60, "el jugador no llegó a la arena elemental",
+			() -> srvA == 1 && mc.player.getX() > gx0 + 60, null);
+
+		// T0: Clasificación por tags, densidad, masa y BlockSet mixto
+		step(1, "elemT0: clasificacion", () -> {
+			srvA = -1;
+			srvMsg = "";
+			server(srv, id, (sp, pw) -> {
+				StringBuilder err = new StringBuilder();
+				if (GroundRules.trait(Blocks.WAXED_OXIDIZED_CUT_COPPER.getDefaultState()) != MaterialTrait.CONDUCTIVE) err.append("waxedCopper ");
+				if (GroundRules.trait(Blocks.IRON_BARS.getDefaultState()) != MaterialTrait.CONDUCTIVE) err.append("ironBars ");
+				if (GroundRules.trait(Blocks.MAGMA_BLOCK.getDefaultState()) != MaterialTrait.IGNEOUS) err.append("magma ");
+				if (GroundRules.trait(Blocks.PACKED_ICE.getDefaultState()) != MaterialTrait.CRYO) err.append("packedIce ");
+				if (GroundRules.trait(Blocks.DEEPSLATE_TILES.getDefaultState()) != MaterialTrait.HEAVY_PIERCING) err.append("deepslateTiles ");
+				if (GroundRules.trait(Blocks.NETHERITE_BLOCK.getDefaultState()) != MaterialTrait.HEAVY_PIERCING) err.append("netherite ");
+				if (GroundRules.trait(Blocks.STONE.getDefaultState()) != MaterialTrait.NONE) err.append("stone ");
+				if (GroundRules.trait(Blocks.ANDESITE.getDefaultState()) != MaterialTrait.NONE) err.append("andesite ");
+				if (!(GroundRules.density(Blocks.OBSIDIAN.getDefaultState()) > GroundRules.density(Blocks.STONE.getDefaultState()))) err.append("densObs ");
+				if (!(GroundRules.density(Blocks.ICE.getDefaultState()) < 1000.0)) err.append("densIce ");
+
+				PieceEntity obsP = new PieceEntity(dev.opeope.registry.ModEntities.PIECE, sp.getServerWorld());
+				obsP.setBlocks(uniformCube(2, Blocks.OBSIDIAN.getDefaultState()));
+				PieceEntity stnP = new PieceEntity(dev.opeope.registry.ModEntities.PIECE, sp.getServerWorld());
+				stnP.setBlocks(uniformCube(2, Blocks.STONE.getDefaultState()));
+				if (!(obsP.massKg() > stnP.massKg())) err.append("massKg ");
+
+				BlockSet mix30 = new BlockSet();
+				for (int i = 0; i < 7; i++) mix30.add(i, 0, 0, Blocks.STONE.getDefaultState(), null);
+				for (int i = 7; i < 10; i++) mix30.add(i, 0, 0, Blocks.COPPER_BLOCK.getDefaultState(), null);
+				if (mix30.trait() != MaterialTrait.NONE) err.append("mix30=" + mix30.trait() + " ");
+
+				BlockSet mix60 = new BlockSet();
+				for (int i = 0; i < 6; i++) mix60.add(i, 0, 0, Blocks.COPPER_BLOCK.getDefaultState(), null);
+				for (int i = 6; i < 10; i++) mix60.add(i, 0, 0, Blocks.STONE.getDefaultState(), null);
+				if (mix60.trait() != MaterialTrait.CONDUCTIVE) err.append("mix60=" + mix60.trait() + " ");
+
+				srvMsg = err.toString();
+				srvA = err.isEmpty() ? 1 : 0;
+			});
+		});
+		waitFor("elemT0: verificado", 20, "T0 no devolvió resultado", () -> srvA >= 0,
+			() -> check(srvA == 1, "T0 clasificación MaterialTrait, densidades, masa y umbrales de BlockSet", srvMsg));
+
+		// T1a: Cadena eléctrica en Counter Shock (cobre vs control piedra)
+		step(2, "elemT1: counterShock", () -> {
+			srvA = -1;
+			srvMsg = "";
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				clearElemArena(w, ax0, ay0, az0);
+				sp.networkHandler.requestTeleport(ax0 + 0.5, ay0 + 1, az0 + 0.5, 180f, 0f);
+				sp.setYaw(180f);
+				sp.setPitch(0f);
+
+				ZombieEntity zA = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 2.5);
+				ZombieEntity zB = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 9.5);
+				PieceEntity copperStake = PieceEntity.spawn(w, uniformCube(1, Blocks.COPPER_BLOCK.getDefaultState()),
+					new Vec3d(ax0, ay0 + 1.0, az0 - 6.5), null, sp.getUuid());
+				copperStake.weapon = PieceEntity.Weapon.STAKE;
+				copperStake.wState = 2;
+				copperStake.setFlag(PieceEntity.F_WEAPON, true);
+
+				pw.cooldowns[Tech.COUNTER.ordinal()] = 0;
+				Techniques.counterShock(sp, pw);
+				boolean bHit = zB != null && zB.getHealth() < zB.getMaxHealth();
+				boolean bStun = zB != null && zB.hasStatusEffect(ModEffects.STUN);
+
+				// Control con estaca de piedra
+				clearElemArena(w, ax0, ay0, az0);
+				ZombieEntity cA = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 2.5);
+				ZombieEntity cB = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 9.5);
+				PieceEntity stoneStake = PieceEntity.spawn(w, uniformCube(1, Blocks.STONE.getDefaultState()),
+					new Vec3d(ax0, ay0 + 1.0, az0 - 6.5), null, sp.getUuid());
+				stoneStake.weapon = PieceEntity.Weapon.STAKE;
+				stoneStake.wState = 2;
+				stoneStake.setFlag(PieceEntity.F_WEAPON, true);
+
+				pw.cooldowns[Tech.COUNTER.ordinal()] = 0;
+				Techniques.counterShock(sp, pw);
+				boolean ctrlIntact = cB != null && cB.getHealth() >= cB.getMaxHealth() && !cB.hasStatusEffect(ModEffects.STUN);
+
+				// Shock Wille con estaca de hierro a <= 2.5m del rayo y zombie C fuera del lineBox (dx = 6.7 > 3.2)
+				clearElemArena(w, ax0, ay0, az0);
+				ZombieEntity zC = spawnDummyZombie(w, ax0 + 7.2, ay0 + 1, az0 - 10.0);
+				PieceEntity ironStake = PieceEntity.spawn(w, uniformCube(1, Blocks.IRON_BLOCK.getDefaultState()),
+					new Vec3d(ax0 + 2.0, ay0 + 1.5, az0 - 10.5), null, sp.getUuid());
+				ironStake.weapon = PieceEntity.Weapon.STAKE;
+				ironStake.wState = 2;
+				ironStake.setFlag(PieceEntity.F_WEAPON, true);
+
+				pw.cooldowns[Tech.SHOCK_WILLE.ordinal()] = 0;
+				Techniques.shockWille(sp, pw);
+				boolean cHit = zC != null && zC.getHealth() < zC.getMaxHealth() && zC.hasStatusEffect(ModEffects.STUN);
+				int items = w.getEntitiesByClass(ItemEntity.class, new Box(ax0 - 22, ay0 - 16, az0 - 26, ax0 + 23, ay0 + 24, az0 + 14), e -> true).size();
+				clearElemArena(w, ax0, ay0, az0);
+
+				srvMsg = "bHit=" + bHit + " bStun=" + bStun + " ctrl=" + ctrlIntact + " shockWille=" + cHit + " items=" + items;
+				srvA = (bHit && bStun ? 1 : 0) | (ctrlIntact ? 2 : 0) | (cHit ? 4 : 0)
+					| (items == 0 && PieceEntity.DROPPED == dropped0 ? 8 : 0);
+			});
+		});
+		waitFor("elemT1: verificado", 20, "T1 no devolvió resultado", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "T1 Counter Shock encadena daño + STUN a través de pieza conductora", srvMsg);
+			check((srvA & 2) != 0, "T1 control con estaca de piedra NO encadena descarga", srvMsg);
+			check((srvA & 4) != 0, "T1 Shock Wille encadena descarga por estaca de hierro cercana al rayo", srvMsg);
+			check((srvA & 8) != 0, "T1 cadena eléctrica sin objetos dropeados", srvMsg);
+		});
+
+		// T2: Explosión incendiaria con Magma vs control Piedra + TTL de fuegos efímeros
+		step(2, "elemT2: lanzar magma", () -> {
+			srvA = -1;
+			elemZ1 = -1;
+			elemZ2 = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+
+				ZombieEntity zMagma = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 7.5);
+				ZombieEntity zCtrl = spawnDummyZombie(w, ax0 + 9.5, ay0 + 1, az0 - 7.5);
+				elemZ1 = zMagma != null ? zMagma.getId() : -1;
+				elemZ2 = zCtrl != null ? zCtrl.getId() : -1;
+
+				PieceEntity pMagma = PieceEntity.spawn(w, uniformCube(2, Blocks.MAGMA_BLOCK.getDefaultState()),
+					new Vec3d(ax0 - 0.5, ay0 + 3.0, az0 - 5.0), null, sp.getUuid());
+				pMagma.release(new Vec3d(0, -0.35, -1.35), true);
+
+				PieceEntity pStone = PieceEntity.spawn(w, uniformCube(2, Blocks.STONE.getDefaultState()),
+					new Vec3d(ax0 + 8.5, ay0 + 3.0, az0 - 5.0), null, sp.getUuid());
+				pStone.release(new Vec3d(0, -0.35, -1.35), true);
+			});
+		});
+		step(12, "elemT2: comprobar fuego", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Entity e1 = w.getEntityById(elemZ1), e2 = w.getEntityById(elemZ2);
+				boolean onFire = e1 instanceof ZombieEntity z1 && z1.isOnFire();
+				boolean ctrlClean = e2 instanceof ZombieEntity z2 && !z2.isOnFire();
+				srvMsg = "magmaOnFire=" + onFire + " ctrlClean=" + ctrlClean;
+				srvA = (onFire ? 1 : 0) | (ctrlClean ? 2 : 0);
+			});
+		});
+		waitFor("elemT2: check encendido", 20, "T2 fallo comprobando fuego", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "T2 impacto de magma prende fuego al enemigo", srvMsg);
+			check((srvA & 2) != 0, "T2 impacto de piedra no prende fuego al control", srvMsg);
+		});
+		step(OpeConfig.IGNEOUS_FIRE_TTL + 12, "elemT2: comprobar TTL fuego", () -> {
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				int fires = 0;
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = ax0 - 16; x <= ax0 + 16; x++)
+					for (int y = ay0 - 4; y <= ay0 + 10; y++)
+						for (int z = az0 - 20; z <= az0 + 4; z++)
+							if (w.getBlockState(m.set(x, y, z)).isIn(BlockTags.FIRE)) fires++;
+				int items = w.getEntitiesByClass(ItemEntity.class, new Box(ax0 - 22, ay0 - 16, az0 - 26, ax0 + 23, ay0 + 24, az0 + 14), e -> true).size();
+				srvMsg = "fires=" + fires + " items=" + items;
+				srvB = (fires == 0 && items == 0 && PieceEntity.DROPPED == dropped0) ? 1 : 0;
+			});
+		});
+		waitFor("elemT2: check TTL", 20, "T2 TTL no devuelto", () -> srvB >= 0,
+			() -> check(srvB == 1, "T2 los fuegos efímeros se apagan solos tras IGNEOUS_FIRE_TTL sin drops", srvMsg));
+
+		// T3: Cryo (piscina 5x5 de agua fuente, control piedra vs PACKED_ICE, SLOWNESS y ChillTracker 20 ticks)
+		step(2, "elemT3: piscina y control piedra", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = ax0 - 3; x <= ax0 + 3; x++) {
+					for (int z = az0 - 11; z <= az0 - 5; z++) {
+						boolean inPool = x >= ax0 - 2 && x <= ax0 + 2 && z >= az0 - 10 && z <= az0 - 6;
+						w.setBlockState(m.set(x, ay0 - 3, z), Blocks.STONE.getDefaultState(), 2 | 16);
+						for (int y = ay0 - 2; y <= ay0; y++) {
+							w.setBlockState(m.set(x, y, z), (inPool ? Blocks.WATER : Blocks.STONE).getDefaultState(), 2 | 16);
+						}
+					}
+				}
+				PieceEntity pCtrl = PieceEntity.spawn(w, uniformCube(2, Blocks.STONE.getDefaultState()),
+					new Vec3d(ax0 - 0.5, ay0 + 4.0, az0 - 6.0), null, sp.getUuid());
+				pCtrl.release(new Vec3d(0, -0.8, -0.7), true);
+			});
+		});
+		step(12, "elemT3: check control piedra", () -> {
+			srvA = -1;
+			elemZ1 = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				int water = 0;
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = ax0 - 2; x <= ax0 + 2; x++)
+					for (int z = az0 - 10; z <= az0 - 6; z++)
+						if (w.getBlockState(m.set(x, ay0, z)).isOf(Blocks.WATER) && w.getFluidState(m).isStill()) water++;
+				srvMsg = "ctrlWater=" + water;
+				srvA = water == 25 ? 1 : 0;
+
+				// Limpiar piezas del control, asegurar piscina 3 de hondo intacta y lanzar PACKED_ICE con Zombie al borde
+				clearElemArena(w, ax0, ay0, az0);
+				patchElemArena(w, ax0, ay0, az0);
+				for (int x = ax0 - 3; x <= ax0 + 3; x++) {
+					for (int z = az0 - 11; z <= az0 - 5; z++) {
+						boolean inPool = x >= ax0 - 2 && x <= ax0 + 2 && z >= az0 - 10 && z <= az0 - 6;
+						w.setBlockState(m.set(x, ay0 - 3, z), Blocks.STONE.getDefaultState(), 2 | 16);
+						for (int y = ay0 - 2; y <= ay0; y++) {
+							w.setBlockState(m.set(x, y, z), (inPool ? Blocks.WATER : Blocks.STONE).getDefaultState(), 2 | 16);
+						}
+					}
+				}
+				ZombieEntity zF = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 10.5);
+				elemZ1 = zF != null ? zF.getId() : -1;
+				PieceEntity pIce = PieceEntity.spawn(w, uniformCube(2, Blocks.PACKED_ICE.getDefaultState()),
+					new Vec3d(ax0 - 0.5, ay0 + 4.0, az0 - 6.0), null, sp.getUuid());
+				pIce.release(new Vec3d(0, -1.15, -0.75), true);
+			});
+		});
+		waitFor("elemT3: verificado control", 20, "T3 control no devuelto", () -> srvA >= 0,
+			() -> check(srvA == 1, "T3 control piedra mantiene intacta la piscina 5x5 de agua", srvMsg));
+		step(12, "elemT3: check cryo inicio", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				int water = 0, frosted = 0;
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = ax0 - 3; x <= ax0 + 3; x++) {
+					for (int z = az0 - 11; z <= az0 - 5; z++) {
+						BlockState st = w.getBlockState(m.set(x, ay0, z));
+						if (st.isOf(Blocks.WATER) && w.getFluidState(m).isStill()) water++;
+						if (st.isOf(Blocks.FROSTED_ICE) || st.isOf(Blocks.ICE)) frosted++;
+					}
+				}
+				Entity ez = w.getEntityById(elemZ1);
+				boolean slow = ez instanceof ZombieEntity z && z.hasStatusEffect(StatusEffects.SLOWNESS);
+				boolean frz = ez instanceof ZombieEntity z && z.getFrozenTicks() > 0;
+				srvMsg = "water=" + water + " frosted=" + frosted + " slow=" + slow + " frz=" + frz;
+				srvA = (water < 25 && frosted > 0 ? 1 : 0) | (slow && frz ? 2 : 0);
+			});
+		});
+		step(20, "elemT3: check ChillTracker 20t", () -> {
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				Entity ez = w.getEntityById(elemZ1);
+				boolean frz20 = ez instanceof ZombieEntity z && z.getFrozenTicks() > 0;
+				int items = w.getEntitiesByClass(ItemEntity.class, new Box(ax0 - 22, ay0 - 16, az0 - 26, ax0 + 23, ay0 + 24, az0 + 14), e -> true).size();
+				srvMsg = "frz20=" + frz20 + " items=" + items + " (" + srvMsg + ")";
+				srvB = (frz20 && items == 0 && PieceEntity.DROPPED == dropped0) ? 1 : 0;
+			});
+		});
+		waitFor("elemT3: verificado cryo", 20, "T3 cryo no devuelto", () -> srvA >= 0 && srvB >= 0, () -> {
+			check((srvA & 1) != 0, "T3 hielo compacto congela el agua en área (FROSTED_ICE > 0)", srvMsg);
+			check((srvA & 2) != 0 && srvB == 1, "T3 ráfaga cryo aplica SLOWNESS y ChillTracker mantiene frozenTicks > 0 durante 20 ticks", srvMsg);
+		});
+
+		// T4a & T4c: Estructura dura STONE_BRICKS (Piedra vs Obsidiana) + protección Cofre/Bedrock + Conservación 100%
+		step(2, "elemT4ac: preparar suelos STONE_BRICKS", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				// Floor 1 (Stone) en [ax0-18 .. ax0-8], [az0-13 .. az0-3], y = ay0-2 .. ay0
+				for (int x = ax0 - 18; x <= ax0 - 8; x++)
+					for (int z = az0 - 13; z <= az0 - 3; z++)
+						for (int y = ay0 - 2; y <= ay0; y++)
+							w.setBlockState(m.set(x, y, z), Blocks.STONE_BRICKS.getDefaultState(), 2 | 16);
+				// Floor 2 (Obsidian) en [ax0+6 .. ax0+16], [az0-13 .. az0-3], y = ay0-2 .. ay0
+				for (int x = ax0 + 6; x <= ax0 + 16; x++)
+					for (int z = az0 - 13; z <= az0 - 3; z++)
+						for (int y = ay0 - 2; y <= ay0; y++)
+							w.setBlockState(m.set(x, y, z), Blocks.STONE_BRICKS.getDefaultState(), 2 | 16);
+				// Bedrock en el centro bajo la capa de bricks y Cofre encima del borde
+				w.setBlockState(new BlockPos(ax0 + 11, ay0 - 2, az0 - 8), Blocks.BEDROCK.getDefaultState(), 2 | 16);
+				w.setBlockState(new BlockPos(ax0 + 13, ay0 + 1, az0 - 8), Blocks.CHEST.getDefaultState(), 2 | 16);
+
+				// Sólidos iniciales en la arena derecha ([ax0+1..ax0+26, ay0-14..ay0+22, az0-26..az0+12]) + 27 bloques de obsidiana
+				srvB = count(w, ax0 + 1, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false) + 27;
+
+				PieceEntity pStone = PieceEntity.spawn(w, uniformCube(3, Blocks.STONE.getDefaultState()),
+					new Vec3d(ax0 - 14.5, ay0 + 10.0, az0 - 9.5), null, sp.getUuid());
+				pStone.release(new Vec3d(0, -1.9, 0), true);
+
+				PieceEntity pObs = PieceEntity.spawn(w, uniformCube(3, Blocks.OBSIDIAN.getDefaultState()),
+					new Vec3d(ax0 + 9.5, ay0 + 10.0, az0 - 9.5), null, sp.getUuid());
+				pObs.release(new Vec3d(0, -1.9, 0), true);
+				srvA = 1;
+			});
+		});
+		step(6, "elemT4ac: esperar posado", () -> srvC = -1);
+		repeatUntil("elemT4ac: posar todo", 5, 220, () -> server(srv, id, (sp, pw) -> {
+			int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+			srvC = sp.getServerWorld().getEntitiesByClass(PieceEntity.class,
+				new Box(ax0 - 28, ay0 - 16, az0 - 28, ax0 + 29, ay0 + 24, az0 + 14), e -> true).size();
+		}), () -> srvC == 0);
+		step(2, "elemT4ac: medir", () -> {
+			srvA = -1;
+			srvMsg = "";
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				int stoneLeft = 0, obsLeft = 0;
+				for (int x = ax0 - 18; x <= ax0 - 8; x++)
+					for (int z = az0 - 13; z <= az0 - 3; z++)
+						for (int y = ay0 - 2; y <= ay0; y++)
+							if (w.getBlockState(m.set(x, y, z)).isOf(Blocks.STONE_BRICKS)) stoneLeft++;
+				for (int x = ax0 + 6; x <= ax0 + 16; x++)
+					for (int z = az0 - 13; z <= az0 - 3; z++)
+						for (int y = ay0 - 2; y <= ay0; y++)
+							if (w.getBlockState(m.set(x, y, z)).isOf(Blocks.STONE_BRICKS)) obsLeft++;
+
+				boolean bedrockOk = w.getBlockState(new BlockPos(ax0 + 11, ay0 - 2, az0 - 8)).isOf(Blocks.BEDROCK);
+				boolean chestOk = w.getBlockState(new BlockPos(ax0 + 13, ay0 + 1, az0 - 8)).isOf(Blocks.CHEST);
+
+				Box rightBox = new Box(ax0 + 1, ay0 - 14, az0 - 26, ax0 + 27, ay0 + 23, az0 + 13);
+				int pieceBlocks = 0;
+				for (PieceEntity pe : w.getEntitiesByClass(PieceEntity.class, rightBox, e -> true)) {
+					pieceBlocks += pe.blocks != null ? pe.blocks.size() : 0;
+				}
+				int solidAfter = count(w, ax0 + 1, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false);
+				int items = w.getEntitiesByClass(ItemEntity.class, new Box(ax0 - 28, ay0 - 16, az0 - 28, ax0 + 29, ay0 + 24, az0 + 14), e -> true).size();
+
+				int expectedStone = 11 * 11 * 3;
+				int expectedObsInit = 11 * 11 * 3 - 1;
+				int obsDug = expectedObsInit - obsLeft;
+				srvMsg = "stoneLeft=" + stoneLeft + "/" + expectedStone + " obsDug=" + obsDug + " bedrock=" + bedrockOk
+					+ " chest=" + chestOk + " solid=" + srvB + "->" + (solidAfter + pieceBlocks) + " items=" + items;
+				srvA = (stoneLeft == expectedStone ? 1 : 0) | (obsDug > 0 ? 2 : 0) | (bedrockOk && chestOk ? 4 : 0)
+					| (solidAfter + pieceBlocks == srvB && items == 0 && PieceEntity.DROPPED == dropped0 ? 8 : 0);
+			});
+		});
+		waitFor("elemT4ac: verificado", 20, "T4ac no devolvió resultado", () -> srvA >= 0, () -> {
+			check((srvA & 1) != 0, "T4a piedra no excava estructura dura STONE_BRICKS (0 bloques)", srvMsg);
+			check((srvA & 2) != 0, "T4a obsidiana fractura y excava estructura dura STONE_BRICKS (> 0 bloques)", srvMsg);
+			check((srvA & 4) != 0, "T4a cofre (BlockEntity) y bedrock intactos en impacto heavy", srvMsg);
+			check((srvA & 8) != 0, "T4c conservación del 100% de bloques y 0 ítems en fractura heavy", srvMsg);
+		});
+
+		// T4b: Cráter más profundo con DEEPSLATE vs STONE del mismo tamaño y velocidad sobre terreno estándar
+		step(2, "elemT4b: lanza piedra", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvD1 = -1;
+			srvD2 = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				Crater.last = new Crater.Result(0, 0, 0, 0, 0, false, 0, 0, 0);
+				PieceEntity pStone = PieceEntity.spawn(w, uniformCube(3, Blocks.STONE.getDefaultState()),
+					new Vec3d(ax0 - 9.5, ay0 + 9.0, az0 - 9.5), null, sp.getUuid());
+				pStone.release(new Vec3d(0, -1.65, 0), true);
+				srvA = 1;
+			});
+		});
+		waitFor("elemT4b: cráter piedra", 80, "T4b piedra no abrió cráter",
+			() -> srvA == 1 && Crater.last != null && Crater.last.depth() > 0 && Crater.last.removed() > 0, () -> srvD1 = Crater.last.depth());
+		step(4, "elemT4b: lanza deepslate", () -> {
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				Crater.last = new Crater.Result(0, 0, 0, 0, 0, false, 0, 0, 0);
+				PieceEntity pDeep = PieceEntity.spawn(w, uniformCube(3, Blocks.DEEPSLATE.getDefaultState()),
+					new Vec3d(ax0 + 6.5, ay0 + 9.0, az0 - 9.5), null, sp.getUuid());
+				pDeep.release(new Vec3d(0, -1.65, 0), true);
+				srvB = 1;
+			});
+		});
+		waitFor("elemT4b: cráter deepslate", 80, "T4b deepslate no abrió cráter",
+			() -> srvB == 1 && Crater.last != null && Crater.last.depth() > 0 && Crater.last.removed() > 0 && srvD1 > 0, () -> {
+			srvD2 = Crater.last.depth();
+			check(srvD2 > srvD1, "T4b profundidad cráter de DEEPSLATE > PIEDRA (mismo tamaño y velocidad)",
+				"stoneDepth=" + fmt(srvD1) + " deepslateDepth=" + fmt(srvD2));
+		});
+
+		// T4d: LANCE de obsidiana atraviesa 3 zombies en fila
+		step(2, "elemT4d: teleport", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				sp.networkHandler.requestTeleport(ax0 + 0.5, ay0 + 1, az0 + 0.5, 180f, 0f);
+				srvA = 1;
+			});
+		});
+		waitFor("elemT4d: listo", 40, "jugador no giró para T4d",
+			() -> srvA == 1 && Math.abs(mc.player.getPitch()) < 3f, null);
+		step(2, "elemT4d: lanza de obsidiana", () -> {
+			srvA = -1;
+			elemZ1 = -1;
+			elemZ2 = -1;
+			elemZ3 = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				patchElemArena(w, ax0, ay0, az0);
+				clearElemArena(w, ax0, ay0, az0);
+				for (int x = ax0 - 2; x <= ax0 + 2; x++)
+					for (int y = ay0 + 1; y <= ay0 + 5; y++)
+						w.setBlockState(new BlockPos(x, y, az0 - 15), Blocks.STONE.getDefaultState(), 2 | 16);
+
+				sp.setYaw(180f);
+				sp.setPitch(0f);
+				ZombieEntity z1 = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 5.5);
+				ZombieEntity z2 = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 8.5);
+				ZombieEntity z3 = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 11.5);
+				elemZ1 = z1 != null ? z1.getId() : -1;
+				elemZ2 = z2 != null ? z2.getId() : -1;
+				elemZ3 = z3 != null ? z3.getId() : -1;
+
+				BlockSet matSet = new BlockSet();
+				for (int i = 0; i < 6; i++) matSet.add(i, 0, 0, Blocks.OBSIDIAN.getDefaultState(), null);
+				matSet.normalize();
+				PieceEntity mat = PieceEntity.spawn(w, matSet, new Vec3d(ax0 + 0.5, ay0 + 2.0, az0 + 2.0), null, sp.getUuid());
+				Takt.grab(sp, pw, mat);
+				Forge.forge(sp, pw, 0);
+				Forge.use(sp, pw);
+			});
+		});
+		step(15, "elemT4d: verificar brocheta", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0;
+				Entity e1 = w.getEntityById(elemZ1), e2 = w.getEntityById(elemZ2), e3 = w.getEntityById(elemZ3);
+				boolean h1 = e1 instanceof ZombieEntity z && z.getHealth() < z.getMaxHealth();
+				boolean h2 = e2 instanceof ZombieEntity z && z.getHealth() < z.getMaxHealth();
+				boolean h3 = e3 instanceof ZombieEntity z && z.getHealth() < z.getMaxHealth();
+				srvMsg = "z1=" + h1 + " z2=" + h2 + " z3=" + h3;
+				srvA = (h1 && h2 && h3) ? 1 : 0;
+
+				// Limpiar arena y restaurar hora del día y ROOM de pruebas anteriores
+				clearElemArena(w, ax0, ay0, az0);
+				patchElemArena(w, ax0, ay0, az0);
+				w.setTimeOfDay(6000);
+				Forge.dropWeapons(sp, pw);
+				Takt.dropAll(sp, pw, false);
+				pw.room = new Room(w.getRegistryKey(), new Vec3d(gx0 + 0.5, gfy + 3, gz0 - 9.5), 14);
+				pw.room.state = Room.State.FIXED;
+				PowerManager.broadcastRoom(sp, 0, pw.room);
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 + 0.5, 180f, 15.1f);
+			});
+		});
+		waitFor("elemT4d: verificado", 20, "T4d no devuelto", () -> srvA >= 0,
+			() -> check(srvA == 1, "T4d LANCE de obsidiana atraviesa y daña a 3 zombies en fila", srvMsg));
 	}
 
 	/**
@@ -2156,7 +2703,7 @@ public final class AutoTest {
 		BlockPos.Mutable m = new BlockPos.Mutable();
 		for (int x = x0; x <= x1; x++) {
 			for (int z = z0; z <= z1; z++) {
-				for (int y = fy - 14; y <= fy + 26; y++) {
+				for (int y = fy - 14; y <= fy + 45; y++) {
 					BlockState st = y > fy ? air : y == fy ? grass : y > fy - 4 ? dirt : stone;
 					w.setBlockState(m.set(x, y, z), st, 2 | 16);
 				}

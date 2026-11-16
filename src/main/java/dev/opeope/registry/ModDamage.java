@@ -14,6 +14,9 @@ public final class ModDamage {
 	/** Gamma Knife y Shock Wille: dañan por dentro y no miran la armadura (tag bypasses_armor). */
 	public static final RegistryKey<DamageType> GAMMA = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("gamma_knife"));
 	public static final RegistryKey<DamageType> SURGEON = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("surgeon"));
+	public static final RegistryKey<DamageType> SHOCK = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("shock"));
+	public static final RegistryKey<DamageType> BURN = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("burn"));
+	public static final RegistryKey<DamageType> FROST = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("frost"));
 
 	public static void init() {}
 

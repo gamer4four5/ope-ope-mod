@@ -116,6 +116,30 @@ public final class OpeConfig {
 	public static final int SHAMBLES_MAX_AIR_CHAIN = 2;            // máximo de Shambles tácticos seguidos en el aire sin tocar suelo
 	public static final boolean SHAMBLES_ALLOW_FOREIGN_PIECES = false; // permitir usar piezas lanzadas por otros jugadores
 
+	// Efectos elementales y físicos por bloque (MaterialTrait)
+	public static final double TRAIT_MIN_SHARE_DOMINANT = 0.35; // proporción mínima si dominant() tiene trait != NONE
+	public static final double TRAIT_MIN_SHARE = 0.50;          // proporción mínima por mayoría si dominant() es NONE
+	public static final int CHAIN_MAX_HOPS = 6;                 // saltos máximos en cadena eléctrica (BFS)
+	public static final int CHAIN_MAX_TARGETS = 12;             // entidades máximas alcanzadas por una descarga en cadena
+	public static final double ARC_PICKUP = 5.0;                // distancia máx. origen/entidad → pieza conductora
+	public static final double ARC_PIECE_LINK = 9.0;            // distancia máx. pieza conductora ↔ pieza conductora
+	public static final double ARC_JUMP = 5.5;                  // distancia máx. pieza conductora → enemigo
+	public static final float CHAIN_FALLOFF = 0.80f;            // multiplicador de daño por cada salto en cadena
+	public static final boolean IGNEOUS_PLACE_FIRE = true;      // colocar fuego efímero sobre superficies no inflamables
+	public static final int IGNEOUS_MAX_FIRES = 10;             // máximo de fuegos efímeros por impacto ígneo
+	public static final int IGNEOUS_FIRE_TTL = 60;              // ticks hasta apagar los fuegos efímeros (3 s)
+	public static final int CRYO_MAX_FREEZE = 96;               // máximo de celdas de agua congeladas por impacto cryo
+	public static final boolean CRYO_PERMANENT_ICE = false;     // si true congela en ICE en lugar de FROSTED_ICE
+	public static final boolean CRYO_LAVA_TO_OBSIDIAN = false;  // si true solidifica lava (false por conservación de bloques)
+	public static final boolean ELEMENT_INTERACTIONS = true;    // ígneo vs cryo generan vapor y se cancelan
+	public static final float HEAVY_DMG_MULT = 1.3f;            // multiplicador de daño de impacto/armas heavy
+	public static final float HEAVY_DMG_CAP = 40.0f;            // tope de daño en vuelo libre para heavy
+	public static final int HEAVY_PIERCE_COUNT = 3;             // objetivos perforables antes de detenerse/ensartar
+	public static final double HEAVY_FRACTURE_MULT = 0.25;      // fracción de auto-fractura en impacto para heavy
+	public static final double HEAVY_DEPTH_MULT = 1.45;         // multiplicador de profundidad del cráter para heavy
+	public static final double HEAVY_OBSIDIAN_K = 0.85;         // intensidad k mínima de heavy para fracturar obsidiana
+	public static final boolean HAMMER_CRATER_ALL = false;      // si true todos los mazos abren cráter (false = solo heavy)
+
 	// Técnicas con duración (el HUD cuenta los segundos con estos mismos números)
 	public static final int SCAN_TICKS = 160;
 	public static final int CURTAIN_TICKS = 120;

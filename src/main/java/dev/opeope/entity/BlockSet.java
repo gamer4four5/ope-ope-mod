@@ -1,6 +1,8 @@
 package dev.opeope.entity;
 
+import dev.opeope.OpeConfig;
 import dev.opeope.terrain.GroundRules;
+import dev.opeope.terrain.MaterialTrait;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -212,6 +214,45 @@ public class BlockSet {
 			}
 		}
 		return best != null ? best : (entries.isEmpty() ? null : entries.get(0).state);
+	}
+
+	/**
+	 * Rasgo elemental/físico de la pieza ignorando bloques con BlockEntity.
+	 * Si dominant() tiene trait != NONE con proporción >= TRAIT_MIN_SHARE_DOMINANT, gana ese; si no, mayoría >= TRAIT_MIN_SHARE.
+	 */
+	public MaterialTrait trait() {
+		if (entries.isEmpty()) return MaterialTrait.NONE;
+		int total = 0;
+		java.util.EnumMap<MaterialTrait, Integer> counts = new java.util.EnumMap<>(MaterialTrait.class);
+		for (Entry e : entries) {
+			if (e.be != null) continue;
+			total++;
+			MaterialTrait t = GroundRules.trait(e.state);
+			if (t != MaterialTrait.NONE) counts.merge(t, 1, Integer::sum);
+		}
+		if (total == 0 || counts.isEmpty()) return MaterialTrait.NONE;
+		BlockState dom = dominant();
+		MaterialTrait domTrait = GroundRules.trait(dom);
+		if (domTrait != MaterialTrait.NONE && counts.getOrDefault(domTrait, 0) >= total * OpeConfig.TRAIT_MIN_SHARE_DOMINANT) {
+			return domTrait;
+		}
+		MaterialTrait best = MaterialTrait.NONE;
+		int bestN = 0;
+		for (var e : counts.entrySet()) {
+			if (e.getValue() > bestN) {
+				bestN = e.getValue();
+				best = e.getKey();
+			}
+		}
+		return bestN >= total * OpeConfig.TRAIT_MIN_SHARE ? best : MaterialTrait.NONE;
+	}
+
+	/** ¿Contiene al menos un bloque de este tipo (ej. pararrayos)? */
+	public boolean hasBlock(Block block) {
+		for (Entry e : entries) {
+			if (e.state != null && e.state.isOf(block)) return true;
+		}
+		return false;
 	}
 
 	private static int pack(int x, int y, int z) {

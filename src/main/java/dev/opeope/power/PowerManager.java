@@ -155,6 +155,7 @@ public final class PowerManager {
 			CutStates.clearAll();
 			GroundCuts.clearAll();
 			Takt.clearAll();
+			ElementEffects.clearAll();
 		});
 	}
 
@@ -240,6 +241,7 @@ public final class PowerManager {
 		}
 		CutStates.tick(server);
 		Takt.serverTick(server);
+		ElementEffects.serverTick(server);
 	}
 
 	public static void syncState(ServerPlayerEntity p, PlayerPower pw) {

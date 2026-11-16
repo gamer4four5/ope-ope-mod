@@ -4,6 +4,7 @@ import dev.opeope.OpeConfig;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.net.Payloads;
 import dev.opeope.power.CutEngine;
+import dev.opeope.power.ElementEffects;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.Room;
@@ -13,6 +14,7 @@ import dev.opeope.registry.ModEffects;
 import dev.opeope.registry.ModEntities;
 import dev.opeope.terrain.GroundRules;
 import dev.opeope.terrain.Landing;
+import dev.opeope.terrain.MaterialTrait;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -76,6 +78,7 @@ public class PieceEntity extends Entity {
 	private static final TrackedData<NbtCompound> BLOCKS = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.NBT_COMPOUND);
 	private static final TrackedData<Byte> FLAGS = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
 	private static final TrackedData<Long> FX_TIME = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.LONG);
+	private static final TrackedData<Byte> TRAIT = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
 
 	public static final int F_WEAPON = 1;     // pieza girada (lanza, hoja, martillo, estaca): caja pequeña en el centro
 	public static final int F_SUSPENDED = 2;  // suspendida tras un corte
@@ -171,6 +174,9 @@ public class PieceEntity extends Entity {
 
 	@Nullable private BlockSet massSet;
 	private double massCache;
+	private MaterialTrait trait = MaterialTrait.NONE;
+	public int lastChainAge = -100;
+	private final Set<Integer> piercedIds = new HashSet<>();
 
 	private static final boolean AUTOTEST = Boolean.getBoolean("opeope.autotest");
 	private static final UUID NOBODY = new UUID(0L, 0L);
@@ -201,12 +207,29 @@ public class PieceEntity extends Entity {
 		builder.add(BLOCKS, new NbtCompound());
 		builder.add(FLAGS, (byte) 0);
 		builder.add(FX_TIME, 0L);
+		builder.add(TRAIT, MaterialTrait.NONE.id);
 	}
 
 	public void setBlocks(BlockSet set) {
 		this.blocks = set;
 		this.dataTracker.set(BLOCKS, set.toSyncNbt());
+		refreshTrait();
 		this.setPosition(getX(), getY(), getZ());
+	}
+
+	public MaterialTrait trait() {
+		if (getWorld() != null && getWorld().isClient) {
+			return MaterialTrait.byId(this.dataTracker.get(TRAIT));
+		}
+		return this.trait;
+	}
+
+	public void refreshTrait() {
+		this.massSet = null;
+		this.trait = (blocks == null || blocks.isEmpty()) ? MaterialTrait.NONE : blocks.trait();
+		if (this.dataTracker != null && getWorld() != null && !getWorld().isClient) {
+			this.dataTracker.set(TRAIT, this.trait.id);
+		}
 	}
 
 	public int flags() {
@@ -388,6 +411,7 @@ public class PieceEntity extends Entity {
 		if (blocks == null) return;
 		if (BLOCKS.equals(data) && getWorld().isClient) {
 			blocks = BlockSet.fromSyncNbt(this.dataTracker.get(BLOCKS));
+			refreshTrait();
 			setPosition(getX(), getY(), getZ());
 		} else if (FLAGS.equals(data)) {
 			setPosition(getX(), getY(), getZ());
@@ -1234,14 +1258,18 @@ public class PieceEntity extends Entity {
 
 	private void hitEntities(Vec3d v, boolean sparingOwner) {
 		double speed = v.length();
+		boolean heavy = trait() == MaterialTrait.HEAVY_PIERCING;
 		List<LivingEntity> list = getWorld().getEntitiesByClass(LivingEntity.class, getBoundingBox().expand(0.25),
 			e -> e.isAlive() && !e.isSpectator() && !(spares(e) && (sparingOwner || thrownTicks < 12 || ownerGraceTicks > 0)));
 		for (LivingEntity le : list) {
 			Integer until = hitCooldown.get(le.getId());
 			if (until != null && until > age) continue;
-			float dmg = (float) Math.min(30, 2 + speed * 3.5 * Math.cbrt(blocks.size()));
+			float cap = heavy ? OpeConfig.HEAVY_DMG_CAP : 30.0f;
+			float dmg = (float) Math.min(cap, (2 + speed * 3.5 * Math.cbrt(blocks.size())) * ElementEffects.flightDamageMult(this, le));
 			le.damage(damageSource(), dmg);
-			Vec3d push = v.normalize().multiply(Math.min(2.5, speed * 0.6)).add(0, 0.25, 0);
+			ElementEffects.onFlightHit(this, le, dmg, v);
+			double kbScale = heavy ? 1.3 : 1.0;
+			Vec3d push = v.normalize().multiply(Math.min(2.5 * kbScale, speed * 0.6 * kbScale)).add(0, 0.25, 0);
 			le.addVelocity(push.x, push.y, push.z);
 			le.velocityModified = true;
 			hitCooldown.put(le.getId(), age + 10);
@@ -1337,6 +1365,9 @@ public class PieceEntity extends Entity {
 		BlockState bestTerrain = null;
 		int bestTerrainY = Integer.MIN_VALUE;
 		double bestDist2 = Double.MAX_VALUE;
+		BlockState bestSolid = null;
+		int bestSolidY = Integer.MIN_VALUE;
+		double bestSolidDist2 = Double.MAX_VALUE;
 		BlockPos.Mutable m = new BlockPos.Mutable();
 
 		for (int gx = -1; gx <= 1; gx++) {
@@ -1372,6 +1403,15 @@ public class PieceEntity extends Entity {
 						}
 						break;
 					}
+					if (GroundRules.solid(st, view, m)) {
+						double d2 = (sx - getX()) * (sx - getX()) + (sz - getZ()) * (sz - getZ()) + dy * 0.25;
+						if (d2 < bestSolidDist2) {
+							bestSolidDist2 = d2;
+							bestSolid = st;
+							bestSolidY = ty;
+						}
+						break;
+					}
 					if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SNOW)
 						&& !st.isOf(Blocks.MOSS_CARPET) && !isFoliageBlock(st) && !GroundRules.plantLike(st, view, m)) {
 						break;
@@ -1393,6 +1433,10 @@ public class PieceEntity extends Entity {
 						bestTerrainY = ty;
 						break;
 					}
+					if (bestSolid == null && GroundRules.solid(st, view, m)) {
+						bestSolid = st;
+						bestSolidY = ty;
+					}
 				}
 			}
 		}
@@ -1406,8 +1450,9 @@ public class PieceEntity extends Entity {
 		} else {
 			properFloor = solidUnder >= 2 || centerSolid || (smallFoot && solidUnder >= 1);
 		}
-		BlockState floor = bestTerrain != null ? bestTerrain : defaultFloor;
-		double contactY = bestTerrain != null ? MathHelper.clamp(bestTerrainY + 1.0, getY() - 1.5, getY() + 0.5) : getY();
+		BlockState floor = bestTerrain != null ? bestTerrain : (bestSolid != null ? bestSolid : defaultFloor);
+		double contactY = bestTerrain != null ? MathHelper.clamp(bestTerrainY + 1.0, getY() - 1.5, getY() + 0.5)
+			: (bestSolid != null ? MathHelper.clamp(bestSolidY + 1.0, getY() - 1.5, getY() + 0.5) : getY());
 		return new FloorHit(properFloor, floor, new Vec3d(getX(), contactY, getZ()));
 	}
 
@@ -1456,14 +1501,19 @@ public class PieceEntity extends Entity {
 		Vec3d dir = vh > 1e-3 ? new Vec3d(effVel.x / vh, 0, effVel.z / vh) : Vec3d.ZERO;
 		double rf = 0.5 * Math.sqrt((double) blocks.sx * blocks.sx + (double) blocks.sz * blocks.sz);
 		double R = 0, plow = 0, depth = 0;
-		boolean canCrater = tier >= 2 && GroundRules.terrain(floor);
+		MaterialTrait impactTrait = trait();
+		boolean heavy = impactTrait == MaterialTrait.HEAVY_PIERCING;
+		BlockPos floorPos = BlockPos.ofFloored(contact.x, contact.y - 0.5, contact.z);
+		boolean canCrater = tier >= 2 && (GroundRules.terrain(floor) || (heavy && GroundRules.fracturable(floor, view, floorPos, k)));
 		if (canCrater) {
-			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k), 1.2, OpeConfig.CRATER_MAX_RADIUS);
-			depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k), 1, 10);
+			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k) * (heavy ? 1.1 : 1.0), 1.2, OpeConfig.CRATER_MAX_RADIUS);
+			double maxDepth = heavy ? 14.0 : 10.0;
+			depth = MathHelper.clamp(R * (tier == 2 ? 0.3 : 0.36) * (0.75 + 0.5 * k) * (heavy ? OpeConfig.HEAVY_DEPTH_MULT : 1.0), 1, maxDepth);
 			if (ground && vh > 0.3 * Math.abs(effVel.y)) {
 				// rasante: lo que el suelo le deja seguir lo frena el roce (μ 0,6) en unos metros
 				double sv = keepOnGround() * vh * 20;
 				plow = Math.min(sv * sv / (2 * 0.6 * 9.81), 1.5 * R);
+				if (heavy) plow = Math.min(plow * 1.3, 1.5 * R);
 			}
 		}
 		if (!debris && (tier >= 1 || wasThrown)) {
@@ -1481,7 +1531,7 @@ public class PieceEntity extends Entity {
 		PieceEntity craterRock = (placed || isRemoved() || blocks == null || blocks.isEmpty()) ? null : this;
 		Crater.Result dug = null;
 		if (canCrater) {
-			dug = Crater.dig(w, craterRock, contact, dir, plow, R, depth, tier);
+			dug = Crater.dig(w, craterRock, contact, dir, plow, R, depth, tier, new Crater.CarveRules(heavy, k));
 			R = dug.radius();
 			plow = dug.plow();
 		}
@@ -1490,8 +1540,10 @@ public class PieceEntity extends Entity {
 			spawnDamageDebris(w, dmg, contact, fxRad, effVel);
 		}
 		if (tier >= 1) shock(w, contact, k, tier, r);
-		boolean big = (dmg != null ? dmg.prevCount() : blocks.size()) >= 18 || tier >= 2 || r > OpeConfig.TAKT_BIG_RADIUS;
-		spawnImpactFx(w, contact, fxRad, speed, floor, big, tier >= 3);
+		int prevBlocks = dmg != null ? dmg.prevCount() : blocks.size();
+		boolean big = prevBlocks >= 18 || tier >= 2 || r > OpeConfig.TAKT_BIG_RADIUS;
+		spawnImpactFx(w, contact, fxRad, speed, floor, big, tier >= 3, impactTrait);
+		ElementEffects.onImpact(this, w, impactTrait, prevBlocks, contact, tier, k, fxRad);
 		RoomEvents.sendWorldImpact(w, mover(), contact, (float) fxRad,
 			(float) MathHelper.clamp(speed * (tier >= 3 ? 1.1 : big ? 0.7 : 0.35), 0.25, 2.5));
 		int flags = chunkFx() | (r > OpeConfig.TAKT_BIG_RADIUS ? Payloads.TaktFx.F_BIG : 0);
@@ -1867,11 +1919,16 @@ public class PieceEntity extends Entity {
 			case STAKE -> stakeTick(p, eye, len);
 			case WALL -> wallTick(p, look);
 		}
+		if (wState == 1 && getWorld() instanceof ServerWorld sw) {
+			ElementEffects.weaponTrailFx(this, sw);
+		}
 	}
 
 	/** Deja de ser un arma: cae y se asienta como bloques. */
 	public void becomePlain() {
 		weapon = null;
+		impaled = -1;
+		piercedIds.clear();
 		setFlag(F_WEAPON, false);
 		setYaw(0);
 		setPitch(0);
@@ -1888,6 +1945,9 @@ public class PieceEntity extends Entity {
 		if (weapon == Weapon.STAKE) {
 			wState = 1;
 			wTicks = 0;
+			impaled = -1;
+			piercedIds.clear();
+			hitCooldown.clear();
 			LivingEntity foe = nearestFoe(p, 30);
 			if (foe != null && wIndex % 2 == 0) {
 				wTarget = foe.getId();
@@ -1913,6 +1973,8 @@ public class PieceEntity extends Entity {
 		}
 		wState = 1;
 		wTicks = 0;
+		impaled = -1;
+		piercedIds.clear();
 		hitCooldown.clear();
 	}
 
@@ -1939,8 +2001,11 @@ public class PieceEntity extends Entity {
 	private boolean strike(LivingEntity le, float dmg, Vec3d push) {
 		Integer until = hitCooldown.get(le.getId());
 		if (until != null && until > age) return false;
-		le.damage(damageSource(), dmg);
-		le.addVelocity(push.x, push.y, push.z);
+		float finalDmg = dmg * ElementEffects.weaponDamageMult(this, le);
+		le.damage(damageSource(), finalDmg);
+		ElementEffects.onWeaponStrike(this, le, finalDmg);
+		double kbScale = trait() == MaterialTrait.HEAVY_PIERCING ? 1.3 : 1.0;
+		le.addVelocity(push.x * kbScale, push.y * kbScale, push.z * kbScale);
 		le.velocityModified = true;
 		hitCooldown.put(le.getId(), age + 20);
 		return true;
@@ -1965,12 +2030,29 @@ public class PieceEntity extends Entity {
 		Vec3d next = tip.add(wVel);
 		BlockHitResult bhr = getWorld().raycast(new RaycastContext(tip, next, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
 		Vec3d end = bhr.getType() == HitResult.Type.MISS ? next : bhr.getPos();
-		EntityHitResult ehr = ProjectileUtil.getEntityCollision(getWorld(), this, tip, end, new Box(tip, end).expand(1.0),
-			e -> e instanceof LivingEntity && e.isAlive() && e != p && e.getId() != impaled);
-		if (ehr != null && impaled == -1 && ehr.getEntity() instanceof LivingEntity le) {
-			strike(le, 14f, dir.multiply(0.5));
-			impaled = le.getId();
-			getWorld().playSound(null, le.getX(), le.getY(), le.getZ(), SoundEvents.ENTITY_ARROW_HIT_PLAYER, SoundCategory.PLAYERS, 1f, 0.6f);
+		if (trait() == MaterialTrait.HEAVY_PIERCING && impaled == -1) {
+			List<LivingEntity> hits = getWorld().getEntitiesByClass(LivingEntity.class, new Box(tip, end).expand(1.1),
+				e -> e.isAlive() && e != p && !piercedIds.contains(e.getId()));
+			hits.sort(Comparator.comparingDouble(e -> e.squaredDistanceTo(tip)));
+			for (LivingEntity le : hits) {
+				if (le.getBoundingBox().expand(0.95).raycast(tip, end).isEmpty() && !le.getBoundingBox().expand(1.0).contains(tip)) continue;
+				piercedIds.add(le.getId());
+				strike(le, 14f, dir.multiply(0.5));
+				getWorld().playSound(null, le.getX(), le.getY(), le.getZ(), SoundEvents.ENTITY_ARROW_HIT_PLAYER, SoundCategory.PLAYERS, 1f, 0.55f);
+				if (piercedIds.size() >= OpeConfig.HEAVY_PIERCE_COUNT) {
+					impaled = le.getId();
+					break;
+				}
+			}
+		} else {
+			EntityHitResult ehr = ProjectileUtil.getEntityCollision(getWorld(), this, tip, end, new Box(tip, end).expand(1.0),
+				e -> e instanceof LivingEntity && e.isAlive() && e != p && e.getId() != impaled && !piercedIds.contains(e.getId()));
+			if (ehr != null && impaled == -1 && ehr.getEntity() instanceof LivingEntity le) {
+				piercedIds.add(le.getId());
+				strike(le, 14f, dir.multiply(0.5));
+				impaled = le.getId();
+				getWorld().playSound(null, le.getX(), le.getY(), le.getZ(), SoundEvents.ENTITY_ARROW_HIT_PLAYER, SoundCategory.PLAYERS, 1f, 0.6f);
+			}
 		}
 		setPosition(end.subtract(dir.multiply(len / 2)));
 		pinImpaled(dir);
@@ -1994,6 +2076,7 @@ public class PieceEntity extends Entity {
 		le.requestTeleport(tip.x, tip.y - le.getHeight() / 2, tip.z);
 		le.setVelocity(Vec3d.ZERO);
 		le.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 10, 0, false, false));
+		ElementEffects.onImpaled(this, le, stuckTicks);
 	}
 
 	private void bladeTick(ServerPlayerEntity p, Vec3d eye, Vec3d look, Vec3d right, Vec3d up, double len) {
@@ -2068,6 +2151,18 @@ public class PieceEntity extends Entity {
 					e.velocityModified = true;
 				}
 			}
+			ElementEffects.onHammerSlam(this, w, hit, r);
+			boolean heavy = trait() == MaterialTrait.HEAVY_PIERCING;
+			if (heavy || OpeConfig.HAMMER_CRATER_ALL) {
+				BlockHitResult gb = w.raycast(new RaycastContext(hit.add(0, 2.0, 0), hit.add(0, -6.0, 0),
+					RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
+				Vec3d contact = gb.getType() != HitResult.Type.MISS ? gb.getPos() : hit;
+				double kHit = 0.65;
+				double hR = MathHelper.clamp(1.2 + 0.8 * Math.cbrt(blocks.size()), 1.2, 5.0);
+				double hDepth = MathHelper.clamp(hR * 0.30 * (0.75 + 0.5 * kHit) * (heavy ? OpeConfig.HEAVY_DEPTH_MULT : 1.0),
+					1.0, heavy ? 14.0 : 10.0);
+				Crater.dig(w, null, contact, Vec3d.ZERO, 0.0, hR, hDepth, 2, new Crater.CarveRules(heavy, kHit));
+			}
 		}
 		if (wState == 1 && wTicks >= 14) wState = 0;
 	}
@@ -2081,6 +2176,15 @@ public class PieceEntity extends Entity {
 			return;
 		}
 		if (wState == 2) {
+			if (impaled >= 0) {
+				Entity e = getWorld().getEntityById(impaled);
+				if (e instanceof LivingEntity le && le.isAlive()) {
+					setPosition(le.getBoundingBox().getCenter());
+					ElementEffects.onImpaled(this, le, stuckTicks);
+				} else {
+					impaled = -1;
+				}
+			}
 			if (++stuckTicks > 20 * 10) {
 				if (getWorld() instanceof ServerWorld w && blocks.dominant() != null)
 					w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, blocks.dominant()), getX(), getY(), getZ(), 20, 0.3, 0.6, 0.3, 0.1);
@@ -2100,12 +2204,19 @@ public class PieceEntity extends Entity {
 		BlockHitResult bhr = getWorld().raycast(new RaycastContext(tip, next, RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, this));
 		Vec3d end = bhr.getType() == HitResult.Type.MISS ? next : bhr.getPos();
 		EntityHitResult ehr = ProjectileUtil.getEntityCollision(getWorld(), this, tip, end, new Box(tip, end).expand(0.8),
-			e -> e instanceof LivingEntity && e.isAlive() && e != p);
+			e -> e instanceof LivingEntity && e.isAlive() && e != p && !piercedIds.contains(e.getId()));
 		setPosition(end.subtract(dir.multiply(len / 2)));
 		if (ehr != null && ehr.getEntity() instanceof LivingEntity le) {
+			piercedIds.add(le.getId());
 			strike(le, 8f, dir.multiply(0.4));
-			wState = 2;
-			stuckTicks = 0;
+			boolean keepFlying = trait() == MaterialTrait.HEAVY_PIERCING && piercedIds.size() < 2;
+			if (keepFlying) {
+				wTarget = -1;
+			} else {
+				impaled = le.getId();
+				wState = 2;
+				stuckTicks = 0;
+			}
 		} else if (bhr.getType() != HitResult.Type.MISS || wTicks > 50) {
 			wState = 2;
 			stuckTicks = 0;
@@ -2116,6 +2227,7 @@ public class PieceEntity extends Entity {
 		if (wState == 0) {
 			solid = true;
 			setVelocity(Vec3d.ZERO);
+			ElementEffects.onWallPlantedTick(this, p);
 			if (++stuckTicks > 20 * 60) {
 				weapon = null;
 				settle(true);
@@ -2291,6 +2403,9 @@ public class PieceEntity extends Entity {
 		} else {
 			maxBreak = Math.max(1, (int) Math.floor(total * 0.40));
 		}
+		if (trait() == MaterialTrait.HEAVY_PIERCING) {
+			maxBreak = (int) Math.floor(maxBreak * OpeConfig.HEAVY_FRACTURE_MULT);
+		}
 
 		List<BlockSet.Entry> broken = new ArrayList<>();
 		Set<Long> brokenKeys = new HashSet<>();
@@ -2300,8 +2415,9 @@ public class PieceEntity extends Entity {
 			broken.add(s.e());
 			brokenKeys.add(BlockPos.asLong(s.e().x(), s.e().y(), s.e().z()));
 		}
-		if (wasThrown && broken.isEmpty() && speed >= 0.9 && !scored.isEmpty() && scored.get(0).score() > 0.35) {
-			int minChip = Math.min(maxBreak, Math.max(1, (int) Math.round(total * 0.18)));
+		if (wasThrown && broken.isEmpty() && maxBreak > 0 && speed >= 0.9 && !scored.isEmpty() && scored.get(0).score() > 0.35) {
+			double frac = trait() == MaterialTrait.HEAVY_PIERCING ? 0.18 * OpeConfig.HEAVY_FRACTURE_MULT : 0.18;
+			int minChip = Math.min(maxBreak, Math.max(1, (int) Math.round(total * frac)));
 			for (int i = 0; i < minChip; i++) {
 				BlockSet.Entry e = scored.get(i).e();
 				broken.add(e);
@@ -2321,6 +2437,7 @@ public class PieceEntity extends Entity {
 		}
 		if (kept.isEmpty()) {
 			this.blocks = new BlockSet();
+			refreshTrait();
 			return new DamageResult(broken, total, oldCornerX, oldCornerY, oldCornerZ, prevSx, prevSy, prevSz);
 		}
 		BlockPos shift = kept.normalize();
@@ -2411,6 +2528,7 @@ public class PieceEntity extends Entity {
 	}
 
 	private void spawnFallTrail(ServerWorld sw, Vec3d v, double speed) {
+		ElementEffects.trailFx(this, sw, v, speed);
 		if (debris || slowFall || blocks == null || blocks.size() < 18 || speed < 0.45) return;
 		BlockState mat = blocks.dominant();
 		Vec3d c = center();
@@ -2435,7 +2553,7 @@ public class PieceEntity extends Entity {
 		}
 	}
 
-	private void spawnImpactFx(ServerWorld sw, Vec3d contact, double rad, double speed, BlockState floor, boolean big, boolean colossal) {
+	private void spawnImpactFx(ServerWorld sw, Vec3d contact, double rad, double speed, BlockState floor, boolean big, boolean colossal, MaterialTrait trait) {
 		double r = Math.max(1.2, rad);
 		BlockState rockMat = blocks != null && blocks.dominant() != null ? blocks.dominant() : floor;
 		int debrisCount = MathHelper.clamp((int) (18 + r * (colossal ? 26 : big ? 16 : 9)), 18, 220);
@@ -2453,10 +2571,10 @@ public class PieceEntity extends Entity {
 			emitFx(sw, ParticleTypes.FLAME, contact.x, contact.y + 0.4, contact.z,
 				colossal ? 38 : 18, r * 0.4, 0.35, r * 0.4, 0.16);
 			sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, SoundCategory.BLOCKS,
-				colossal ? 2.6f : 1.75f, 0.55f);
+				colossal ? 2.6f : 1.75f, trait == MaterialTrait.HEAVY_PIERCING ? 0.38f : 0.55f);
 			if (colossal) {
 				sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.BLOCKS,
-					1.9f, 0.48f);
+					1.9f, trait == MaterialTrait.HEAVY_PIERCING ? 0.35f : 0.48f);
 			}
 		} else {
 			emitFx(sw, ParticleTypes.EXPLOSION, contact.x, contact.y + 0.4, contact.z, 5, r * 0.35, 0.3, r * 0.35, 0);
@@ -2465,12 +2583,13 @@ public class PieceEntity extends Entity {
 			colossal ? 48 : big ? 28 : 12, r * 0.6, 0.25, r * 0.6, 0.16);
 		emitFx(sw, ParticleTypes.CAMPFIRE_COSY_SMOKE, contact.x, contact.y + 0.5, contact.z,
 			colossal ? 34 : big ? 18 : 6, r * 0.5, 0.35, r * 0.5, 0.06);
-		if (big) {
+		if (big || trait == MaterialTrait.HEAVY_PIERCING) {
 			emitFx(sw, ParticleTypes.ASH, contact.x, contact.y + 0.8, contact.z,
-				colossal ? 60 : 28, r * 0.75, 0.8, r * 0.75, 0.08);
+				colossal || trait == MaterialTrait.HEAVY_PIERCING ? 60 : 28, r * 0.85, 0.8, r * 0.85, 0.08);
 		}
+		float pitch = trait == MaterialTrait.HEAVY_PIERCING ? 0.42f : 0.6f;
 		sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.BLOCK_DEEPSLATE_BREAK, SoundCategory.BLOCKS,
-			colossal ? 2.4f : big ? 1.8f : 1.1f, 0.6f);
+			colossal ? 2.4f : big ? 1.8f : 1.1f, pitch);
 	}
 
 	/** Predice cuántos ticks faltan (1..maxTicks) para que esta pieza en vuelo choque contra el suelo, un bloque o un ser vivo. */
