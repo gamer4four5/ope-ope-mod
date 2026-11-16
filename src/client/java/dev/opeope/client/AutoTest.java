@@ -50,6 +50,8 @@ import net.minecraft.client.util.Window;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.mob.ZombieEntity;
@@ -1653,6 +1655,10 @@ public final class AutoTest {
 			zmb.refreshPositionAndAngles(x, y, z, 0f, 0f);
 			zmb.setAiDisabled(true);
 			zmb.setPersistent();
+			// Muñeco: con 200 de vida ninguna prueba elemental (T1-T4) lo mata. Si muriera (fuego, terrones), soltaría su
+			// botín al azar (carne podrida 0-2) dentro de la caja donde se cuentan los objetos.
+			EntityAttributeInstance maxHp = zmb.getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH);
+			if (maxHp != null) maxHp.setBaseValue(200.0);
 			zmb.setHealth(zmb.getMaxHealth());
 			w.spawnEntity(zmb);
 		}
