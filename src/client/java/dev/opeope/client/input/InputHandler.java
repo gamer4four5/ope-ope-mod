@@ -3,6 +3,7 @@ package dev.opeope.client.input;
 import dev.opeope.OpeConfig;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.client.ClientState;
+import dev.opeope.client.dismember.ClientDismember;
 import dev.opeope.client.config.OpeProgress;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.hud.Toasts;
@@ -259,6 +260,10 @@ public final class InputHandler {
 			roomUse();
 			Send.action(Actions.ROOM_SCROLL, dir);
 			Onboarding.mark(Onboarding.STEP_RESIZE);
+			lastFruitInputAt = now;
+			return true;
+		}
+		if (dragging && ClientDismember.scroll(dir)) {
 			lastFruitInputAt = now;
 			return true;
 		}
@@ -1003,6 +1008,7 @@ public final class InputHandler {
 		dragging = true;
 		dragLook = p.getRotationVector();
 		dragDX = dragDY = 0;
+		ClientDismember.aimTick();   // Amputate dirigido: la parte del ser bajo la mira
 	}
 
 	/** El ratón mientras trazas: no gira la cámara, dibuja el tajo. */
@@ -1062,9 +1068,19 @@ public final class InputHandler {
 		if (!dragging) return;
 		ClientPlayerEntity p = mc().player;
 		double[] s = swipeScreen();
+		boolean tap = Math.sqrt(dragDX * dragDX + dragDY * dragDY) < DRAG_MIN;
 		dragging = false;
 		dragDX = dragDY = 0;
 		if (p == null) return;
+		// un clic sin trazo sobre un ser del ROOM: corta la parte resaltada (estilo Law) en vez de repetir el tajo
+		if (tap && ClientDismember.aiming()) {
+			ClientDismember.commit();
+			CutFx.slashFlash(lastSX, lastSY);
+			p.swingHand(Hand.MAIN_HAND);
+			Onboarding.mark(Onboarding.STEP_CUT);
+			return;
+		}
+		ClientDismember.cancelAim();
 		lastSX = s[0];
 		lastSY = s[1];
 		Vec3d n = slashNormal(dragLook, s[0], s[1]);
@@ -1077,6 +1093,7 @@ public final class InputHandler {
 	}
 
 	public static void cancelDrag() {
+		ClientDismember.cancelAim();
 		dragging = false;
 		dragDX = dragDY = 0;
 	}

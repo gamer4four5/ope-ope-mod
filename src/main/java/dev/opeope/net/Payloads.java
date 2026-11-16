@@ -502,6 +502,65 @@ public final class Payloads {
 		}
 	}
 
+	/** Cliente → servidor: cortar una parte (Amputate dirigido). segment = id de la parte o de un grupo (lower_half…). */
+	public record CutPart(int entityId, String segment) implements CustomPayload {
+		public static final Id<CutPart> ID = new Id<>(OpeOpeMod.id("cut_part"));
+		public static final PacketCodec<RegistryByteBuf, CutPart> CODEC = PacketCodec.of(CutPart::write, CutPart::read);
+
+		static CutPart read(RegistryByteBuf buf) {
+			return new CutPart(buf.readVarInt(), buf.readString(64));
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(entityId);
+			buf.writeString(segment, 64);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
+	 * Servidor → cliente: lo que le falta a un ser vivo (vacío = entero). locked: partes que no se pueden reunir aún.
+	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal).
+	 */
+	public record DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
+								float heightScale) implements CustomPayload {
+		public static final Id<DismemberSync> ID = new Id<>(OpeOpeMod.id("dismember_sync"));
+		public static final PacketCodec<RegistryByteBuf, DismemberSync> CODEC = PacketCodec.of(DismemberSync::write, DismemberSync::read);
+		private static final int CAP = 64;
+
+		static DismemberSync read(RegistryByteBuf buf) {
+			int id = buf.readVarInt();
+			int n = len(buf.readVarInt(), CAP);
+			java.util.List<String> d = new java.util.ArrayList<>(n);
+			for (int i = 0; i < n; i++) d.add(buf.readString(64));
+			int m = len(buf.readVarInt(), CAP);
+			java.util.List<String> l = new java.util.ArrayList<>(m);
+			for (int i = 0; i < m; i++) l.add(buf.readString(64));
+			return new DismemberSync(id, d, l, buf.readFloat(), buf.readFloat());
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(entityId);
+			int n = Math.min(detached.size(), CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeString(detached.get(i), 64);
+			int m = Math.min(locked.size(), CAP);
+			buf.writeVarInt(m);
+			for (int i = 0; i < m; i++) buf.writeString(locked.get(i), 64);
+			buf.writeFloat(drop);
+			buf.writeFloat(heightScale);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
 	/** Cuántos elementos leer de un array: el largo que llega, entre 0 y su tope (como Cut.read, sin negativos). */
 	private static int len(int n, int cap) {
 		return Math.max(0, Math.min(n, cap));

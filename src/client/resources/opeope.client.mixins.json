@@ -10,7 +10,12 @@
     "MinecraftClientMixin",
     "GameRendererMixin",
     "InGameHudMixin",
-    "BossBarHudAccessor"
+    "BossBarHudAccessor",
+    "ModelPartAccessor",
+    "QuadrupedEntityModelAccessor",
+    "ArmorFeatureRendererMixin",
+    "HeldItemFeatureRendererMixin",
+    "HeadFeatureRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

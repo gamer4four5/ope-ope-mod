@@ -1,0 +1,154 @@
+{
+  "core": "body",
+  "segments": {
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head"
+      ],
+      "joint": [
+        0,
+        12.0,
+        -6
+      ],
+      "box": [
+        -4,
+        8,
+        -14,
+        4,
+        16,
+        -6
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "box": [
+        -5,
+        6,
+        -8,
+        5,
+        14,
+        8
+      ],
+      "mass": 0.5
+    },
+    "right_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_hind_leg"
+      ],
+      "joint": [
+        -3.0,
+        6,
+        7.0
+      ],
+      "box": [
+        -5,
+        0,
+        5,
+        -1,
+        6,
+        9
+      ],
+      "mass": 0.1,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_hind_leg"
+      ],
+      "joint": [
+        3.0,
+        6,
+        7.0
+      ],
+      "box": [
+        1,
+        0,
+        5,
+        5,
+        6,
+        9
+      ],
+      "mass": 0.1,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_front_leg"
+      ],
+      "joint": [
+        -3.0,
+        6,
+        -5.0
+      ],
+      "box": [
+        -5,
+        0,
+        -7,
+        -1,
+        6,
+        -3
+      ],
+      "mass": 0.1,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_front_leg"
+      ],
+      "joint": [
+        3.0,
+        6,
+        -5.0
+      ],
+      "box": [
+        1,
+        0,
+        -7,
+        5,
+        6,
+        -3
+      ],
+      "mass": 0.1,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "right_hind_leg",
+      "left_hind_leg",
+      "right_front_leg",
+      "left_front_leg"
+    ],
+    "hind_legs": [
+      "right_hind_leg",
+      "left_hind_leg"
+    ],
+    "front_legs": [
+      "right_front_leg",
+      "left_front_leg"
+    ]
+  },
+  "cap_color": "#F0A8A8",
+  "excluded": false
+}

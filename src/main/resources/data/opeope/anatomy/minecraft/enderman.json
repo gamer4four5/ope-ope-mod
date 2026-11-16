@@ -1,0 +1,147 @@
+{
+  "core": "body",
+  "segments": {
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head",
+        "hat"
+      ],
+      "joint": [
+        0,
+        42,
+        0
+      ],
+      "box": [
+        -4,
+        42,
+        -4,
+        4,
+        50,
+        4
+      ],
+      "mass": 0.08,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "box": [
+        -4,
+        30,
+        -2,
+        4,
+        42,
+        2
+      ],
+      "mass": 0.4
+    },
+    "right_arm": {
+      "parent": "body",
+      "model_parts": [
+        "right_arm"
+      ],
+      "joint": [
+        -5,
+        40,
+        0
+      ],
+      "box": [
+        -6,
+        12,
+        -1,
+        -4,
+        42,
+        1
+      ],
+      "mass": 0.06,
+      "function": [
+        "main_hand",
+        "attack"
+      ]
+    },
+    "left_arm": {
+      "parent": "body",
+      "model_parts": [
+        "left_arm"
+      ],
+      "joint": [
+        5,
+        40,
+        0
+      ],
+      "box": [
+        4,
+        12,
+        -1,
+        6,
+        42,
+        1
+      ],
+      "mass": 0.06,
+      "function": [
+        "off_hand",
+        "attack"
+      ]
+    },
+    "right_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_leg"
+      ],
+      "joint": [
+        -2,
+        30,
+        0
+      ],
+      "box": [
+        -3,
+        0,
+        -1,
+        -1,
+        30,
+        1
+      ],
+      "mass": 0.2,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_leg"
+      ],
+      "joint": [
+        2,
+        30,
+        0
+      ],
+      "box": [
+        1,
+        0,
+        -1,
+        3,
+        30,
+        1
+      ],
+      "mass": 0.2,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "right_leg",
+      "left_leg"
+    ]
+  },
+  "cap_color": "#3A2A4A",
+  "excluded": false
+}

@@ -124,6 +124,11 @@ public final class Shambles {
 		} else {
 			marked.setGlowing(false);
 			pw.shamblesMark = -1;
+			// una parte cortada y su dueño (en cualquier orden): la parte vuelve a su sitio
+			if (Dismember.shamblesPair(p, marked, target)) {
+				pw.cooldown(Tech.SHAMBLES);
+				return;
+			}
 			if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
 				if (!swapPiece(p, pw, marked, pe)) return;
 			} else if (target == marked) {

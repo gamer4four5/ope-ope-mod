@@ -104,5 +104,9 @@
   "subtitles.opeope.takt.land": "Takt: toca el suelo",
   "subtitles.opeope.takt.seal": "Takt: queda sellado",
   "subtitles.opeope.takt.zone": "Takt: levanta la zona",
-  "subtitles.opeope.takt.rewind": "Takt: todo vuelve"
+  "subtitles.opeope.takt.rewind": "Takt: todo vuelve",
+  "opeope.msg.part_refused": "No se puede cortar por partes: %s",
+  "opeope.msg.part_limit": "Demasiadas partes sueltas",
+  "opeope.msg.part_locked": "Radio Knife: esa parte aún no se puede unir",
+  "entity.opeope.parte": "Parte cortada"
 }

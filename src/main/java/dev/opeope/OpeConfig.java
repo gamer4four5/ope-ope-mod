@@ -140,6 +140,38 @@ public final class OpeConfig {
 	public static final double HEAVY_OBSIDIAN_K = 0.85;         // intensidad k mínima de heavy para fracturar obsidiana
 	public static final boolean HAMMER_CRATER_ALL = false;      // si true todos los mazos abren cráter (false = solo heavy)
 
+
+	// Desmembramiento estilo Law (Amputate por partes). Las partes cortadas siguen vivas y unidas a su dueño.
+	public enum OnEnd { KEEP, REATTACH }
+	public static final double CUT_RANGE = 48;               // bloques: hasta dónde se puede cortar una parte (además de estar en tu ROOM)
+	public static final float AMPUTATE_DAMAGE = 0f;          // daño del corte a un ser normal (el anime: ninguno)
+	public static final float AMPUTATE_BOSS_DAMAGE = 2f;     // daño leve a un jefe no excluido
+	public static final int AMPUTATE_COOLDOWN = 8;           // ticks entre cortes dirigidos (aparte del de Amputate por plano)
+	public static final float PART_DMG_SHARE = 1.0f;         // el daño a una parte pasa a su dueño multiplicado por esto
+	public static final int PART_LIFETIME = 20 * 60 * 5;     // ticks hasta que un mob recupera sola su parte (0 = nunca)
+	public static final int PART_ORPHAN_TICKS = 20 * 10;     // una parte sin dueño (o un dueño sin su parte) se resuelve tras esto
+	public static final int MAX_PARTS_WORLD = 300;           // partes sueltas en todo el mundo
+	public static final int MAX_PARTS_PER_ENTITY = 24;       // partes sueltas de un mismo ser
+	public static final boolean ALLOW_PLAYERS = true;        // cortar jugadores (PvP)
+	public static final boolean ALLOW_VILLAGERS = true;      // cortar aldeanos y vendedores
+	public static final boolean ALLOW_PETS = true;           // cortar mascotas domesticadas
+	public static final java.util.Set<String> EXCLUDED_ENTITIES = java.util.Set.of(   // nunca se cortan por partes
+		"minecraft:ender_dragon", "minecraft:wither", "minecraft:warden", "minecraft:elder_guardian");
+	public static final boolean PLAYER_HEAD_CAMERA = true;   // (fase 3) un jugador sin cabeza ve desde su cabeza
+	public static final boolean MOBS_RECLAIM_PARTS = true;   // (fase 3) los mobs van a por sus partes
+	public static final boolean LOWER_HALF_WANDERS = true;   // (fase 3) la mitad de abajo camina sola
+	public static final boolean HEAD_CONTROLS_AI = true;     // (fase 4) con cabezas cambiadas manda la cabeza
+	public static final boolean PLAYER_SOUL_SWAP = false;    // (fase 4) cambio de cuerpos entre jugadores
+	public static final boolean MES_CAN_KILL = false;        // (fase 3) aplastar el corazón mata
+	public static final float MES_SQUEEZE_DMG = 2f;          // (fase 3) daño de un apretón
+	public static final int RADIO_LOCK_TICKS = 20 * 30;      // (fase 2) lo cortado con Radio Knife no se puede reunir en este tiempo
+	public static final boolean FREE_PLANE_CUTS = false;     // (fase 4) cortes libres por plano que rehacen la malla
+	public static final int MAX_PLANES_PER_PIECE = 4;        // (fase 4)
+	public static final boolean SLIME_SPLIT_NATIVE = true;   // (fase 4) los slimes se dividen a su manera
+	public static final boolean HEADLESS_CREEPER_EXPLODES = false; // un creeper sin cabeza no puede encenderse
+	public static final OnEnd ON_ROOM_END = OnEnd.KEEP;      // al cerrar el ROOM: las partes siguen sueltas o vuelven
+	public static final OnEnd ON_CUTTER_DEATH = OnEnd.KEEP;  // al morir o salir quien cortó
+
 	// Técnicas con duración (el HUD cuenta los segundos con estos mismos números)
 	public static final int SCAN_TICKS = 160;
 	public static final int CURTAIN_TICKS = 120;

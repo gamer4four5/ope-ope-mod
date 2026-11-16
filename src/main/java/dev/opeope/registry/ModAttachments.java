@@ -18,6 +18,10 @@ public final class ModAttachments {
 	public static final AttachmentType<Boolean> AWAKENING = AttachmentRegistry.<Boolean>builder()
 		.persistent(Codec.BOOL).copyOnDeath().buildAndRegister(OpeOpeMod.id("awakening"));
 
+	/** Lo que le falta a un ser vivo cortado por partes (estilo Law). Se guarda con la entidad. */
+	public static final AttachmentType<dev.opeope.anatomy.DismemberState> DISMEMBER = AttachmentRegistry.<dev.opeope.anatomy.DismemberState>builder()
+		.persistent(dev.opeope.anatomy.DismemberState.CODEC).buildAndRegister(OpeOpeMod.id("dismember"));
+
 	public static void init() {}
 
 	public static boolean hasFruit(PlayerEntity p) {
