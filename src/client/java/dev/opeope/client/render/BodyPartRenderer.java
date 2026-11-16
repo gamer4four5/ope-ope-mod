@@ -59,9 +59,9 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 		try {
 			Identifier tex = lr.getTexture(v);
 			int overlay = LivingEntityRenderer.getOverlay(v, 0f);
-			VertexConsumer vc = vcp.getBuffer(model.getLayer(tex));
 			float time = e.age + tickDelta;
 			ms.push();
+			try {
 			ms.translate(0, e.getHeight() / 2f, 0);
 			ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-MathHelper.lerpAngleDegrees(tickDelta, e.prevYaw, e.getYaw())));
 			ms.multiply(RotationAxis.POSITIVE_X.rotationDegrees(MathHelper.lerp(tickDelta, e.prevPitch, e.getPitch())));
@@ -80,6 +80,8 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 			// el marco del modelo (el mismo que LivingEntityRenderer)
 			ms.scale(-1f, -1f, 1f);
 			ms.translate(0, -1.501f, 0);
+			// el buffer del modelo se pide después de las caras (cada getBuffer de otra capa cierra el anterior)
+			VertexConsumer vc = vcp.getBuffer(model.getLayer(tex));
 			int k = 0;
 			for (String seg : e.segments()) {
 				Anatomy.Segment sg = a.get(seg);
@@ -88,10 +90,23 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 					List<ModelPart> chain = ModelParts.chain(model, name);
 					if (chain == null) continue;
 					drawChain(chain, ms, vc, light, overlay, time, sg, k++, e.getId());
-					if (name.equals("right_arm") || name.equals("left_arm")) heldItem(v, chain, name, ms, vcp, light, time, sg, k, e.getId());
 				}
 			}
-			ms.pop();
+			// y lo que lleva en la mano, al final (usa sus propias capas)
+			k = 0;
+			for (String seg : e.segments()) {
+				Anatomy.Segment sg = a.get(seg);
+				if (sg == null) continue;
+				for (String name : sg.modelParts()) {
+					k++;
+					if (!name.equals("right_arm") && !name.equals("left_arm")) continue;
+					List<ModelPart> chain = ModelParts.chain(model, name);
+					if (chain != null) heldItem(v, chain, name, ms, vcp, light, time, sg, k, e.getId());
+				}
+			}
+			} finally {
+				ms.pop();
+			}
 		} catch (RuntimeException ex) {
 			String key = String.valueOf(e.victimType());
 			if (WARNED.add(key)) OpeOpeMod.LOG.warn("Desmembramiento: no se pudo dibujar una parte de {}: {}", key, ex.toString());
@@ -104,13 +119,16 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 		ModelPart last = chain.get(chain.size() - 1);
 		if (!last.visible) return;   // capa apagada (las del skin del jugador, etc.)
 		ms.push();
-		for (int i = 0; i < chain.size() - 1; i++) chain.get(i).rotate(ms);
 		ModelTransform saved = last.getTransform();
-		last.resetTransform();
-		alive(last, time, sg, k, seed);
-		last.render(ms, vc, light, overlay);
-		last.setTransform(saved);
-		ms.pop();
+		try {
+			for (int i = 0; i < chain.size() - 1; i++) chain.get(i).rotate(ms);
+			last.resetTransform();
+			alive(last, time, sg, k, seed);
+			last.render(ms, vc, light, overlay);
+		} finally {
+			last.setTransform(saved);
+			ms.pop();
+		}
 	}
 
 	/** Sigue viva: las piernas patalean, la mano se abre y se cierra, la cabeza mira y se mueve. */
@@ -135,6 +153,7 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 		if (stack.isEmpty()) return;
 		ModelPart last = chain.get(chain.size() - 1);
 		ms.push();
+		try {
 		for (int i = 0; i < chain.size() - 1; i++) chain.get(i).rotate(ms);
 		ModelTransform saved = last.getTransform();
 		last.resetTransform();
@@ -147,6 +166,8 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 		ms.translate((left ? -1 : 1) / 16f, 0.125f, -0.625f);
 		MinecraftClient.getInstance().getEntityRenderDispatcher().getHeldItemRenderer().renderItem(v, stack,
 			left ? ModelTransformationMode.THIRD_PERSON_LEFT_HAND : ModelTransformationMode.THIRD_PERSON_RIGHT_HAND, left, ms, vcp, light);
-		ms.pop();
+		} finally {
+			ms.pop();
+		}
 	}
 }

@@ -107,6 +107,7 @@ public final class ClientDismember {
 
 	private static final Deque<List<ModelPart>> HIDDEN = new ArrayDeque<>();
 	private static final Deque<float[]> DROPS = new ArrayDeque<>();
+	private static final Set<Object> CAP_WARNED = new HashSet<>();
 
 	/** Antes de dibujar un ser: oculta sus partes cortadas y, sin piernas, lo baja. Siempre emparejado con end(). */
 	public static void begin(LivingEntity e, EntityModel<?> model, MatrixStack ms) {
@@ -140,17 +141,22 @@ public final class ClientDismember {
 			Anatomy a = i == null ? null : AnatomyRegistry.get(e.getType());
 			if (a != null) {
 				ms.push();
-				float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
-				ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180f - yaw));
-				float s = e.getScale();
-				ms.scale(s, s, s);
-				float time = e.age + tickDelta;
-				for (String seg : i.detached) {
-					Anatomy.Segment sg = a.get(seg);
-					if (sg == null || sg.parent() == null || i.detached.contains(sg.parent())) continue;
-					cap(ms, vcp, a, sg, time, i.locked.contains(seg), false);
+				try {
+					float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
+					ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180f - yaw));
+					float s = e.getScale();
+					ms.scale(s, s, s);
+					float time = e.age + tickDelta;
+					for (String seg : i.detached) {
+						Anatomy.Segment sg = a.get(seg);
+						if (sg == null || sg.parent() == null || i.detached.contains(sg.parent())) continue;
+						cap(ms, vcp, a, sg, time, i.locked.contains(seg), false);
+					}
+				} catch (RuntimeException ex) {
+					if (CAP_WARNED.add(e.getType())) dev.opeope.OpeOpeMod.LOG.warn("Desmembramiento: cara de corte de {}: {}", e.getType(), ex.toString());
+				} finally {
+					ms.pop();
 				}
-				ms.pop();
 			}
 		} finally {
 			if (drop > 0) ms.translate(0, drop, 0);
