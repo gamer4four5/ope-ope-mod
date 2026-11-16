@@ -1064,9 +1064,12 @@ public final class Takt {
 		pw.parked.remove(e.getId());
 		pw.taktOffsets.remove(e.getId());
 		forget(e.getId());
-		Vec3d c = e.getBoundingBox().getCenter();
 		int flags = fxFlags;
 		float mass = 0f;
+		if (e instanceof PieceEntity pe) {
+			pe.clearLiftHole();
+		}
+		Vec3d c = e.getBoundingBox().getCenter();
 		if (e instanceof PieceEntity pe) {
 			double r = pe.radius();
 			double gmul = PieceEntity.heavyGravity(r);

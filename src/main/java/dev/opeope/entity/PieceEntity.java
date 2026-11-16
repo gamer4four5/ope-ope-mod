@@ -37,6 +37,7 @@ import net.minecraft.network.listener.ClientPlayPacketListener;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.s2c.play.EntitySpawnS2CPacket;
 import net.minecraft.particle.BlockStateParticleEffect;
+import net.minecraft.particle.ParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.EntityTrackerEntry;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -735,6 +736,15 @@ public class PieceEntity extends Entity {
 		}
 	}
 
+	/** Si se lanza mientras aún sube sin colisiones desde su hueco, lo saca limpio por arriba si hay espacio. */
+	public void clearLiftHole() {
+		if (!noClip || clipTopY <= getY()) return;
+		double dy = Math.min(clipTopY - getY() + 0.08, 3.0);
+		if (dy > 0.01 && getWorld().isBlockSpaceEmpty(this, getBoundingBox().offset(0, dy, 0))) {
+			setPosition(getX(), getY() + dy, getZ());
+		}
+	}
+
 	/** Suelta la pieza: vuelve a caer con la gravedad. Nadie la lleva ya. */
 	public void release(Vec3d velocity, boolean asThrow) {
 		mode = Mode.FREE;
@@ -747,6 +757,7 @@ public class PieceEntity extends Entity {
 		targetVel = Vec3d.ZERO;
 		setVelocity(velocity);
 		thrown = asThrow;
+		if (asThrow) slowFall = false;
 		thrownTicks = 0;
 		restTicks = 0;
 		freeTicks = 0;
@@ -936,7 +947,7 @@ public class PieceEntity extends Entity {
 				settle(true);
 				return;
 			}
-			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), v);
+			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), v, false);
 			if (hit.properFloor() && strikes(v, true)) {
 				impact(v, hit);
 				return;
@@ -952,10 +963,10 @@ public class PieceEntity extends Entity {
 		setVelocity(after.x * f, after.y * air, after.z * f);
 		if (isOnGround() && getVelocity().lengthSquared() < 0.004) restTicks++;
 		else restTicks = 0;
-		if (isOnGround() && restTicks >= 2 && lastImpactAge < 0 && !debris && !slowFall
+		if (isOnGround() && restTicks >= (thrown ? 1 : 2) && lastImpactAge < 0 && !debris && !slowFall
 			&& (thrown || (maxFallSpeed > OpeConfig.IMPACT_FALL_SPEED && massKg() >= OpeConfig.IMPACT_FALL_KG))) {
 			Vec3d synthVel = new Vec3d(v.x, -Math.max(0.65, maxFallSpeed), v.z);
-			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), synthVel);
+			FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), synthVel, thrown);
 			if (hit.properFloor() && strikes(synthVel, true)) {
 				impact(synthVel, hit);
 				return;
@@ -963,7 +974,17 @@ public class PieceEntity extends Entity {
 		}
 		boolean keepCut = fromCut && !thrown && !slowFall && lastImpactAge < 0;
 		int maxRest = keepCut ? 20 * 25 : 6;
-		if (restTicks > maxRest || freeTicks > 20 * 30) settle(false);
+		if (restTicks > maxRest || freeTicks > 20 * 30) {
+			if (thrown && lastImpactAge < 0 && !debris && !slowFall) {
+				Vec3d synthVel = new Vec3d(v.x, -Math.max(0.85, maxFallSpeed), v.z);
+				FloorHit hit = inspectFloor(GroundRules.loaded(getWorld()), synthVel, true);
+				if (hit.properFloor() || isOnGround()) {
+					impact(synthVel, hit.properFloor() ? hit : new FloorHit(true, hit.floor(), getPos()));
+					return;
+				}
+			}
+			settle(false);
+		}
 	}
 
 	// ------------------------------------------------------------------ posar (4.6)
@@ -1280,7 +1301,7 @@ public class PieceEntity extends Entity {
 	private boolean strikes(Vec3d v, boolean properFloor) {
 		if (sewOnContact || !properFloor || debris || slowFall) return false;
 		double s = v.length();
-		if (thrown) return thrownTicks >= 1 && (s > 0.55 || maxFallSpeed > 0.9);
+		if (thrown) return thrownTicks >= 1 && (s > 0.35 || maxFallSpeed > 0.55);
 		if (s < OpeConfig.IMPACT_FALL_SPEED || massKg() < OpeConfig.IMPACT_FALL_KG) return false;
 		double e = blowEnergy(v);
 		if (age - lastImpactAge < 9 && e < 3 * lastImpactE) return false;
@@ -1290,27 +1311,27 @@ public class PieceEntity extends Entity {
 	private record FloorHit(boolean properFloor, BlockState floor, Vec3d contact) {}
 
 	/**
-	 * Exige contacto real contra el piso bajo la huella de la pieza (>= 25% de apoyo sólido bajo la base),
-	 * ignorando roces en pleno aire contra muros, techos o salientes mínimos, y detectando el terreno real incluso bajo
-	 * nieve fina o vegetación superficial.
+	 * Exige contacto contra piso o ladera cercana (solidUnder > 0 dentro de dy <= 2), ignorando muros o techos
+	 * flotantes en pleno aire y detectando el terreno real incluso bajo nieve fina, hojarasca o vegetación superficial.
 	 */
-	private FloorHit inspectFloor(BlockView view, Vec3d moveVel) {
+	private FloorHit inspectFloor(BlockView view, Vec3d moveVel, boolean forceResting) {
 		BlockState defaultFloor = view.getBlockState(BlockPos.ofFloored(getX(), getY() - 0.5, getZ()));
-		if (verticalCollision && moveVel.y > 0) {
+		if (!forceResting && verticalCollision && moveVel.y > 0.08 && !isOnGround()) {
 			return new FloorHit(false, defaultFloor, new Vec3d(getX(), getY() + blocks.sy, getZ()));
 		}
-		boolean downHit = verticalCollision && moveVel.y < -0.02;
-		boolean slideStepHit = horizontalCollision && !verticalCollision && isOnGround() && moveVel.y <= 0.05;
-		boolean restingHit = isOnGround() && restTicks >= 2;
-		if (!downHit && !slideStepHit && !restingHit) {
+		boolean downHit = verticalCollision && moveVel.y <= 0.08;
+		boolean stepOrSlopeHit = horizontalCollision && moveVel.y <= 0.22;
+		boolean restingHit = forceResting || (isOnGround() && (restTicks >= 1 || thrown));
+		if (!downHit && !stepOrSlopeHit && !restingHit) {
 			return new FloorHit(false, defaultFloor, getPos());
 		}
 
-		double insetHalfX = Math.max(0.18, blocks.sx * 0.5 - 0.16);
-		double insetHalfZ = Math.max(0.18, blocks.sz * 0.5 - 0.16);
+		double insetHalfX = blocks.sx <= 1 ? 0.22 : Math.max(0.24, blocks.sx * 0.5 - 0.16);
+		double insetHalfZ = blocks.sz <= 1 ? 0.22 : Math.max(0.24, blocks.sz * 0.5 - 0.16);
 		int yBase = MathHelper.floor(getY() - 0.08);
-		int solidCount = 0;
-		int samples = 9;
+		int solidNear = 0;
+		int solidUnder = 0;
+		boolean centerSolid = false;
 		BlockState bestTerrain = null;
 		int bestTerrainY = Integer.MIN_VALUE;
 		double bestDist2 = Double.MAX_VALUE;
@@ -1322,16 +1343,22 @@ public class PieceEntity extends Entity {
 			for (int gz = -1; gz <= 1; gz++) {
 				double sz = getZ() + gz * insetHalfZ;
 				int iz = MathHelper.floor(sz);
-				boolean colSolid = false;
-				for (int dy = 0; dy <= 1; dy++) {
+				boolean near = false;
+				boolean under = false;
+				for (int dy = 0; dy <= 2; dy++) {
 					if (solidAt(view, m, ix, yBase - dy, iz)) {
-						colSolid = true;
+						if (dy <= 1) near = true;
+						under = true;
 						break;
 					}
 				}
-				if (colSolid) solidCount++;
+				if (near) solidNear++;
+				if (under) {
+					solidUnder++;
+					if (gx == 0 && gz == 0) centerSolid = true;
+				}
 
-				for (int dy = 0; dy <= 2; dy++) {
+				for (int dy = 0; dy <= 3; dy++) {
 					int ty = yBase - dy;
 					BlockState st = view.getBlockState(m.set(ix, ty, iz));
 					if (GroundRules.terrain(st)) {
@@ -1343,25 +1370,52 @@ public class PieceEntity extends Entity {
 						}
 						break;
 					}
-					if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SNOW) && !GroundRules.plantLike(st, view, m)) {
+					if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SNOW)
+						&& !st.isOf(Blocks.MOSS_CARPET) && !isFoliageBlock(st) && !GroundRules.plantLike(st, view, m)) {
 						break;
 					}
 				}
 			}
 		}
 
-		boolean properFloor = solidCount > 0 && (solidCount * 4 >= samples || restingHit);
+		if (bestTerrain == null && horizontalCollision && solidUnder > 0) {
+			double vh = Math.hypot(moveVel.x, moveVel.z);
+			if (vh > 1e-4) {
+				int iax = MathHelper.floor(getX() + (moveVel.x / vh) * (blocks.sx * 0.5 + 0.55));
+				int iaz = MathHelper.floor(getZ() + (moveVel.z / vh) * (blocks.sz * 0.5 + 0.55));
+				for (int dy = -1; dy <= 2; dy++) {
+					int ty = yBase - dy;
+					BlockState st = view.getBlockState(m.set(iax, ty, iaz));
+					if (GroundRules.terrain(st)) {
+						bestTerrain = st;
+						bestTerrainY = ty;
+						break;
+					}
+				}
+			}
+		}
+
+		boolean smallFoot = blocks.size() <= 4 || Math.max(blocks.sx, blocks.sz) <= 2;
+		boolean properFloor;
+		if (forceResting) {
+			properFloor = solidUnder > 0 || isOnGround();
+		} else if (downHit || restingHit) {
+			properFloor = solidNear >= 2 || (solidUnder >= 2 && isOnGround()) || centerSolid || (smallFoot && solidUnder >= 1);
+		} else {
+			properFloor = solidUnder >= 2 || centerSolid || (smallFoot && solidUnder >= 1);
+		}
 		BlockState floor = bestTerrain != null ? bestTerrain : defaultFloor;
 		double contactY = bestTerrain != null ? MathHelper.clamp(bestTerrainY + 1.0, getY() - 1.5, getY() + 0.5) : getY();
 		return new FloorHit(properFloor, floor, new Vec3d(getX(), contactY, getZ()));
 	}
 
-	/** Si tocó una pared o un techo en pleno vuelo, rebota/resbala sin gastar el impacto de piso todavía. */
+	/** Si tocó una pared o un techo en pleno vuelo, rebota/resbala sin perder la picada hacia el suelo. */
 	private void deflectMidAir(Vec3d moveVel) {
 		Vec3d after = getVelocity();
 		boolean hitCeiling = verticalCollision && moveVel.y > 0;
-		double ny = hitCeiling ? Math.min(after.y, -0.22) : Math.min(after.y, -0.18);
-		setVelocity(after.x * 0.48, ny, after.z * 0.48);
+		double downKick = Math.max(0.55, Math.min(1.15, moveVel.length() * 0.50));
+		double ny = hitCeiling ? Math.min(after.y, -Math.max(0.65, downKick)) : Math.min(after.y, -downKick);
+		setVelocity(after.x * 0.78, ny, after.z * 0.78);
 		restTicks = 0;
 		if (getWorld() instanceof ServerWorld sw && age - wallGrazeAge >= 5 && moveVel.length() > 0.75) {
 			wallGrazeAge = age;
@@ -1389,7 +1443,7 @@ public class PieceEntity extends Entity {
 		double m = massKg(), r = radius();
 		double e = blowEnergy(effVel);
 		int tier = tierOf(e, r, m);
-		if (wasThrown && blocks.size() >= 3 && speed >= 1.1) tier = Math.max(tier, 2);
+		if (wasThrown && (speed >= 0.85 || maxFallSpeed >= 1.05)) tier = Math.max(tier, 2);
 		double k = kOf(e);
 		lastImpactAge = age;
 		lastImpactE = e;
@@ -2370,41 +2424,50 @@ public class PieceEntity extends Entity {
 		}
 	}
 
+	private static void emitFx(ServerWorld sw, ParticleEffect effect, double x, double y, double z,
+			int count, double dx, double dy, double dz, double speed) {
+		for (ServerPlayerEntity sp : sw.getPlayers()) {
+			if (sp.squaredDistanceTo(x, y, z) <= 192.0 * 192.0) {
+				sw.spawnParticles(sp, effect, true, x, y, z, count, dx, dy, dz, speed);
+			}
+		}
+	}
+
 	private void spawnImpactFx(ServerWorld sw, Vec3d contact, double rad, double speed, BlockState floor, boolean big, boolean colossal) {
 		double r = Math.max(1.2, rad);
 		BlockState rockMat = blocks != null && blocks.dominant() != null ? blocks.dominant() : floor;
 		int debrisCount = MathHelper.clamp((int) (18 + r * (colossal ? 26 : big ? 16 : 9)), 18, 220);
 		if (!floor.isAir()) {
-			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, floor), contact.x, contact.y + 0.35, contact.z,
+			emitFx(sw, new BlockStateParticleEffect(ParticleTypes.BLOCK, floor), contact.x, contact.y + 0.35, contact.z,
 				debrisCount / 2, r * 0.55, 0.4, r * 0.55, Math.min(0.95, 0.35 + speed * 0.25));
 		}
 		if (rockMat != null && !rockMat.isAir()) {
-			sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, rockMat), contact.x, contact.y + 0.6, contact.z,
+			emitFx(sw, new BlockStateParticleEffect(ParticleTypes.BLOCK, rockMat), contact.x, contact.y + 0.6, contact.z,
 				debrisCount / 2, r * 0.45, 0.5, r * 0.45, Math.min(1.0, 0.3 + speed * 0.22));
 		}
 		if (big || colossal) {
-			sw.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, contact.x, contact.y + 0.6, contact.z,
+			emitFx(sw, ParticleTypes.EXPLOSION_EMITTER, contact.x, contact.y + 0.6, contact.z,
 				colossal ? 3 : 2, r * 0.22, 0.4, r * 0.22, 0);
-			sw.spawnParticles(ParticleTypes.FLAME, contact.x, contact.y + 0.4, contact.z,
+			emitFx(sw, ParticleTypes.FLAME, contact.x, contact.y + 0.4, contact.z,
 				colossal ? 38 : 18, r * 0.4, 0.35, r * 0.4, 0.16);
 			sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, SoundCategory.BLOCKS,
-				colossal ? 2.0f : 1.25f, 0.55f);
+				colossal ? 2.6f : 1.75f, 0.55f);
 			if (colossal) {
 				sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.BLOCKS,
 					1.9f, 0.48f);
 			}
 		} else {
-			sw.spawnParticles(ParticleTypes.EXPLOSION, contact.x, contact.y + 0.4, contact.z, 5, r * 0.35, 0.3, r * 0.35, 0);
+			emitFx(sw, ParticleTypes.EXPLOSION, contact.x, contact.y + 0.4, contact.z, 5, r * 0.35, 0.3, r * 0.35, 0);
 		}
-		sw.spawnParticles(ParticleTypes.POOF, contact.x, contact.y + 0.3, contact.z,
+		emitFx(sw, ParticleTypes.POOF, contact.x, contact.y + 0.3, contact.z,
 			colossal ? 48 : big ? 28 : 12, r * 0.6, 0.25, r * 0.6, 0.16);
-		sw.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, contact.x, contact.y + 0.5, contact.z,
+		emitFx(sw, ParticleTypes.CAMPFIRE_COSY_SMOKE, contact.x, contact.y + 0.5, contact.z,
 			colossal ? 34 : big ? 18 : 6, r * 0.5, 0.35, r * 0.5, 0.06);
 		if (big) {
-			sw.spawnParticles(ParticleTypes.ASH, contact.x, contact.y + 0.8, contact.z,
+			emitFx(sw, ParticleTypes.ASH, contact.x, contact.y + 0.8, contact.z,
 				colossal ? 60 : 28, r * 0.75, 0.8, r * 0.75, 0.08);
 		}
 		sw.playSound(null, contact.x, contact.y, contact.z, SoundEvents.BLOCK_DEEPSLATE_BREAK, SoundCategory.BLOCKS,
-			colossal ? 2.4f : big ? 1.6f : 1.0f, 0.6f);
+			colossal ? 2.4f : big ? 1.8f : 1.1f, 0.6f);
 	}
 }

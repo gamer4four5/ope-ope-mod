@@ -1052,6 +1052,8 @@ public final class AutoTest {
 
 		planPisoYDanio(mc, srv, id);
 
+		planTerrenoIrregular(mc, srv, id);
+
 		planRevision(mc, srv, id);
 
 		// dejarlo como estaba para (l)
@@ -1258,6 +1260,83 @@ public final class AutoTest {
 	 * En el hilo del servidor: fuera del campo los objetos y los animales (la onda del golpe no mata a nadie que suelte
 	 * nada) y, con pieces, también las piezas sueltas.
 	 */
+	/**
+	 * (k2c) Terreno irregular (escalón de hierba + hojas) con pieza pequeña lanzada rasante: no debe perder impulso,
+	 * ni posarse intacta sin explotar, debe impactar (nivel >= 2), abrir cráter y conservar el 100% de los bloques.
+	 */
+	private static void planTerrenoIrregular(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int IMPACT = Payloads.TaktFx.IMPACT;
+		step(2, "ladera: preparar escalón", () -> {
+			srvA = -1;
+			srvB = -1;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				clearField(w, true);
+				patch(w, gx0 - 16, gx0 + 16, gz0 - 26, gz0 + 2, gfy);
+				BlockPos.Mutable m = new BlockPos.Mutable();
+				for (int x = gx0 - 6; x <= gx0 + 6; x++) {
+					for (int z = gz0 - 22; z <= gz0 - 15; z++) {
+						w.setBlockState(m.set(x, gfy + 1, z), (z <= gz0 - 17 ? Blocks.DIRT : Blocks.GRASS_BLOCK).getDefaultState(), 2 | 16);
+						if (z <= gz0 - 17) {
+							w.setBlockState(m.set(x, gfy + 2, z), Blocks.GRASS_BLOCK.getDefaultState(), 2 | 16);
+						}
+					}
+				}
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 - 7.5, 180f, 0f);
+				dropped0 = PieceEntity.DROPPED;
+				crater0 = Crater.last;
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("ladera: preparado", 60, "el cliente no ve la ladera", () -> srvA >= 0 && srvB >= 0
+			&& mc.world.getBlockState(new BlockPos(gx0, gfy + 1, gz0 - 15)).isOf(Blocks.GRASS_BLOCK), () -> {
+			solid0 = srvA + 2;
+			items0 = srvB;
+		});
+		step(4, "ladera: lanza pieza pequeña", () -> {
+			tsnap(IMPACT);
+			srvC = -1;
+			server(srv, id, (sp, pw) -> {
+				BlockSet set = new BlockSet();
+				set.add(0, 0, 0, Blocks.ANDESITE.getDefaultState(), null);
+				set.add(1, 0, 0, Blocks.ANDESITE.getDefaultState(), null);
+				set.normalize();
+				PieceEntity pe = PieceEntity.spawn(sp.getServerWorld(), set, new Vec3d(gx0 - 0.5, gfy + 1.15, gz0 - 8.5), null, sp.getUuid());
+				pe.release(new Vec3d(0, 0.08, -1.7), true);
+				srvC = pe.getId();
+			});
+		});
+		waitFor("ladera: impacto", 70, "la pieza lanzada contra escalón no explotó", () -> tgot(IMPACT), () -> {
+			Payloads.TaktFx f = TaktFxClient.LAST[IMPACT];
+			if (!tgot(IMPACT) || f == null) return;
+			check(f.entityId() == srvC && f.state() >= 2 && f.a() > 0,
+				"pieza pequeña lanzada contra escalón explota y abre cráter en la ladera",
+				"pieza " + f.entityId() + " (esperada " + srvC + "), nivel " + f.state() + ", radio " + fmt(f.a())
+					+ " en dy=" + fmt(f.y() - gfy));
+		});
+		settleField(srv, id, "ladera");
+		step(2, "ladera: cuentas", () -> {
+			srvA = -1;
+			srvB = -1;
+			srvC = 0;
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Crater.Result c = Crater.last;
+				logCrater(c);
+				srvC = (c != null && c != crater0 && c.balanced() ? 1 : 0) | (PieceEntity.DROPPED == dropped0 ? 2 : 0);
+				srvB = fieldItems(w);
+				srvA = fieldCount(w);
+			});
+		});
+		waitFor("ladera: conservado", 20, "el servidor no devolvió las cuentas de la ladera", () -> srvA >= 0 && srvB >= 0, () -> {
+			check((srvC & 1) != 0, "el cráter en la ladera devuelve todos los bloques que quita", "no hay cráter equilibrado");
+			check((srvC & 2) != 0 && srvB == items0, "ningún bloque cae como objeto en la ladera",
+				"DROPPED " + dropped0 + " -> " + PieceEntity.DROPPED + ", objetos " + items0 + " -> " + srvB);
+			check(srvA == solid0, "conservación de bloques en la ladera", "antes " + solid0 + ", después " + srvA);
+		});
+	}
+
 	private static void clearField(ServerWorld w, boolean pieces) {
 		for (Entity e : w.getEntitiesByClass(Entity.class, fieldBox(),
 			en -> en instanceof ItemEntity || en instanceof MobEntity || (pieces && en instanceof PieceEntity))) e.discard();
