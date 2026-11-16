@@ -304,7 +304,11 @@ public final class InputHandler {
 		return false;
 	}
 
-	/** Teclas que siguen siendo de Minecraft aunque la fruta las use: F3 y sus combinaciones, Ctrl+B y Mayús+Q/F. */
+	/**
+	 * Teclas que siguen siendo de Minecraft aunque la fruta las use: F3 y sus combinaciones, Ctrl+B y, agachado, botar y
+	 * cambiar de mano (si le pusiste a la fruta su tecla, como «Como el juego» con la Q y la F) y, en creativo, guardar y
+	 * cargar barras de objetos (la C y la X de Gamma Knife e Injection Shot).
+	 */
 	private static boolean passthrough(int key) {
 		MinecraftClient mc = mc();
 		if (InputUtil.isKeyPressed(mc.getWindow().getHandle(), GLFW.GLFW_KEY_F3)) return true;
@@ -315,7 +319,8 @@ public final class InputHandler {
 		boolean sneak = mc.player.isSneaking() || o.sneakKey.isPressed();
 		if (!sneak) return false;
 		InputUtil.Key k = InputUtil.Type.KEYSYM.createFromCode(key);
-		return boundTo(k, o.dropKey) || boundTo(k, o.swapHandsKey);
+		if (boundTo(k, o.dropKey) || boundTo(k, o.swapHandsKey)) return true;
+		return mc.player.isCreative() && (boundTo(k, o.saveToolbarActivatorKey) || boundTo(k, o.loadToolbarActivatorKey));
 	}
 
 	private static boolean inGroup(Keys.Group g, int key) {

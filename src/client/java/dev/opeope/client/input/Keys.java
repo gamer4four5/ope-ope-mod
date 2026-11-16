@@ -15,24 +15,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Las teclas de la fruta, las mismas que en el juego. No son KeyBindings de Minecraft a propósito: Minecraft solo deja
- * una acción por tecla y la Q, la F o el 1 dejarían de hacer lo suyo para quien no tiene la fruta. Aquí la tecla solo se
- * la queda la fruta si la has comido. Se cambian en la pantalla «Teclas» (o en config/opeope-teclas.json, con nombres
- * como key.keyboard.q o key.mouse.4). El libro (H) sí es una tecla de Minecraft: está en Opciones → Controles.
+ * Las teclas de la fruta. No son KeyBindings de Minecraft a propósito: Minecraft solo deja una acción por tecla y el 1 o
+ * la E dejarían de hacer lo suyo para quien no tiene la fruta. Aquí la tecla solo se la queda la fruta si la has comido.
+ * De fábrica ninguna tapa una tecla de todos los días de Minecraft: Q bota, F cambia de mano y E abre el inventario como
+ * siempre (las del juego original, ROOM en Q y Scan en F, están en «Como el juego»). Se cambian en la pantalla «Teclas»
+ * (o en config/opeope-teclas.json, con nombres como key.keyboard.g o key.mouse.4). El libro (H) sí es una tecla de
+ * Minecraft: está en Opciones → Controles.
  */
 public enum Keys {
-	ROOM("key.keyboard.q", Group.MAIN, "ROOM", "room"),
+	ROOM("key.keyboard.g", Group.MAIN, "ROOM", "room"),
 	SHAMBLES("key.keyboard.left.alt", Group.MAIN, "Shambles", "shambles"),
 	TAKT("key.keyboard.r", Group.MAIN, "Takt", "takt"),
-	MARKER("key.keyboard.g", Group.MAIN, "Piedra marcador", "piedra"),
-	SCAN("key.keyboard.f", Group.MAIN, "Scan · despierto: R-ROOM", "scan"),
+	MARKER("key.keyboard.n", Group.MAIN, "Piedra marcador", "piedra"),
+	SCAN("key.keyboard.v", Group.MAIN, "Scan · despierto: R-ROOM", "scan"),
 	RADIO_KNIFE("key.keyboard.z", Group.MAIN, "Radio Knife · despierto: K-ROOM", "radio_knife"),
 	INJECTION("key.keyboard.x", Group.MAIN, "Injection Shot · despierto: Anesthesia", "injection"),
 	GAMMA("key.keyboard.c", Group.MAIN, "Gamma Knife · despierto: Shock Wille", "gamma"),
-	AWAKEN("key.keyboard.v", Group.MAIN, "Despertar", "despertar"),
+	AWAKEN("key.keyboard.m", Group.MAIN, "Despertar", "despertar"),
 	CURTAIN("key.keyboard.b", Group.MAIN, "Curtain · despierto: Silent", "curtain"),
 	ROW2("key.keyboard.tab", Group.MAIN, "Segunda fila", "fila2"),
 	ROW2_MOUSE_A("key.mouse.4", Group.MAIN, "Segunda fila (botón del ratón A)", "fila2"),
@@ -72,6 +77,19 @@ public enum Keys {
 
 	private static final String UNKNOWN_NAME = "key.keyboard.unknown";
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+	/** La versión de config/opeope-teclas.json: 2 desde que las teclas de fábrica dejan libres la Q y la F de Minecraft. */
+	private static final int VERSION = 2;
+
+	/**
+	 * Las teclas de fábrica hasta la versión 1, que son las del juego original: tapaban botar (Q) y cambiar de mano (F).
+	 * Un fichero de la versión 1 las guarda tal cual, así que las que siguen así pasan a las de ahora al cargarlo.
+	 */
+	public static final Map<Keys, String> V1 = Map.of(
+		ROOM, "key.keyboard.q",
+		SCAN, "key.keyboard.f",
+		MARKER, "key.keyboard.g",
+		AWAKEN, "key.keyboard.v");
 
 	public final String def;
 	public InputUtil.Key key;
@@ -121,6 +139,7 @@ public enum Keys {
 
 	public static void load() {
 		Path path = file();
+		for (Keys k : values()) k.reset();   // lo que no esté en el fichero se queda en la de fábrica
 		if (Files.exists(path)) {
 			try {
 				JsonElement el = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8));
@@ -137,8 +156,12 @@ public enum Keys {
 						OpeOpeMod.LOG.warn("Tecla desconocida para {} en {}: {}", k.name(), path, name);
 					}
 				}
+				JsonElement ver = obj.get("version");
+				int version = ver != null && ver.isJsonPrimitive() && ver.getAsJsonPrimitive().isNumber() ? ver.getAsInt() : 1;
+				if (version < VERSION) migrateV1();
 			} catch (Exception e) {
 				OpeOpeMod.LOG.warn("No se pudo leer {} ({}): se guarda como .bak y se usan las teclas de fábrica", path, e.toString());
+				for (Keys k : values()) k.reset();   // nada a medias del fichero roto
 				try {
 					Files.move(path, path.resolveSibling(path.getFileName().toString() + ".bak"), StandardCopyOption.REPLACE_EXISTING);
 				} catch (Exception ignored) {
@@ -149,9 +172,45 @@ public enum Keys {
 		save();   // reescribe el fichero: entradas nuevas con su valor y fuera las que ya no existen (GUIDE)
 	}
 
-	/** Guarda todas las teclas en el formato de siempre (nombre → key.keyboard.x). */
+	/**
+	 * Pasa a las teclas de fábrica de ahora las que siguen en la de fábrica de la versión 1 (Q, F, G y V); las que cambiaste
+	 * tú se quedan. Nunca pisa otra tecla de la fila de arriba: si la nueva ya la usa otra, esa se queda como estaba (y la
+	 * pantalla «Teclas» avisa del choque con Minecraft). Va por rondas porque el ROOM va a la G que deja la piedra marcador y
+	 * Scan a la V que deja Despertar.
+	 */
+	private static void migrateV1() {
+		Set<Keys> pending = EnumSet.noneOf(Keys.class);
+		for (Map.Entry<Keys, String> e : V1.entrySet()) {
+			if (e.getValue().equals(e.getKey().key.getTranslationKey())) pending.add(e.getKey());
+		}
+		boolean moved = true;
+		while (moved && !pending.isEmpty()) {
+			moved = false;
+			for (Iterator<Keys> it = pending.iterator(); it.hasNext(); ) {
+				Keys k = it.next();
+				InputUtil.Key target = InputUtil.fromTranslationKey(k.def);
+				if (usedInMainRow(target, k)) continue;
+				k.key = target;
+				it.remove();
+				moved = true;
+			}
+		}
+		for (Keys k : pending) {
+			OpeOpeMod.LOG.info("Teclas de la fruta: {} se queda en {} porque {} ya es de otra tecla", k.name(), k.key.getTranslationKey(), k.def);
+		}
+	}
+
+	private static boolean usedInMainRow(InputUtil.Key key, Keys self) {
+		for (Keys o : values()) {
+			if (o != self && o.group == Group.MAIN && key.equals(o.key)) return true;
+		}
+		return false;
+	}
+
+	/** Guarda todas las teclas en el formato de siempre (nombre → key.keyboard.x), con la versión del fichero. */
 	public static void save() {
 		JsonObject out = new JsonObject();
+		out.addProperty("version", VERSION);
 		for (Keys k : values()) out.addProperty(k.name(), k.key.getTranslationKey());
 		try {
 			OpeSettings.writeAtomic(file(), GSON.toJson(out));

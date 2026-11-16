@@ -1,5 +1,8 @@
 package dev.opeope.client;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.opeope.OpeConfig;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.client.config.OpeSettings;
@@ -39,12 +42,16 @@ import dev.opeope.terrain.GroundCut;
 import dev.opeope.terrain.GroundRules;
 import dev.opeope.terrain.MaterialTrait;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.LeavesBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.option.GameOptions;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.client.util.Window;
 import net.minecraft.entity.Entity;
@@ -56,10 +63,13 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.mob.ZombieEntity;
 import net.minecraft.entity.passive.PigEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -75,6 +85,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
@@ -281,6 +292,8 @@ public final class AutoTest {
 	private static List<BlockSet.Entry> ghostSet = List.of(), ghostSetB = List.of();
 	/** Solo en el hilo del servidor. */
 	private static Room savedRoom;
+	/** Solo en el hilo del servidor: lo que el jugador llevaba en las manos antes de (a2). */
+	private static ItemStack savedMain = ItemStack.EMPTY, savedOff = ItemStack.EMPTY;
 	private static Vec3d savedPos;
 	/** Cuántos avisos de Takt había de cada tipo al empezar a esperar uno. */
 	private static final int[] TBASE = new int[Payloads.TaktFx.KINDS];
@@ -434,6 +447,52 @@ public final class AutoTest {
 		}
 	}
 
+	private static void writeConfig(String name, String text) {
+		try {
+			Files.writeString(FabricLoader.getInstance().getConfigDir().resolve(name), text, StandardCharsets.UTF_8);
+		} catch (Exception e) {
+			fallo("no se pudo escribir config/" + name + ": " + e);
+		}
+	}
+
+	/** La «version» de config/opeope-teclas.json (-1 si no tiene). */
+	private static int keysFileVersion() {
+		try {
+			JsonElement v = JsonParser.parseString(readConfig("opeope-teclas.json")).getAsJsonObject().get("version");
+			return v != null && v.isJsonPrimitive() ? v.getAsInt() : -1;
+		} catch (Exception e) {
+			return -1;
+		}
+	}
+
+	/** Las teclas de la fruta que importan en (n2), como «ROOM=key.keyboard.g». */
+	private static String keysNow() {
+		List<String> out = new ArrayList<>();
+		for (Keys k : new Keys[]{Keys.ROOM, Keys.SCAN, Keys.MARKER, Keys.AWAKEN, Keys.CURTAIN}) out.add(k.name() + "=" + k.key.getTranslationKey());
+		return String.join(", ", out);
+	}
+
+	private static boolean on(Keys k, String name) {
+		return name.equals(k.key.getTranslationKey());
+	}
+
+	/**
+	 * Una tecla de Minecraft por el teclado de verdad (Keyboard.onKey), como si la pulsaras: primero la ve la fruta
+	 * (KeyboardMixin) y, si no es suya, le llega a Minecraft.
+	 */
+	private static void vanillaKey(MinecraftClient mc, KeyBinding kb, int action) {
+		mc.keyboard.onKey(mc.getWindow().getHandle(), KeyBindingHelper.getBoundKeyOf(kb).getCode(), 0, action, 0);
+	}
+
+	private static String label(KeyBinding kb) {
+		return KeyBindingHelper.getBoundKeyOf(kb).getLocalizedText().getString();
+	}
+
+	/** Solo en el hilo del servidor: la tierra suelta cerca del jugador (la de (a2)). */
+	private static List<ItemEntity> nearDirt(ServerPlayerEntity sp) {
+		return sp.getServerWorld().getEntitiesByClass(ItemEntity.class, sp.getBoundingBox().expand(8), e -> e.getStack().isOf(Items.DIRT));
+	}
+
 	private static String fmt(double v) {
 		return String.format(Locale.ROOT, "%.2f", v);
 	}
@@ -445,7 +504,8 @@ public final class AutoTest {
 		planAt = 0;
 		planWaited = 0;
 		OpeSettings s = OpeSettings.get();
-		final int Q = GLFW.GLFW_KEY_Q, PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
+		// el ROOM y Scan con sus teclas de fábrica (G y V): la Q y la F son de Minecraft
+		final int ROOMK = Keys.ROOM.key.getCode(), SCANK = Keys.SCAN.key.getCode(), PRESS = GLFW.GLFW_PRESS, RELEASE = GLFW.GLFW_RELEASE;
 		final int LEFT = GLFW.GLFW_MOUSE_BUTTON_LEFT, RIGHT = GLFW.GLFW_MOUSE_BUTTON_RIGHT;
 
 		// (a) lo que trae el mod (sonidos e iconos) y el jugador en supervivencia, sin ROOM
@@ -475,9 +535,72 @@ public final class AutoTest {
 			sp.networkHandler.requestTeleport(sp.getX(), sp.getY(), sp.getZ(), 0f, 10f);
 		}));
 
+		// (a1) de fábrica, la fruta no tapa ninguna tecla de Minecraft. Solo comparten tecla la segunda fila (Tab, que tiene
+		// su ajuste para la lista de jugadores) y Gamma Knife e Injection Shot (C y X: en creativo, agachado, siguen
+		// guardando y cargando barras de objetos)
+		step(0, "teclas de fábrica", () -> {
+			GameOptions o = mc.options;
+			List<String> clash = new ArrayList<>();
+			for (Keys k : Keys.values()) {
+				if (k.group() != Keys.Group.MAIN || k == Keys.ROW2 || k == Keys.ROW2_MOUSE_A || k == Keys.ROW2_MOUSE_B) continue;
+				InputUtil.Key def = InputUtil.fromTranslationKey(k.def);
+				for (KeyBinding kb : o.allKeys) {
+					if (kb == o.saveToolbarActivatorKey || kb == o.loadToolbarActivatorKey) continue;
+					if (def.equals(kb.getDefaultKey())) clash.add(k.name() + " y " + kb.getTranslationKey() + " en " + k.def);
+				}
+			}
+			check(clash.isEmpty(), "las teclas de fábrica de la fruta no tapan las de Minecraft", "chocan " + clash);
+		});
+
+		// (a2) con la fruta comida, la tecla de botar (Q) bota uno y la de cambiar de mano (F) cambia de mano, como siempre
+		step(0, "botar: preparar", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				savedMain = sp.getMainHandStack().copy();
+				savedOff = sp.getOffHandStack().copy();
+				sp.setStackInHand(Hand.MAIN_HAND, new ItemStack(Items.DIRT, 5));
+				sp.setStackInHand(Hand.OFF_HAND, ItemStack.EMPTY);
+				for (ItemEntity e : nearDirt(sp)) e.discard();
+				srvA = 1;
+			});
+		});
+		waitFor("botar: preparado", 20, "no se preparó", () -> srvA == 1, null);
+		step(5, "botar", () -> {
+			check(ClientState.hasFruit(), "botar: el jugador tiene la fruta", "sin la fruta esta prueba no dice nada");
+			vanillaKey(mc, mc.options.dropKey, PRESS);
+		});
+		step(1, "botar: suelta", () -> vanillaKey(mc, mc.options.dropKey, RELEASE));
+		step(5, "botar: mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				srvB = sp.getMainHandStack().isOf(Items.DIRT) ? sp.getMainHandStack().getCount() : 0;
+				srvC = nearDirt(sp).size();
+				srvA = 1;
+			});
+		});
+		waitFor("botar: medido", 20, null, () -> srvA == 1, () -> check(srvB == 4 && srvC == 1,
+			"con la fruta, " + label(mc.options.dropKey) + " bota uno como en Minecraft", "en la mano quedan " + srvB + " de 5 y en el suelo hay " + srvC));
+		step(0, "cambiar de mano", () -> vanillaKey(mc, mc.options.swapHandsKey, PRESS));
+		step(1, "cambiar de mano: suelta", () -> vanillaKey(mc, mc.options.swapHandsKey, RELEASE));
+		step(5, "cambiar de mano: mide", () -> {
+			srvA = -1;
+			server(srv, id, (sp, pw) -> {
+				srvB = sp.getMainHandStack().getCount();
+				srvC = sp.getOffHandStack().isOf(Items.DIRT) ? sp.getOffHandStack().getCount() : 0;
+				srvA = 1;
+			});
+		});
+		waitFor("cambiar de mano: medido", 20, null, () -> srvA == 1, () -> check(srvB == 0 && srvC == 4,
+			"con la fruta, " + label(mc.options.swapHandsKey) + " cambia de mano como en Minecraft", "en la mano " + srvB + " y en la otra " + srvC + " de tierra"));
+		step(0, "botar: recoger", () -> server(srv, id, (sp, pw) -> {
+			for (ItemEntity e : nearDirt(sp)) e.discard();
+			sp.setStackInHand(Hand.MAIN_HAND, savedMain);
+			sp.setStackInHand(Hand.OFF_HAND, savedOff);
+		}));
+
 		// (b) Scan y el HUD en reposo
-		step(10, "scan", () -> key(GLFW.GLFW_KEY_F, PRESS));
-		step(1, "scan: suelta", () -> key(GLFW.GLFW_KEY_F, RELEASE));
+		step(10, "scan", () -> key(SCANK, PRESS));
+		step(1, "scan: suelta", () -> key(SCANK, RELEASE));
 		step(10, "7-hud-reposo", () -> {
 			shot(mc, "7-hud-reposo");
 			layout("7-hud-reposo");
@@ -487,7 +610,7 @@ public final class AutoTest {
 		// (c) crear: semilla, florece, crece y queda fijo
 		step(0, "crear", () -> {
 			snap(CREATE);
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
 		step(1, "8-room-a", () -> shot(mc, "8-room-a-semilla"));
 		waitFor("crear: CREATE", 10, null, () -> got(CREATE), null);
@@ -495,7 +618,7 @@ public final class AutoTest {
 		step(8, "8-room-c", () -> shot(mc, "8-room-c-creciendo"));
 		step(6, "crear: suelta", () -> {
 			snap(FIX);
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 		});
 		waitFor("crear: FIX", 10, null, () -> got(FIX), () -> shot(mc, "8-room-d-fija"));
 		step(20, "8-room-e", () -> {
@@ -506,7 +629,7 @@ public final class AutoTest {
 		});
 
 		// (d) tamaño: un paso de rueda, ida y vuelta, y hasta el mínimo
-		step(0, "tamaño", () -> key(Q, PRESS));
+		step(0, "tamaño", () -> key(ROOMK, PRESS));
 		step(2, "tamaño: rueda", () -> {
 			r0 = radius();
 			snap(NOTCH);
@@ -530,18 +653,18 @@ public final class AutoTest {
 		step(0, "tamaño: mínimo", () -> {
 			float r = radius();
 			check(Math.abs(r - 4) <= 0.01, "el ROOM llega al mínimo (4 m)", "radio " + fmt(r));
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 		});
 		step(6, "9-tamano-d", () -> shot(mc, "9-tamano-d"));
 
 		// (e) agrandarlo otra vez
-		step(0, "agrandar", () -> key(Q, PRESS));
+		step(0, "agrandar", () -> key(ROOMK, PRESS));
 		for (int i = 0; i < 12; i++) step(2, "agrandar: rueda", () -> wheel(1));
-		step(2, "agrandar: suelta", () -> key(Q, RELEASE));
+		step(2, "agrandar: suelta", () -> key(ROOMK, RELEASE));
 
 		// (f) lanzarlo: sale de la mano, vuela y aterriza
 		step(10, "lanzar: mira", () -> srv.execute(() -> look(srv, id, 20, 12)));
-		step(12, "lanzar", () -> key(Q, PRESS));
+		step(12, "lanzar", () -> key(ROOMK, PRESS));
 		step(2, "lanzar: clic", () -> {
 			ClientState.RoomInfo r = room();
 			c0 = r == null ? null : r.center();
@@ -558,14 +681,14 @@ public final class AutoTest {
 		shotAfterEvent(mc, LAND, 6, "10-lanzar-d-aterriza-6t");
 		shotAfterEvent(mc, LAND, 30, "10-lanzar-e-aterriza-30t");
 		step(0, "lanzar: suelta", () -> {
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 			ClientState.RoomInfo r = room();
 			double moved = r == null || c0 == null ? -1 : r.center().distanceTo(c0);
 			check(moved > 5, "lanzar el ROOM", "el centro se movió " + fmt(moved) + " bloques");
 		});
 
 		// (g) traerlo: vuelve contigo
-		step(10, "traer", () -> key(Q, PRESS));
+		step(10, "traer", () -> key(ROOMK, PRESS));
 		step(2, "traer: clic derecho", () -> {
 			snap(ARRIVE);
 			mouse(RIGHT, PRESS);
@@ -577,7 +700,7 @@ public final class AutoTest {
 		step(3, "11-traer-b", () -> shot(mc, "11-traer-b"));
 		waitFor("traer: ARRIVE", 20, null, () -> got(ARRIVE), () -> shot(mc, "11-traer-c"));
 		step(1, "traer: suelta", () -> {
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 			ClientState.RoomInfo r = room();
 			Vec3d to = mc.player.getPos().add(0, 1, 0);
 			double d = r == null ? -1 : r.center().distanceTo(to);
@@ -585,10 +708,10 @@ public final class AutoTest {
 		});
 
 		// (h) quitarlo con un toque
-		step(10, "quitar", () -> key(Q, PRESS));
+		step(10, "quitar", () -> key(ROOMK, PRESS));
 		step(2, "12-quitar-a", () -> {
 			snap(CLOSE);
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 			shot(mc, "12-quitar-a");
 		});
 		waitFor("quitar: CLOSE", 10, null, () -> got(CLOSE), null);
@@ -601,19 +724,19 @@ public final class AutoTest {
 		// (i) «Quitar el ROOM: doble toque»: un toque no lo quita, dos seguidos sí
 		step(0, "doble toque", () -> {
 			s.quitarRoom = OpeSettings.Quitar.DOBLE_TOQUE;
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
-		step(12, "doble toque: crea", () -> key(Q, RELEASE));
-		step(10, "doble toque: un toque", () -> key(Q, PRESS));
-		step(2, "doble toque: un toque suelta", () -> key(Q, RELEASE));
+		step(12, "doble toque: crea", () -> key(ROOMK, RELEASE));
+		step(10, "doble toque: un toque", () -> key(ROOMK, PRESS));
+		step(2, "doble toque: un toque suelta", () -> key(ROOMK, RELEASE));
 		step(12, "doble toque: sigue", () -> {
 			check(room() != null, "un toque no quita el ROOM (doble toque)", "se quitó");
 			snap(CLOSE);
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
-		step(2, "doble toque: 1", () -> key(Q, RELEASE));
-		step(3, "doble toque: 2", () -> key(Q, PRESS));
-		step(2, "doble toque: 2 suelta", () -> key(Q, RELEASE));
+		step(2, "doble toque: 1", () -> key(ROOMK, RELEASE));
+		step(3, "doble toque: 2", () -> key(ROOMK, PRESS));
+		step(2, "doble toque: 2 suelta", () -> key(ROOMK, RELEASE));
 		waitFor("doble toque: CLOSE", 12, null, () -> got(CLOSE), null);
 		step(1, "doble toque: quitado", () -> {
 			check(room() == null, "un doble toque quita el ROOM", "sigue ahí");
@@ -633,9 +756,9 @@ public final class AutoTest {
 		step(10, "takt: ROOM", () -> {
 			server(srv, id, (sp, pw) -> GroundCuts.clearOwner(sp.getUuid()));
 			ClientState.chunkSize = OpeConfig.TAKT_CHUNK_MIN;
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
-		step(12, "takt: ROOM suelta", () -> key(Q, RELEASE));
+		step(12, "takt: ROOM suelta", () -> key(ROOMK, RELEASE));
 		step(5, "takt: mira", () -> srv.execute(() -> look(srv, id, 32, 28)));
 		step(12, "takt: toque", () -> key(GLFW.GLFW_KEY_R, PRESS));
 		step(2, "takt: toque suelta", () -> key(GLFW.GLFW_KEY_R, RELEASE));
@@ -710,7 +833,39 @@ public final class AutoTest {
 			KeysScreen.resetAll();
 			mc.setScreen(null);
 			keysScreen = null;
-			check(Keys.MARKER.key.getCode() == GLFW.GLFW_KEY_G, "restablecer las teclas", "la piedra marcador quedó en " + Keys.MARKER.key.getTranslationKey());
+			check(Keys.MARKER.key.getTranslationKey().equals(Keys.MARKER.def), "restablecer las teclas", "la piedra marcador quedó en " + Keys.MARKER.key.getTranslationKey());
+		});
+
+		// (n2) un opeope-teclas.json de antes (sin «version»): lo que seguía en la Q, la F, la G o la V pasa a las teclas
+		// nuevas sin pisar lo que cambiaste tú; uno de ahora se queda tal cual. Al final, las teclas como estaban
+		step(2, "teclas: config vieja", () -> {
+			Map<Keys, InputUtil.Key> before = Keys.snapshot();
+			try {
+				JsonObject v1 = new JsonObject();
+				for (Keys k : Keys.values()) v1.addProperty(k.name(), Keys.V1.getOrDefault(k, k.def));
+				writeConfig("opeope-teclas.json", v1.toString());
+				Keys.load();
+				check(on(Keys.ROOM, "key.keyboard.g") && on(Keys.SCAN, "key.keyboard.v") && on(Keys.MARKER, "key.keyboard.n") && on(Keys.AWAKEN, "key.keyboard.m"),
+					"una config vieja pasa a las teclas nuevas", keysNow());
+				check(keysFileVersion() == 2, "la config pasada se guarda con «version» 2", "version " + keysFileVersion());
+
+				v1.addProperty(Keys.CURTAIN.name(), "key.keyboard.n");   // Curtain en la N: la piedra marcador no tiene adónde ir
+				writeConfig("opeope-teclas.json", v1.toString());
+				Keys.load();
+				check(on(Keys.CURTAIN, "key.keyboard.n") && on(Keys.MARKER, "key.keyboard.g") && on(Keys.ROOM, "key.keyboard.q")
+						&& on(Keys.SCAN, "key.keyboard.v") && on(Keys.AWAKEN, "key.keyboard.m"),
+					"al pasar una config vieja no se pisa una tecla que cambiaste tú", keysNow());
+
+				JsonObject v2 = new JsonObject();
+				v2.addProperty("version", 2);
+				v2.addProperty(Keys.ROOM.name(), "key.keyboard.q");
+				writeConfig("opeope-teclas.json", v2.toString());
+				Keys.load();
+				check(on(Keys.ROOM, "key.keyboard.q") && on(Keys.SCAN, Keys.SCAN.def), "una config de ahora no se toca", keysNow());
+			} finally {
+				Keys.restore(before);
+			}
+			check(Keys.snapshot().equals(before) && keysFileVersion() == 2, "las teclas vuelven a estar como antes de (n2)", keysNow());
 		});
 
 		// (o) Primeros pasos: la tarjeta y el paso del ROOM
@@ -720,9 +875,9 @@ public final class AutoTest {
 		});
 		step(10, "18-primeros-pasos-a", () -> {
 			shot(mc, "18-primeros-pasos-a");
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
-		step(12, "primeros pasos: suelta", () -> key(Q, RELEASE));
+		step(12, "primeros pasos: suelta", () -> key(ROOMK, RELEASE));
 		step(10, "18-primeros-pasos-b", () -> {
 			shot(mc, "18-primeros-pasos-b");
 			if (!Onboarding.done(Onboarding.STEP_ROOM)) aviso("primeros pasos: el paso del ROOM no se marcó");
@@ -765,11 +920,11 @@ public final class AutoTest {
 		});
 		step(5, "20-contraste", () -> {
 			shot(mc, "20-contraste");
-			key(Q, PRESS);
+			key(ROOMK, PRESS);
 		});
 		step(4, "20-contraste-room", () -> {
 			shot(mc, "20-contraste-room");
-			key(Q, RELEASE);
+			key(ROOMK, RELEASE);
 		});
 		step(10, "ajustes de fábrica", OpeSettings::reset);
 

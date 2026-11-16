@@ -240,8 +240,12 @@ public class GuideScreen extends Screen {
 
 		title("Minecraft y la fruta");
 		row("agachado, los clics son los de Minecraft (abrir, colocar, golpear)", may, "+", clic);
-		row("tirar lo que llevas", may, "+", KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.dropKey)));
-		row("cambiar de mano", may, "+", KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.swapHandsKey)));
+		// botar y cambiar de mano van como siempre; si le pusiste a la fruta su tecla, agachado
+		InputUtil.Key drop = KeyBindingHelper.getBoundKeyOf(o.dropKey), swap = KeyBindingHelper.getBoundKeyOf(o.swapHandsKey);
+		if (fruitUses(drop)) row("tirar lo que llevas", may, "+", KeyLabels.of(drop));
+		else row("tirar lo que llevas, como siempre", KeyLabels.of(drop));
+		if (fruitUses(swap)) row("cambiar de mano", may, "+", KeyLabels.of(swap));
+		else row("cambiar de mano, como siempre", KeyLabels.of(swap));
 		row("F3 y sus combinaciones siguen siendo de Minecraft", g("key.keyboard.f3"));
 		row("el narrador", g("key.keyboard.left.control"), "+", g("key.keyboard.b"));
 		if (s.listaJugadoresTab && Keys.ROW2.key.equals(KeyBindingHelper.getBoundKeyOf(o.playerListKey))) {
@@ -256,6 +260,12 @@ public class GuideScreen extends Screen {
 			title("Conseguir la fruta");
 			note("A veces la suelta el Guardián Anciano o el Warden. En creativo, en la pestaña Ope Ope no Mi. Con trucos: /opeope fruta.");
 		}
+	}
+
+	/** Alguna tecla de la fila de arriba de la fruta es esta (entonces, agachado, sigue siendo de Minecraft). */
+	private static boolean fruitUses(InputUtil.Key key) {
+		for (Keys k : Keys.values()) if (k.group() == Keys.Group.MAIN && key.equals(k.key)) return true;
+		return false;
 	}
 
 	// ------------------------------------------------------------------ medidas

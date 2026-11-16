@@ -1,6 +1,8 @@
 package dev.opeope.client.screen;
 
 import dev.opeope.client.ClientState;
+import dev.opeope.client.input.KeyLabels;
+import dev.opeope.client.input.Keys;
 import dev.opeope.client.input.Send;
 import dev.opeope.power.Actions;
 import net.minecraft.client.gui.DrawContext;
@@ -42,13 +44,15 @@ public class IslandScreen extends Screen {
 				Text.literal((curStyle == 2 ? "§d● " : "§7○ ") + "2: Espada Kikoku"),
 				b -> { Send.action(Actions.STYLE_SWITCH, 2); close(); })
 			.dimensions(cx - styleW / 2, y, styleW, 18)
-			.tooltip(Tooltip.of(Text.literal("Estilo 2: Equipa automáticamente la Kikoku. Z: Iai · X: Luna de Acero · C: Torbellino · V: Mil Puntadas.")))
+			.tooltip(Tooltip.of(Text.literal("Estilo 2: Equipa automáticamente la Kikoku. " + k(Keys.RADIO_KNIFE) + ": Iai · " + k(Keys.INJECTION)
+				+ ": Luna de Acero · " + k(Keys.GAMMA) + ": Torbellino · " + k(Keys.AWAKEN) + ": Mil Puntadas.")))
 			.build());
 		addDrawableChild(ButtonWidget.builder(
 				Text.literal((curStyle == 3 ? "§6● " : "§7○ ") + "3: Pelea / Palma"),
 				b -> { Send.action(Actions.STYLE_SWITCH, 3); close(); })
 			.dimensions(cx + styleW / 2 + 6, y, styleW, 18)
-			.tooltip(Tooltip.of(Text.literal("Estilo 3: Artes marciales quirúrgicas. Clic izq: Combo 4 golpes · Z: Mes · X: Counter Shock · C: Trueque · F: Gancho Takt.")))
+			.tooltip(Tooltip.of(Text.literal("Estilo 3: Artes marciales quirúrgicas. Clic izq: Combo 4 golpes · " + k(Keys.RADIO_KNIFE) + ": Mes · "
+				+ k(Keys.INJECTION) + ": Counter Shock · " + k(Keys.GAMMA) + ": Trueque · " + k(Keys.SCAN) + ": Gancho Takt.")))
 			.build());
 
 		y += 21;
@@ -104,6 +108,11 @@ public class IslandScreen extends Screen {
 			.dimensions(cx - 50, y, 100, 18).build());
 		addDrawableChild(ButtonWidget.builder(Text.literal("Cerrar"), b -> close())
 			.dimensions(cx + 54, y, 100, 18).build());
+	}
+
+	/** La tecla de verdad de la fruta (las técnicas de los estilos 2 y 3 van en las teclas de las de la fruta). */
+	private static String k(Keys key) {
+		return KeyLabels.name(key.key);
 	}
 
 	private void addActionBtn(int x, int y, int w, String label, String tooltip, int code) {

@@ -129,7 +129,7 @@ public final class KeyLabels {
 	}
 
 	/** Para frases: el nombre largo si es corto («Mayús», «Q»), si no el de la tecla dibujada («Tab», «Alt»). */
-	static String name(InputUtil.Key key) {
+	public static String name(InputUtil.Key key) {
 		String t = text(key);
 		if (key != null && key.getCategory() == InputUtil.Type.MOUSE) return t;
 		if (t.length() <= 7) return t;

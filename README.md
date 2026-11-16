@@ -1,6 +1,7 @@
 # Ope Ope no Mi · mod de Minecraft (Fabric 1.21.1)
 
-La fruta de Law del juego 3D (`ope-ope-game`), pasada a Minecraft con el mismo esquema de teclas (versión 21).
+La fruta de Law del juego 3D (`ope-ope-game`), pasada a Minecraft con el esquema de teclas del juego (versión 21), salvo
+las pocas que tapaban teclas de Minecraft (ver [Teclas](#teclas)).
 Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 
 ## Instalar
@@ -11,8 +12,8 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
    todos los poderes, los ajustes y las teclas.
 
 ## Qué hay
-- **ROOM** (Q): esfera azul con borde brillante. Mantener crece desde ti hasta 160 bloques; Q + rueda agranda o encoge;
-  Q + clic la lanza a la mira; Q + clic derecho la trae; un toque la quita (o un doble toque, si lo eliges en Ajustes).
+- **ROOM** (G): esfera azul con borde brillante. Mantener crece desde ti hasta 160 bloques; G + rueda agranda o encoge;
+  G + clic la lanza a la mira; G + clic derecho la trae; un toque la quita (o un doble toque, si lo eliges en Ajustes).
 - **Cortes reales en bloques**: Amputate (clic con la mano vacía: la cámara se queda quieta y el ratón traza el tajo; una
   línea brillante marca lo que se va a cortar; al soltar, una hoja de luz barre el plano y la costura brilla). Lo que queda sin
   unión con el resto del mundo cae como una pieza entera (casas, torres, árboles). Lo que queda encima de un corte
@@ -24,7 +25,7 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 - **Seres vivos en piezas**: un mob cortado no pierde vida; se ve partido (cada mitad flota separada) y no se mueve
   ni ataca hasta que se recompone (30 s, la Unión o la Cirugía).
 - **Shambles** (Alt izquierdo): teletransporte al aire del ROOM, marcar y cambiar, cambiar bloques agachado, piedra
-  marcador (G), robar con Scan.
+  marcador (N), robar con Scan (V).
 - **Takt** (R): coger seres, objetos o piezas, o **arrancar un trozo de suelo** que sigue tus cortes (con R mantenida
   se ve antes y al soltarla se arranca; R + rueda cambia su tamaño); R R levanta lo suelto de la zona; clic lanza el de
   delante (mantener: ráfaga; un trozo abre un cráter); clic derecho lo lanza todo; R mantenida + tecla: órbita, aparcar,
@@ -34,24 +35,30 @@ Necesita **Fabric Loader** y **Fabric API** para Minecraft **1.21.1**.
 - **El suelo del ROOM**: pilar, muralla que sigue la mirada, sima, meseta.
 - **Técnicas**: Radio Knife, Injection Shot, Gamma Knife, Scan (contornos a través de paredes), Curtain, Mes (el corazón
   en un cubo), Counter Shock, Sterben, Cambio de almas, Lluvia de cortes.
-- **Despertar** (V, se gana venciendo al Wither o al Dragón con la fruta): K-ROOM, Anesthesia, Shock Wille, R-ROOM,
+- **Despertar** (M, se gana venciendo al Wither o al Dragón con la fruta): K-ROOM, Anesthesia, Shock Wille, R-ROOM,
   Puncture Wille, Silent.
 - El agua: sumergido, la fruta no funciona y te hundes.
 
 ## Teclas
-Las mismas del juego, salvo **Shambles en Alt izquierdo** (la E es el inventario de Minecraft). Las teclas solo se las
-queda la fruta si la has comido. Se cambian en la pantalla **Teclas** (en el libro, o en Ajustes → «Teclas…»): clic en
-la tecla y pulsa la nueva; Esc la deja sin tecla. Cada tecla avisa si choca con algo: en rojo si nunca funcionaría, en
-ámbar si Minecraft también la usa y en gris si solo conviene saberlo. «Restablecer todo» vuelve a las de fábrica y
-«Como el juego» pone Shambles en la E (y ofrece pasar el inventario a la I). Se guardan en `config/opeope-teclas.json`
-(nombres como `key.keyboard.q` o `key.mouse.4`), que también se puede editar a mano.
+De fábrica la fruta no tapa ninguna tecla de todos los días de Minecraft: la **Q** bota, la **F** cambia de mano y la
+**E** abre el inventario como siempre, aunque te hayas comido la fruta. Por eso, respecto al juego, el **ROOM** va en la
+**G**, **Scan** en la **V**, la **piedra marcador** en la **N**, el **Despertar** en la **M** y **Shambles** en **Alt
+izquierdo**; las demás son las mismas. Las teclas solo se las queda la fruta si la has comido. Se cambian en la pantalla
+**Teclas** (en el libro, o en Ajustes → «Teclas…»): clic en la tecla y pulsa la nueva; Esc la deja sin tecla. Cada tecla
+avisa si choca con algo: en rojo si nunca funcionaría, en ámbar si Minecraft también la usa y en gris si solo conviene
+saberlo. «Restablecer todo» vuelve a las de fábrica y «Como el juego» pone las del juego: ROOM en la Q, Scan en la F, la
+piedra marcador en la G, el Despertar en la V y Shambles en la E (y ofrece pasar el inventario a la I). Se guardan en
+`config/opeope-teclas.json` (nombres como `key.keyboard.g` o `key.mouse.4`), que también se puede editar a mano. Si
+vienes de una versión anterior, las teclas que seguían en la Q, la F, la G o la V pasan solas a las nuevas al abrir el
+juego; las que habías cambiado tú se quedan como estaban.
 
 El libro (**H**) y los ajustes son teclas normales de Minecraft: están en los controles de Minecraft (Opciones →
 Controles), en la categoría «Ope Ope no Mi» («Libro de la fruta» y «Ajustes de la fruta», esta sin tecla de fábrica).
 Si habías cambiado la tecla del libro en `opeope-teclas.json`, ese valor ya no se usa: elígela otra vez ahí.
 
-Con la fruta, la Q es del ROOM y la F de Scan: para tirar objetos o cambiar de mano, agáchate (Mayús) y pulsa Q o F.
-F3 y sus combinaciones y Ctrl+B siguen siendo de Minecraft. Agachado, los clics vuelven a ser los normales de
+Si le pones a la fruta la tecla de tirar objetos o la de cambiar de mano (como «Como el juego» con la Q y la F),
+agachado siguen siendo de Minecraft: agáchate y pulsa Q o F. En creativo, agachado, la C y la X (Gamma Knife e Injection
+Shot) guardan y cargan barras de objetos como siempre. F3 y sus combinaciones y Ctrl+B siguen siendo de Minecraft. Agachado, los clics vuelven a ser los normales de
 Minecraft. Los botones laterales del ratón hacen de Tab. Si pulsas una técnica que aún no está lista, su casilla tiembla
 y suena un «no» corto.
 
@@ -102,7 +109,7 @@ la fruta» si le pones una. Cada opción explica lo que hace al pasar el ratón 
 ## El ROOM se nota
 Crear o mover el ROOM ahora se ve, se oye y se siente:
 - **Crear**: una semilla de luz sale de tu mano, florece con una onda y el ROOM crece con un zumbido que sube de tono; al
-  soltar Q queda fijo con un golpe de campana. Una línea brillante marca dónde toca el suelo y el contorno de la esfera
+  soltar la G queda fijo con un golpe de campana. Una línea brillante marca dónde toca el suelo y el contorno de la esfera
   se ve siempre.
 - **Tamaño**: cada paso de la rueda es un «clic» con un eco de la esfera anterior; en el máximo o el mínimo, un golpe
   seco y el aviso.

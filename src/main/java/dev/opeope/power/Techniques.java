@@ -136,10 +136,10 @@ public final class Techniques {
 		pw.dirty = true;
 		if (pw.combatStyle == 2) {
 			equipKikokuSafely(p);
-			p.sendMessage(Text.literal("§bEstilo 2: Espada (Kikoku) · [Z] Iai · [X] Luna de Acero · [C] Torbellino · [V] Mil Puntadas"), true);
+			p.sendMessage(Text.literal("§bEstilo 2: Espada (Kikoku) · [Z] Iai · [X] Luna de Acero · [C] Torbellino · [M] Mil Puntadas"), true);
 		} else if (pw.combatStyle == 3) {
 			unequipKikokuSafely(p);
-			p.sendMessage(Text.literal("§6Estilo 3: Pelea y Palma Quirúrgica · [Clic] Combo · [Z] Mes Palma · [X] Descarga · [C] Trueque · [F] Gancho Takt"), true);
+			p.sendMessage(Text.literal("§6Estilo 3: Pelea y Palma Quirúrgica · [Clic] Combo · [Z] Mes Palma · [X] Descarga · [C] Trueque · [V] Gancho Takt"), true);
 		} else {
 			p.sendMessage(Text.literal("§bEstilo 1: Fruta Ope Ope no Mi · Todas las técnicas quirúrgicas activas"), true);
 		}

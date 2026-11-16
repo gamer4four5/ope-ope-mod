@@ -51,7 +51,7 @@ public class KeysScreen extends Screen {
 			.build());
 		addDrawableChild(ButtonWidget.builder(Text.literal("Como el juego"), b -> likeTheGame())
 			.dimensions(x + bw + gap, y, bw, 20)
-			.tooltip(Tooltip.of(Text.literal("Las teclas del juego original: las de fábrica, pero Shambles en la E.")))
+			.tooltip(Tooltip.of(Text.literal("Las teclas del juego original: ROOM en la Q, Scan en la F y Shambles en la E. Agachado, la Q y la F siguen botando y cambiando de mano.")))
 			.build());
 		addDrawableChild(ButtonWidget.builder(Text.literal("Hecho"), b -> close())
 			.dimensions(x + 2 * (bw + gap), y, bw, 20)
@@ -74,6 +74,7 @@ public class KeysScreen extends Screen {
 	private void likeTheGame() {
 		waiting = null;
 		for (Keys k : Keys.values()) k.reset();
+		Keys.V1.forEach((k, name) -> k.key = InputUtil.fromTranslationKey(name));   // ROOM Q, Scan F, marcador G, Despertar V
 		Keys.SHAMBLES.key = InputUtil.fromTranslationKey("key.keyboard.e");
 		Keys.save();
 		GameOptions o = this.client.options;

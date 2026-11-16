@@ -96,7 +96,7 @@ public final class RoomOps {
 	}
 
 	/**
-	 * Q + rueda: cada paso multiplica o divide el radio por 1,14 y lo cambia al menos 1,25 bloques. En el tope avisa
+	 * ROOM + rueda: cada paso multiplica o divide el radio por 1,14 y lo cambia al menos 1,25 bloques. En el tope avisa
 	 * (LIMIT) sin cambiar nada. Un ROOM que crece queda fijo sin más aviso: el paso ya se nota.
 	 */
 	public static void scroll(ServerPlayerEntity p, PlayerPower pw, int dir) {
@@ -122,7 +122,7 @@ public final class RoomOps {
 	}
 
 	/**
-	 * Q + clic: el ROOM sale de la mano como un cometa en arco y cae donde miras (encima del bloque, o pegado a la cara
+	 * ROOM + clic: el ROOM sale de la mano como un cometa en arco y cae donde miras (encima del bloque, o pegado a la cara
 	 * que tocas; si no tocas nada, a 48 bloques). El viejo se queda donde estaba hasta que aterriza el nuevo.
 	 */
 	public static void launch(ServerPlayerEntity p, PlayerPower pw) {
@@ -162,7 +162,7 @@ public final class RoomOps {
 		PowerManager.broadcastRoom(p, 0, room);
 	}
 
-	/** Q + clic derecho: el ROOM vuelve a ti, rápido al principio y frenando al llegar. Si ya está centrado, avisa. */
+	/** ROOM + clic derecho: el ROOM vuelve a ti, rápido al principio y frenando al llegar. Si ya está centrado, avisa. */
 	public static void bring(ServerPlayerEntity p, PlayerPower pw) {
 		pw.roomUsedDuringHold = true;
 		Room room = pw.room;

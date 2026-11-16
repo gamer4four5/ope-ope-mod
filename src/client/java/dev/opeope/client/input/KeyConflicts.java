@@ -74,6 +74,10 @@ public final class KeyConflicts {
 					KeyBinding v = key.equals(KeyBindingHelper.getBoundKeyOf(opt.dropKey)) ? opt.dropKey : opt.swapHandsKey;
 					return new Conflict(Level.INFO, "Con " + sneak + " hace lo de Minecraft («" + vanillaName(v) + "»).");
 				}
+				if (key.equals(KeyBindingHelper.getBoundKeyOf(opt.saveToolbarActivatorKey)) || key.equals(KeyBindingHelper.getBoundKeyOf(opt.loadToolbarActivatorKey))) {
+					KeyBinding v = key.equals(KeyBindingHelper.getBoundKeyOf(opt.saveToolbarActivatorKey)) ? opt.saveToolbarActivatorKey : opt.loadToolbarActivatorKey;
+					return new Conflict(Level.INFO, "En creativo, con " + sneak + " hace lo de Minecraft («" + vanillaName(v) + "»).");
+				}
 				if (k == Keys.ROW2 && OpeSettings.get().listaJugadoresTab && key.equals(KeyBindingHelper.getBoundKeyOf(opt.playerListKey))) {
 					return new Conflict(Level.INFO, "En multijugador, mantenida sin pulsar nada más enseña la lista de jugadores.");
 				}
