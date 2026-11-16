@@ -58,6 +58,8 @@ final class PieceVisuals {
 	Vec3d pos = Vec3d.ZERO;
 	float td;
 	int drawnStamp = -1;
+	/** La malla ya horneada para dibujarla rápido (de lejos, con muchas piezas o en la pasada de sombras), o null. */
+	Object fastMesh;
 
 	double lean, kx, kz, squashAge = Double.POSITIVE_INFINITY, sy = 1, sxz = 1;
 
