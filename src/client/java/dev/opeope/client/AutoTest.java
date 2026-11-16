@@ -2921,6 +2921,7 @@ public final class AutoTest {
 		zmb.setAiDisabled(!ai);
 		zmb.setPersistent();
 		zmb.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+		zmb.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(StatusEffects.FIRE_RESISTANCE, -1, 0, false, false));
 		w.spawnEntity(zmb);
 		return zmb;
 	}
@@ -2943,7 +2944,7 @@ public final class AutoTest {
 				Box arena = new Box(ax0 - 14, ay0 - 4, az0 - 14, ax0 + 15, ay0 + 20, az0 + 15);
 				for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof ItemEntity || en instanceof MobEntity
 					|| en instanceof PieceEntity || en instanceof dev.opeope.entity.BodyPartEntity)) e.discard();
-				w.setTimeOfDay(18000);
+				w.setTimeOfDay(6000);   // de día, para las capturas (los zombis llevan resistencia al fuego)
 				pw.room = new Room(w.getRegistryKey(), new Vec3d(ax0 + 0.5, ay0 + 2, az0 - 3.0), 14);
 				pw.room.state = Room.State.FIXED;
 				PowerManager.broadcastRoom(sp, 0, pw.room);
@@ -3095,6 +3096,49 @@ public final class AutoTest {
 			dres("D barrido: un tajo por las rodillas separa la mitad de abajo", did && ps.size() == 1 && ps.get(0).segments().contains("left_leg")
 				&& ps.get(0).segments().contains("right_leg") ? null : "cortó " + did + ", " + ps.size() + " partes");
 			z.discard();
+		}));
+
+		// capturas para mirar a ojo: un zombi, una oveja, un aldeano y una vaca cortados, delante del jugador
+		step(2, "D fotos: preparar", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				for (int zid : new int[]{dZ2, dZ4}) {
+					Entity e = w.getEntityById(zid);
+					if (e instanceof LivingEntity le) {
+						for (dev.opeope.entity.BodyPartEntity p : partsOf(w, le)) p.discard();
+						e.discard();
+					}
+				}
+				double bx = gx0 + DX + 0.5, by = gfy + 1, bz = gz0 + DZ - 5.5;
+				ZombieEntity z = spawnZombie(w, bx - 1.2, by, bz, 20f, false);
+				if (z != null) {
+					z.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_SWORD));
+					dev.opeope.power.Dismember.cut(z, List.of("right_arm"), sp);
+					dev.opeope.power.Dismember.cut(z, List.of("head"), sp);
+				}
+				for (EntityType<? extends MobEntity> t : List.<EntityType<? extends MobEntity>>of(EntityType.SHEEP, EntityType.VILLAGER, EntityType.COW)) {
+					MobEntity m = t.create(w);
+					if (m == null) continue;
+					double ox = t == EntityType.SHEEP ? 1.6 : t == EntityType.VILLAGER ? -3.6 : 3.8;
+					m.refreshPositionAndAngles(bx + ox, by, bz - (t == EntityType.COW ? 1.5 : 0), t == EntityType.COW ? 90f : -20f, 0f);
+					m.setBodyYaw(m.getYaw());
+					m.setAiDisabled(true);
+					m.setPersistent();
+					w.spawnEntity(m);
+					if (t == EntityType.SHEEP) dev.opeope.power.Dismember.cut(m, List.of("head"), sp);
+					if (t == EntityType.VILLAGER) dev.opeope.power.Dismember.cut(m, List.of("arms"), sp);
+					if (t == EntityType.COW) dev.opeope.power.Dismember.cut(m, List.of("right_front_leg"), sp);
+				}
+				sp.networkHandler.requestTeleport(gx0 + DX + 0.5, gfy + 1, gz0 + DZ + 0.5, 180f, 18f);
+			});
+		});
+		step(40, "D fotos", () -> shot(mc, "d-partes-vivas"));
+		step(1, "D fotos: limpiar", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			Box arena = new Box(gx0 + DX - 14, gfy - 4, gz0 + DZ - 14, gx0 + DX + 15, gfy + 20, gz0 + DZ + 15);
+			for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity
+				|| en instanceof ItemEntity)) e.discard();
 		}));
 
 		// D8: matar al cortado: sus partes se van y el botín sale una vez
