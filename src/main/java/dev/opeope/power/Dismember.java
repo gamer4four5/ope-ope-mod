@@ -311,7 +311,7 @@ public final class Dismember {
 		float yaw = le.getBodyYaw();
 		double scale = le.getScale();
 		Vec3d coreC = feet.add(Anatomy.toWorld(core.center(), yaw, scale));
-		double coreMin = Math.min(core.box[3] - core.box[0], Math.min(core.box[4] - core.box[1], core.box[5] - core.box[2])) / 16.0 * scale;
+		double coreMin = Math.min(core.box()[3] - core.box()[0], Math.min(core.box()[4] - core.box()[1], core.box()[5] - core.box()[2])) / 16.0 * scale;
 		double thr = Math.max(0.06, coreMin * 0.3);
 		Set<String> picked = new LinkedHashSet<>();
 		for (CutEngine.Plane pl : planes) {
