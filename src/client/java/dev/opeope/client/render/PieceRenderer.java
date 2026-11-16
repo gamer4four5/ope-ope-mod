@@ -31,7 +31,9 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.RotationAxis;
 import net.minecraft.util.math.random.Random;
+import net.minecraft.world.BlockRenderView;
 import net.minecraft.world.EmptyBlockView;
+import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
@@ -51,6 +53,25 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 	private record CachedMesh(List<BakedBlock> blocks, List<BlockSet.Entry> fallback) {}
 
 	private static final Map<BlockSet, CachedMesh> MESH_CACHE = new WeakHashMap<>();
+
+	// Muchas piezas a la vez (mil levantadas con el ROOM): las lejanas, o todas menos las de al lado cuando hay muchas,
+	// se dibujan con su malla ya horneada (sin buscar modelos ni calcular la sombra suave bloque a bloque cada fotograma),
+	// y en la pasada de sombras de los shaders (Iris) se saltan las lejanas.
+	/** Piezas dibujadas en el fotograma anterior y en este (sin contar la pasada de sombras). */
+	private static int drawnNow, drawnLast;
+	/** Mallas horneadas en este fotograma: con un tope, para que mil piezas nuevas no se hagan todas a la vez. */
+	private static int builtNow;
+	static final int CROWD = 96;                 // con más piezas que esto en pantalla, solo las cercanas llevan el detalle completo
+	static final double NEAR = 12, FAR = 28;     // bloques: siempre detalle completo / siempre malla horneada
+	static final double SHADOW_FAR = 40, SHADOW_CROWD_FAR = 16;   // sombras de shaders: hasta aquí (con muchas piezas, hasta aquí)
+	static final int BUILD_PER_FRAME = 40;
+
+	/** Al empezar cada fotograma del mundo. */
+	public static void newFrame() {
+		drawnLast = drawnNow;
+		drawnNow = 0;
+		builtNow = 0;
+	}
 
 	public PieceRenderer(EntityRendererFactory.Context ctx) {
 		super(ctx);
@@ -102,8 +123,31 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 		}
 
 		boolean landed = (flags & PieceEntity.F_LANDED) != 0;
+		boolean shadow = IrisCompat.shadowPass();
+		if (!shadow) drawnNow++;
+		double d2 = mc.gameRenderer.getCamera().getPos().squaredDistanceTo(vis.pos);
+		boolean crowd = drawnLast > CROWD;
+		if (shadow) {
+			double sf = crowd ? SHADOW_CROWD_FAR : SHADOW_FAR;
+			if (d2 > sf * sf && set.visible().size() <= 350) {   // su sombra no se nota: fuera
+				ms.pop();
+				return;
+			}
+		}
+		CachedMesh mesh = null;
 		if (set.visible().size() > 350) {
-			CachedMesh mesh = MESH_CACHE.computeIfAbsent(set, s -> buildMesh(s, brm, mc.getBlockColors()));
+			mesh = MESH_CACHE.computeIfAbsent(set, s -> buildMesh(s, brm, mc.getBlockColors(), null, null));
+		} else if (shadow || d2 > FAR * FAR || (crowd && d2 > NEAR * NEAR) || PieceVisuals.broken) {
+			if (vis.fastMesh instanceof CachedMesh m) {
+				mesh = m;
+			} else if (builtNow < BUILD_PER_FRAME) {
+				builtNow++;
+				vis.view.moveTo(vis.pos, set);
+				mesh = buildMesh(set, brm, mc.getBlockColors(), vis.view, vis.seedBase);
+				vis.fastMesh = mesh;
+			}
+		}
+		if (mesh != null) {
 			ms.push();
 			if (landed) {
 				ms.translate(set.sx / 2f, set.sy / 2f, set.sz / 2f);
@@ -156,7 +200,10 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 		return (((long) (x & 0xFFFFF)) << 40) | (((long) (y & 0xFFFFF)) << 20) | ((long) (z & 0xFFFFF));
 	}
 
-	private static CachedMesh buildMesh(BlockSet set, BlockRenderManager brm, BlockColors colors) {
+	/** La malla de una pieza, una vez: sus quads con las caras tapadas fuera y el color ya puesto (con view, el tinte del bioma donde está). */
+	private static CachedMesh buildMesh(BlockSet set, BlockRenderManager brm, BlockColors colors, @Nullable BlockRenderView view,
+			@Nullable BlockPos base) {
+		BlockPos.Mutable wp = new BlockPos.Mutable();
 		LongOpenHashSet opaque = new LongOpenHashSet(set.entries.size());
 		for (BlockSet.Entry e : set.entries) {
 			if (e.state().isOpaqueFullCube(EmptyBlockView.INSTANCE, BlockPos.ORIGIN)) {
@@ -175,16 +222,17 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 				continue;
 			}
 			BakedModel model = brm.getModel(st);
+			BlockPos at = base == null ? null : wp.set(base.getX() + b.x(), base.getY() + b.y(), base.getZ() + b.z());
 			List<CulledQuad> qList = new ArrayList<>(6);
 			for (Direction d : dirs) {
 				if (opaque.contains(packLocal(b.x() + d.getOffsetX(), b.y() + d.getOffsetY(), b.z() + d.getOffsetZ()))) {
 					continue;
 				}
 				List<BakedQuad> sideQuads = model.getQuads(st, d, rand);
-				for (BakedQuad q : sideQuads) qList.add(bakeQuad(q, st, colors));
+				for (BakedQuad q : sideQuads) qList.add(bakeQuad(q, st, colors, view, at));
 			}
 			List<BakedQuad> generalQuads = model.getQuads(st, null, rand);
-			for (BakedQuad q : generalQuads) qList.add(bakeQuad(q, st, colors));
+			for (BakedQuad q : generalQuads) qList.add(bakeQuad(q, st, colors, view, at));
 			if (!qList.isEmpty()) {
 				RenderLayer layer = RenderLayers.getEntityBlockLayer(st, false);
 				baked.add(new BakedBlock(b.x(), b.y(), b.z(), layer, qList.toArray(CulledQuad[]::new)));
@@ -202,10 +250,10 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 		};
 	}
 
-	private static CulledQuad bakeQuad(BakedQuad q, BlockState st, BlockColors colors) {
+	private static CulledQuad bakeQuad(BakedQuad q, BlockState st, BlockColors colors, @Nullable BlockRenderView view, @Nullable BlockPos at) {
 		float shade = q.hasShade() ? dirShade(q.getFace()) : 1.0f;
 		if (!q.hasColor()) return new CulledQuad(q, shade, shade, shade);
-		int rgb = colors.getColor(st, null, null, q.getColorIndex());
+		int rgb = colors.getColor(st, view, at, q.getColorIndex());
 		float r = (((rgb >> 16) & 0xFF) / 255.0f) * shade;
 		float g = (((rgb >> 8) & 0xFF) / 255.0f) * shade;
 		float b = ((rgb & 0xFF) / 255.0f) * shade;

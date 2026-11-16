@@ -78,6 +78,7 @@ public class OpeOpeClient implements ClientModInitializer {
 			CutFx.tick();
 			AutoTest.tick(client);
 		});
+		WorldRenderEvents.START.register(ctx -> dev.opeope.client.render.PieceRenderer.newFrame());
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(CutFx::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.dismember.ClientDismember::renderAim);
