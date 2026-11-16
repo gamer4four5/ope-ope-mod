@@ -10,6 +10,7 @@ import dev.opeope.client.hud.HudRoot;
 import dev.opeope.client.hud.Icons;
 import dev.opeope.client.input.Bisturi;
 import dev.opeope.client.input.InputHandler;
+import dev.opeope.client.input.KeyLabels;
 import dev.opeope.client.input.Keys;
 import dev.opeope.client.input.Onboarding;
 import dev.opeope.client.render.TerrainFx;
@@ -551,6 +552,13 @@ public final class AutoTest {
 			}
 			check(clash.isEmpty(), "las teclas de fábrica de la fruta no tapan las de Minecraft", "chocan " + clash);
 		});
+		step(0, "estilos: teclas", () -> {
+			// las técnicas de los estilos 2 y 3 van en las teclas de la fruta: su aviso dice las de verdad
+			String s2 = HudRoot.styleText("estilo2").getString(), s3 = HudRoot.styleText("estilo3").getString();
+			check(s2.contains("[" + KeyLabels.name(Keys.AWAKEN.key) + "]") && s3.contains("[" + KeyLabels.name(Keys.SCAN.key) + "]")
+					&& !(s2 + s3).contains("%s") && !s2.startsWith("opeope.") && !s3.startsWith("opeope."),
+				"los avisos de los estilos dicen las teclas de verdad", s2 + " | " + s3);
+		});
 
 		// (a2) con la fruta comida, la tecla de botar (Q) bota uno y la de cambiar de mano (F) cambia de mano, como siempre
 		step(0, "botar: preparar", () -> {
@@ -759,6 +767,22 @@ public final class AutoTest {
 			key(ROOMK, PRESS);
 		});
 		step(12, "takt: ROOM suelta", () -> key(ROOMK, RELEASE));
+		// R + G a la vez (la G de fábrica es el ROOM y Aparcar), antes de que se abra la fila de R: es Aparcar y el ROOM
+		// sigue ahí. Sin la orden temprana, el toque de G quitaría el ROOM y al soltar R se cogería lo que miras
+		step(5, "takt: R+G rápido", () -> {
+			key(GLFW.GLFW_KEY_R, PRESS);
+			key(ROOMK, PRESS);
+		});
+		step(1, "takt: R+G rápido, suelta G", () -> key(ROOMK, RELEASE));
+		step(1, "takt: R+G rápido, suelta R", () -> key(GLFW.GLFW_KEY_R, RELEASE));
+		step(10, "takt: R+G rápido, mira", () -> {
+			check(ClientState.ownRoom() != null && ClientState.heldIds.length == 0, "un R + G rápido aparca: ni quita el ROOM ni coge nada",
+				"ROOM " + (ClientState.ownRoom() != null) + ", Takt lleva " + ClientState.heldIds.length);
+			server(srv, id, (sp, pw) -> {   // como antes: a la mano y nada aparcado
+				pw.taktMode = PlayerPower.TaktMode.HAND;
+				pw.parked.clear();
+			});
+		});
 		step(5, "takt: mira", () -> srv.execute(() -> look(srv, id, 32, 28)));
 		step(12, "takt: toque", () -> key(GLFW.GLFW_KEY_R, PRESS));
 		step(2, "takt: toque suelta", () -> key(GLFW.GLFW_KEY_R, RELEASE));

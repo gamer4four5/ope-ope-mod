@@ -397,7 +397,7 @@ public final class InputHandler {
 			mark(markCode, InputHandler::taktRelease);
 			return true;
 		}
-		if (rowR()) {
+		if (rowR() || earlyTaktOrder(type, code)) {
 			for (Keys k : Keys.values()) {
 				if (k.group() == Keys.Group.TAKT && k.matches(type, code)) {
 					if (k == Keys.R_TREE) {
@@ -432,6 +432,17 @@ public final class InputHandler {
 				return true;
 			}
 		}
+		return false;
+	}
+
+	/**
+	 * R ya está abajo pero su fila aún no se abre («Espera de R»): si la tecla es a la vez el ROOM o Scan y una orden de
+	 * Takt (de fábrica, la G es ROOM y Aparcar y la V es Scan y Posar), ya es la orden. Así un R + G rápido no quita ni
+	 * rehace el ROOM y un R + V rápido no lanza un R-ROOM. Las demás teclas esperan como siempre.
+	 */
+	private static boolean earlyTaktOrder(InputUtil.Type type, int code) {
+		if (!rDown || !(Keys.ROOM.matches(type, code) || Keys.SCAN.matches(type, code))) return false;
+		for (Keys k : Keys.values()) if (k.group() == Keys.Group.TAKT && k.matches(type, code)) return true;
 		return false;
 	}
 

@@ -6,6 +6,8 @@ import dev.opeope.client.hud.HudCanvas.LayoutState;
 import dev.opeope.client.hud.HudCanvas.Placed;
 import dev.opeope.client.hud.HudCanvas.Rect;
 import dev.opeope.client.input.Bisturi;
+import dev.opeope.client.input.KeyLabels;
+import dev.opeope.client.input.Keys;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -13,6 +15,7 @@ import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableTextContent;
+import net.minecraft.util.Formatting;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,10 +58,36 @@ public final class HudRoot {
 		if (!(message.getContent() instanceof TranslatableTextContent t)) return true;
 		String key = t.getKey();
 		if (key == null || !key.startsWith(MSG)) return true;
-		Toasts.push(message, kindOf(key.substring(MSG.length())));
+		String id = key.substring(MSG.length());
 		MinecraftClient mc = MinecraftClient.getInstance();
+		if (id.startsWith("estilo")) {
+			// los estilos de combate siguen en la barra de acción, con las teclas de verdad
+			Text style = styleText(id);
+			mc.inGameHud.setOverlayMessage(style, false);
+			if (mc.getNarratorManager().isActive()) mc.getNarratorManager().narrateSystemMessage(style);
+			return false;
+		}
+		Toasts.push(message, kindOf(id));
 		if (mc.getNarratorManager().isActive()) mc.getNarratorManager().narrateSystemMessage(message);
 		return false;
+	}
+
+	/**
+	 * El aviso de un estilo de combate (opeope.msg.estilo1, 2 o 3) con las teclas de la fruta de verdad: las técnicas de
+	 * los estilos 2 y 3 van en las teclas de Radio Knife, Injection Shot, Gamma Knife y Despertar o Scan.
+	 */
+	public static Text styleText(String id) {
+		return switch (id) {
+			case "estilo2" -> Text.translatable(MSG + id, keyName(Keys.RADIO_KNIFE), keyName(Keys.INJECTION), keyName(Keys.GAMMA), keyName(Keys.AWAKEN))
+				.formatted(Formatting.AQUA);
+			case "estilo3" -> Text.translatable(MSG + id, keyName(Keys.RADIO_KNIFE), keyName(Keys.INJECTION), keyName(Keys.GAMMA), keyName(Keys.SCAN))
+				.formatted(Formatting.GOLD);
+			default -> Text.translatable(MSG + id).formatted(Formatting.AQUA);
+		};
+	}
+
+	private static String keyName(Keys k) {
+		return KeyLabels.name(k.key);
 	}
 
 	static int kindOf(String id) {
