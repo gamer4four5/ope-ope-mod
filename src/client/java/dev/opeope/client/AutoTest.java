@@ -2949,6 +2949,8 @@ public final class AutoTest {
 				pw.room.state = Room.State.FIXED;
 				PowerManager.broadcastRoom(sp, 0, pw.room);
 				sp.changeGameMode(GameMode.SURVIVAL);
+				pw.zeroGravityRoom = false;   // con Gravedad Cero las partes flotarían (como todo en el ROOM)
+				pw.dirty = true;
 				sp.networkHandler.requestTeleport(ax0 + 0.5, ay0 + 1, az0 + 0.5, 180f, 10f);
 				sp.setHealth(sp.getMaxHealth());
 				dDropped0 = PieceEntity.DROPPED;
@@ -3056,6 +3058,7 @@ public final class AutoTest {
 			boolean hit = part != null && part.damage(w.getDamageSources().magic(), 4f);
 			float lost = h0 - z.getHealth();
 			dres("D5 daño compartido: 4 a la parte = 4 al zombi", hit && Math.abs(lost - 4f) < 0.05f ? null : "golpe " + hit + ", perdió " + fmt(lost));
+			if (part != null) part.discard();
 			z.discard();
 		}));
 
