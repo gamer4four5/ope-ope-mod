@@ -887,6 +887,12 @@ public class PieceEntity extends Entity {
 		return GroundRules.solid(view.getBlockState(m), view, m);
 	}
 
+	private static boolean floorSolidAt(BlockView view, BlockPos.Mutable m, int x, int y, int z) {
+		m.set(x, y, z);
+		BlockState st = view.getBlockState(m);
+		return !isNaturalTreeOrCanopy(st) && GroundRules.solid(st, view, m);
+	}
+
 	/**
 	 * Un paso del muelle amortiguado hacia t (velocidad del sitio vt, en b/s), en 3 subpasos de 1/60 s y con la
 	 * aceleración limitada; los trozos grandes son más lentos y pesados. Se mueve chocando con el mundo.
@@ -959,9 +965,10 @@ public class PieceEntity extends Entity {
 					(float) Math.min(2.2, 0.5 + blocks.size() / 80.0), 0.55f);
 				fallSoundCd = 14;
 			}
-			if (!debris && !slowFall && (thrown || blocks.size() >= 12) && speedBefore > 0.45) {
+			if (!debris && !slowFall && (thrown || blocks.size() >= 12) && (speedBefore > 0.45 || isOnGround())) {
+				Vec3d plowVec = v.lengthSquared() > 0.25 ? v : new Vec3d(0, -1.2, 0);
 				boolean chopWood = blocks.size() >= 12 || (thrown && blocks.size() >= 6 && speedBefore > 1.1);
-				plowTreeBlocks(sw, v, blocks.size() >= 18, chopWood);
+				plowTreeBlocks(sw, plowVec, false, chopWood);
 			}
 		}
 		setVelocity(v);
@@ -1379,7 +1386,7 @@ public class PieceEntity extends Entity {
 				boolean near = false;
 				boolean under = false;
 				for (int dy = 0; dy <= 2; dy++) {
-					if (solidAt(view, m, ix, yBase - dy, iz)) {
+					if (floorSolidAt(view, m, ix, yBase - dy, iz)) {
 						if (dy <= 1) near = true;
 						under = true;
 						break;
@@ -1403,7 +1410,7 @@ public class PieceEntity extends Entity {
 						}
 						break;
 					}
-					if (GroundRules.solid(st, view, m)) {
+					if (!isNaturalTreeOrCanopy(st) && GroundRules.solid(st, view, m)) {
 						double d2 = (sx - getX()) * (sx - getX()) + (sz - getZ()) * (sz - getZ()) + dy * 0.25;
 						if (d2 < bestSolidDist2) {
 							bestSolidDist2 = d2;
@@ -1413,9 +1420,38 @@ public class PieceEntity extends Entity {
 						break;
 					}
 					if (!st.isAir() && !st.isReplaceable() && !st.isOf(Blocks.SNOW)
-						&& !st.isOf(Blocks.MOSS_CARPET) && !isFoliageBlock(st) && !GroundRules.plantLike(st, view, m)) {
+						&& !st.isOf(Blocks.MOSS_CARPET) && !isNaturalTreeOrCanopy(st) && !GroundRules.plantLike(st, view, m)) {
 						break;
 					}
+				}
+			}
+		}
+
+		if (bestTerrain == null && (blocks.sx > 4 || blocks.sz > 4)) {
+			for (double sx = getX() - insetHalfX; sx <= getX() + insetHalfX + 0.01; sx += 2.0) {
+				int ix = MathHelper.floor(sx);
+				for (double sz = getZ() - insetHalfZ; sz <= getZ() + insetHalfZ + 0.01; sz += 2.0) {
+					int iz = MathHelper.floor(sz);
+					boolean near = false, under = false;
+					for (int dy = 0; dy <= 4; dy++) {
+						int ty = yBase - dy;
+						BlockState st = view.getBlockState(m.set(ix, ty, iz));
+						if (!isNaturalTreeOrCanopy(st) && GroundRules.solid(st, view, m)) {
+							if (dy <= 1) near = true;
+							under = true;
+						}
+						if (GroundRules.terrain(st)) {
+							double d2 = (sx - getX()) * (sx - getX()) + (sz - getZ()) * (sz - getZ()) + dy * 0.25;
+							if (d2 < bestDist2) {
+								bestDist2 = d2;
+								bestTerrain = st;
+								bestTerrainY = ty;
+							}
+							break;
+						}
+					}
+					if (near) solidNear++;
+					if (under) solidUnder++;
 				}
 			}
 		}
@@ -1433,7 +1469,7 @@ public class PieceEntity extends Entity {
 						bestTerrainY = ty;
 						break;
 					}
-					if (bestSolid == null && GroundRules.solid(st, view, m)) {
+					if (bestSolid == null && !isNaturalTreeOrCanopy(st) && GroundRules.solid(st, view, m)) {
 						bestSolid = st;
 						bestSolidY = ty;
 					}
@@ -1504,6 +1540,29 @@ public class PieceEntity extends Entity {
 		MaterialTrait impactTrait = trait();
 		boolean heavy = impactTrait == MaterialTrait.HEAVY_PIERCING;
 		BlockPos floorPos = BlockPos.ofFloored(contact.x, contact.y - 0.5, contact.z);
+		if (tier >= 2 && !GroundRules.terrain(floor)
+			&& (isNaturalTreeOrCanopy(floor) || !GroundRules.solid(floor, view, floorPos))) {
+			int span = Math.max(10, blocks.sy + 8);
+			int yRef = MathHelper.floor(getY());
+			int bestY = GroundRules.NONE;
+			BlockPos bestSurf = null;
+			for (double dx = -rf; dx <= rf + 0.01; dx += 2.0) {
+				int ix = MathHelper.floor(getX() + dx);
+				for (double dz = -rf; dz <= rf + 0.01; dz += 2.0) {
+					int iz = MathHelper.floor(getZ() + dz);
+					int sy = GroundRules.surfaceNear(view, ix, iz, yRef, span);
+					if (sy != GroundRules.NONE && (bestSurf == null || sy > bestY)) {
+						bestY = sy;
+						bestSurf = new BlockPos(ix, sy, iz);
+					}
+				}
+			}
+			if (bestSurf != null) {
+				floor = view.getBlockState(bestSurf);
+				contact = new Vec3d(getX(), bestY + 1.0, getZ());
+				floorPos = bestSurf;
+			}
+		}
 		boolean canCrater = tier >= 2 && (GroundRules.terrain(floor) || (heavy && GroundRules.fracturable(floor, view, floorPos, k)));
 		if (canCrater) {
 			R = MathHelper.clamp(rf * (tier == 2 ? 1.0 + 0.4 * k : 1.15 + 0.6 * k) * (heavy ? 1.1 : 1.0), 1.2, OpeConfig.CRATER_MAX_RADIUS);
@@ -1707,6 +1766,19 @@ public class PieceEntity extends Entity {
 				DROPPED++;
 				continue;
 			}
+			if (!sealed && lastImpactAge >= 0) {
+				BlockPos down = put;
+				for (int step = 0; step < 24 && down.getY() > w.getBottomY() + 1; step++) {
+					BlockPos below = down.down();
+					if (taken.contains(below.asLong()) || !freeForImpactSettle(view, below, bl)) break;
+					down = below;
+				}
+				if (!down.equals(put)) {
+					taken.remove(put.asLong());
+					taken.add(down.asLong());
+					put = down;
+				}
+			}
 			w.setBlockState(put, e.state(), Block.NOTIFY_ALL);
 			if (e.be() != null) {
 				BlockEntity be = w.getBlockEntity(put);
@@ -1766,6 +1838,17 @@ public class PieceEntity extends Entity {
 			return q.toImmutable();
 		}
 		return null;
+	}
+
+	private static boolean freeForImpactSettle(BlockView view, BlockPos cell, List<Box> bl) {
+		int x = cell.getX(), y = cell.getY(), z = cell.getZ();
+		if (y < view.getBottomY() || y >= view.getTopY()) return false;
+		BlockState st = view.getBlockState(cell);
+		if (!GroundRules.replaceable(st) && !isNaturalTreeOrCanopy(st)) return false;
+		for (Box b : bl) {
+			if (b.intersects(x + 0.01, y + 0.01, z + 0.01, x + 0.99, y + 0.99, z + 0.99)) return false;
+		}
+		return true;
 	}
 
 	/**
@@ -2254,11 +2337,23 @@ public class PieceEntity extends Entity {
 	private static boolean isWoodBlock(BlockState st) {
 		return st.isIn(BlockTags.LOGS) || st.isIn(BlockTags.PLANKS) || st.isIn(BlockTags.FENCES)
 			|| st.isIn(BlockTags.FENCE_GATES) || st.isIn(BlockTags.WOODEN_DOORS)
-			|| st.isOf(Blocks.MANGROVE_ROOTS) || st.isOf(Blocks.MUDDY_MANGROVE_ROOTS);
+			|| st.isOf(Blocks.MANGROVE_ROOTS) || st.isOf(Blocks.MUDDY_MANGROVE_ROOTS) || st.isOf(Blocks.BEE_NEST);
 	}
 
 	private static boolean isFoliageBlock(BlockState st) {
-		return st.isIn(BlockTags.LEAVES) || st.isIn(BlockTags.SAPLINGS) || st.isOf(Blocks.BAMBOO) || st.isOf(Blocks.VINE);
+		return st.isIn(BlockTags.LEAVES) || st.isIn(BlockTags.SAPLINGS) || st.isIn(BlockTags.FLOWERS)
+			|| st.isOf(Blocks.BAMBOO) || st.isOf(Blocks.VINE) || st.isOf(Blocks.CAVE_VINES) || st.isOf(Blocks.CAVE_VINES_PLANT)
+			|| st.isOf(Blocks.WEEPING_VINES) || st.isOf(Blocks.WEEPING_VINES_PLANT) || st.isOf(Blocks.TWISTING_VINES)
+			|| st.isOf(Blocks.TWISTING_VINES_PLANT) || st.isOf(Blocks.BROWN_MUSHROOM_BLOCK)
+			|| st.isOf(Blocks.RED_MUSHROOM_BLOCK) || st.isOf(Blocks.MUSHROOM_STEM) || st.isOf(Blocks.COCOA)
+			|| st.isOf(Blocks.SUGAR_CANE) || st.isOf(Blocks.CACTUS) || st.isOf(Blocks.AZALEA)
+			|| st.isOf(Blocks.FLOWERING_AZALEA) || st.isOf(Blocks.MOSS_CARPET) || st.isOf(Blocks.BIG_DRIPLEAF)
+			|| st.isOf(Blocks.BIG_DRIPLEAF_STEM) || st.isOf(Blocks.SMALL_DRIPLEAF);
+	}
+
+	private static boolean isNaturalTreeOrCanopy(BlockState st) {
+		return isFoliageBlock(st) || st.isIn(BlockTags.LOGS) || st.isOf(Blocks.MANGROVE_ROOTS)
+			|| st.isOf(Blocks.MUDDY_MANGROVE_ROOTS) || st.isOf(Blocks.BEE_NEST);
 	}
 
 	private static boolean isTreeBlock(BlockState st) {
@@ -2267,23 +2362,20 @@ public class PieceEntity extends Entity {
 
 	private void plowTreeBlocks(ServerWorld sw, Vec3d moveVec, boolean spawnFalling, boolean includeWood) {
 		Vec3d stepVec = moveVec.length() > 4.5 ? moveVec.normalize().multiply(4.5) : moveVec;
-		Box scan = getBoundingBox().stretch(stepVec).expand(0.35);
+		Box scan = getBoundingBox().stretch(stepVec).expand(0.5, 0.8, 0.5);
 		int minX = MathHelper.floor(scan.minX), maxX = MathHelper.floor(scan.maxX);
 		int minY = Math.max(sw.getBottomY(), MathHelper.floor(scan.minY));
 		int maxY = Math.min(sw.getTopY() - 1, MathHelper.floor(scan.maxY));
 		int minZ = MathHelper.floor(scan.minZ), maxZ = MathHelper.floor(scan.maxZ);
-		int dx = Math.max(1, maxX - minX + 1), dy = Math.max(1, maxY - minY + 1), dz = Math.max(1, maxZ - minZ + 1);
-		long vol = (long) dx * dy * dz;
-		int step = vol > 3200 ? 2 : 1;
-		int broken = 0, logsFallen = 0, fxCount = 0;
+		int broken = 0, fxCount = 0;
 		BlockPos.Mutable m = new BlockPos.Mutable();
-		for (int y = minY; y <= maxY; y += step) {
-			for (int x = minX; x <= maxX; x += step) {
-				for (int z = minZ; z <= maxZ; z += step) {
+		for (int y = minY; y <= maxY; y++) {
+			for (int x = minX; x <= maxX; x++) {
+				for (int z = minZ; z <= maxZ; z++) {
 					m.set(x, y, z);
 					BlockState st = sw.getBlockState(m);
 					if (st.hasBlockEntity()) continue;
-					if (!(isFoliageBlock(st) || (includeWood && isWoodBlock(st)))) continue;
+					if (!(isFoliageBlock(st) || (includeWood && isNaturalTreeOrCanopy(st)))) continue;
 					broken++;
 					BlockPos pos = m.toImmutable();
 					if (fxCount < 22) {
@@ -2291,18 +2383,7 @@ public class PieceEntity extends Entity {
 						sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st),
 							pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 4, 0.25, 0.25, 0.25, 0.14);
 					}
-					if (spawnFalling && st.isIn(BlockTags.LOGS) && logsFallen < 6) {
-						logsFallen++;
-						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(sw, pos, st);
-						if (fb != null) {
-							fb.dropItem = false;
-							Vec3d dir = moveVec.lengthSquared() > 1e-6 ? moveVec.normalize() : Vec3d.ZERO;
-							fb.setVelocity(dir.x * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35, 0.22 + sw.random.nextDouble() * 0.25,
-								dir.z * 0.4 + (sw.random.nextDouble() - 0.5) * 0.35);
-						}
-					} else {
-						sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
-					}
+					sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
 				}
 			}
 		}
@@ -2313,11 +2394,11 @@ public class PieceEntity extends Entity {
 	}
 
 	private void clearTreeCanopyAbove(ServerWorld sw, BlockPos centerPos, double rad, int maxRise, int maxLogsFalling) {
-		int r = MathHelper.clamp((int) Math.ceil(rad), 2, 7);
-		int rise = MathHelper.clamp(maxRise, 4, 14);
+		int r = MathHelper.clamp((int) Math.ceil(rad + 2), 2, 20);
+		int rise = MathHelper.clamp(maxRise, 4, 24);
 		int minY = Math.max(sw.getBottomY(), centerPos.getY() - 1);
 		int maxY = Math.min(sw.getTopY() - 1, centerPos.getY() + rise);
-		int logsFallen = 0, broken = 0, fxCount = 0;
+		int broken = 0, fxCount = 0;
 		BlockPos.Mutable m = new BlockPos.Mutable();
 		for (int x = centerPos.getX() - r; x <= centerPos.getX() + r; x++) {
 			for (int z = centerPos.getZ() - r; z <= centerPos.getZ() + r; z++) {
@@ -2326,7 +2407,7 @@ public class PieceEntity extends Entity {
 				for (int y = minY; y <= maxY; y++) {
 					m.set(x, y, z);
 					BlockState st = sw.getBlockState(m);
-					if (!isTreeBlock(st) || st.hasBlockEntity()) continue;
+					if (!isNaturalTreeOrCanopy(st) || st.hasBlockEntity()) continue;
 					broken++;
 					BlockPos pos = m.toImmutable();
 					if (fxCount < 24) {
@@ -2334,17 +2415,7 @@ public class PieceEntity extends Entity {
 						sw.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st),
 							pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 3, 0.2, 0.2, 0.2, 0.12);
 					}
-					if (st.isIn(BlockTags.LOGS) && logsFallen < maxLogsFalling) {
-						logsFallen++;
-						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(sw, pos, st);
-						if (fb != null) {
-							fb.dropItem = false;
-							fb.setVelocity((sw.random.nextDouble() - 0.5) * 0.28, 0.12 + sw.random.nextDouble() * 0.2,
-								(sw.random.nextDouble() - 0.5) * 0.28);
-						}
-					} else {
-						sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
-					}
+					sw.setBlockState(pos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS | Block.SKIP_DROPS);
 				}
 			}
 		}
@@ -2583,6 +2654,16 @@ public class PieceEntity extends Entity {
 			colossal ? 48 : big ? 28 : 12, r * 0.6, 0.25, r * 0.6, 0.16);
 		emitFx(sw, ParticleTypes.CAMPFIRE_COSY_SMOKE, contact.x, contact.y + 0.5, contact.z,
 			colossal ? 34 : big ? 18 : 6, r * 0.5, 0.35, r * 0.5, 0.06);
+		if (big || r >= 3.5) {
+			for (int i = 0; i < 8; i++) {
+				double ang = i * (Math.PI * 2.0 / 8.0);
+				double px = contact.x + Math.cos(ang) * r * 0.65;
+				double pz = contact.z + Math.sin(ang) * r * 0.65;
+				emitFx(sw, ParticleTypes.EXPLOSION_EMITTER, px, contact.y + 1.2, pz, 1, 0.2, 0.2, 0.2, 0);
+				emitFx(sw, ParticleTypes.FLAME, px, contact.y + 1.2, pz, 6, 0.4, 0.4, 0.4, 0.14);
+				emitFx(sw, ParticleTypes.CAMPFIRE_COSY_SMOKE, px, contact.y + 1.2, pz, 5, 0.4, 0.4, 0.4, 0.05);
+			}
+		}
 		if (big || trait == MaterialTrait.HEAVY_PIERCING) {
 			emitFx(sw, ParticleTypes.ASH, contact.x, contact.y + 0.8, contact.z,
 				colossal || trait == MaterialTrait.HEAVY_PIERCING ? 60 : 28, r * 0.85, 0.8, r * 0.85, 0.08);
