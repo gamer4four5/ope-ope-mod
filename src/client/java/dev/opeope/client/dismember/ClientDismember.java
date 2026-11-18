@@ -107,6 +107,8 @@ public final class ClientDismember {
 
 	private static final Deque<List<ModelPart>> HIDDEN = new ArrayDeque<>();
 	private static final Deque<float[]> DROPS = new ArrayDeque<>();
+	/** Los nombres ocultos del ser que se está dibujando (para las capas que copian su postura). */
+	private static final Deque<Set<String>> NAMES = new ArrayDeque<>();
 	private static final Set<Object> CAP_WARNED = new HashSet<>();
 
 	/** Antes de dibujar un ser: oculta sus partes cortadas y, sin piernas, lo baja. Siempre emparejado con end(). */
@@ -127,14 +129,37 @@ public final class ClientDismember {
 			drop = i.drop;
 		}
 		HIDDEN.push(hid);
+		NAMES.push(i == null ? Set.of() : hiddenParts(e));
 		DROPS.push(new float[]{drop});
 		if (drop > 0) ms.translate(0, -drop, 0);
+	}
+
+	/** Una capa (lana, ropa, capa exterior) acaba de copiar la postura del ser: oculta en ella las mismas partes. */
+	public static void mirrorHidden(EntityModel<?> copy) {
+		if (NAMES.isEmpty() || HIDDEN.isEmpty() || copy == null) return;
+		Set<String> names = NAMES.peek();
+		if (names.isEmpty()) return;
+		try {
+			List<ModelPart> hid = HIDDEN.peek();
+			for (String name : names) {
+				List<ModelPart> chain = ModelParts.chain(copy, name);
+				if (chain == null) continue;
+				ModelPart p = chain.get(chain.size() - 1);
+				if (p.visible) {
+					p.visible = false;
+					hid.add(p);
+				}
+			}
+		} catch (RuntimeException ignored) {
+			// una capa que no se deja leer se dibuja entera; nunca rompe
+		}
 	}
 
 	/** Después: lo vuelve a dejar todo como estaba y pinta las caras de corte del ser. */
 	public static void end(LivingEntity e, MatrixStack ms, VertexConsumerProvider vcp, float tickDelta) {
 		if (HIDDEN.isEmpty()) return;
 		for (ModelPart p : HIDDEN.pop()) p.visible = true;
+		if (!NAMES.isEmpty()) NAMES.pop();
 		float drop = DROPS.isEmpty() ? 0 : DROPS.pop()[0];
 		try {
 			Info i = STATE.get(e.getId());

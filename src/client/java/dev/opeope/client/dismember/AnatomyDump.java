@@ -57,6 +57,71 @@ public final class AnatomyDump {
 				})))));
 	}
 
+	/**
+	 * Para la prueba automática: escribe en el registro, una línea por ser vivo, su árbol de partes medido (ruta → caja
+	 * y pivote en el marco del JSON). Así se sacan las anatomías de los modelos de verdad sin abrir el juego.
+	 */
+	public static int logAll() {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.world == null) return 0;
+		int n = 0;
+		for (EntityType<?> type : Registries.ENTITY_TYPE) {
+			try {
+				Entity e = type.create(mc.world);
+				if (!(e instanceof LivingEntity le)) continue;
+				if (!(mc.getEntityRenderDispatcher().getRenderer(le) instanceof LivingEntityRenderer<?, ?> lr)) continue;
+				EntityModel<?> model = lr.getModel();
+				Map<String, List<ModelPart>> parts = ModelParts.of(model);
+				JsonObject tree = new JsonObject();
+				for (Map.Entry<String, List<ModelPart>> en : parts.entrySet()) {
+					List<ModelPart> chain = en.getValue();
+					String path = en.getKey();
+					// solo las rutas completas (los nombres sueltos repetidos son atajos)
+					if (!path.contains("/") && chain.size() > 1) continue;
+					float[] b = bounds(chain);
+					float[] own = ownBounds(chain);
+					JsonObject o = new JsonObject();
+					JsonArray box = new JsonArray();
+					if (b != null) for (float f : b) box.add(r(f));
+					o.add("box", box);
+					if (own != null) {
+						JsonArray ob = new JsonArray();
+						for (float f : own) ob.add(r(f));
+						o.add("own", ob);
+					}
+					ModelPart p = chain.get(chain.size() - 1);
+					JsonArray piv = new JsonArray();
+					float[] pv = pivot(chain);
+					for (float f : pv) piv.add(r(f));
+					o.add("pivot", piv);
+					tree.add(path, o);
+				}
+				OpeOpeMod.LOG.info("ANATOMIA {} {} {}", Registries.ENTITY_TYPE.getId(type), model.getClass().getSimpleName(), tree);
+				n++;
+			} catch (Exception ex) {
+				OpeOpeMod.LOG.info("ANATOMIA {} error {}", Registries.ENTITY_TYPE.getId(type), ex.toString());
+			}
+		}
+		return n;
+	}
+
+	/** El pivote de la última parte de la cadena, en el marco del JSON. */
+	private static float[] pivot(List<ModelPart> chain) {
+		MatrixStack ms = new MatrixStack();
+		for (ModelPart p : chain) applyDefault(p, ms);
+		Vector3f v = ms.peek().getPositionMatrix().transformPosition(new Vector3f());
+		return new float[]{v.x * 16, 24 - v.y * 16, v.z * 16};
+	}
+
+	/** La caja de solo los cubos de esa parte (sin sus hijos). */
+	private static float[] ownBounds(List<ModelPart> chain) {
+		float[] b = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+		MatrixStack ms = new MatrixStack();
+		for (ModelPart p : chain) applyDefault(p, ms);
+		walk(chain.get(chain.size() - 1), ms, b, 99);
+		return b[0] > b[3] ? null : b;
+	}
+
 	private static boolean dump(FabricClientCommandSource src, EntityType<?> type) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.world == null) return false;

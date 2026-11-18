@@ -15,7 +15,9 @@
     "QuadrupedEntityModelAccessor",
     "ArmorFeatureRendererMixin",
     "HeldItemFeatureRendererMixin",
-    "HeadFeatureRendererMixin"
+    "HeadFeatureRendererMixin",
+    "EntityModelLoaderMixin",
+    "EntityModelAccessorMixin"
   ],
   "injectors": {
     "defaultRequire": 1

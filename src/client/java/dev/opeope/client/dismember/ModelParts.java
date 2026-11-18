@@ -34,6 +34,52 @@ public final class ModelParts {
 
 	private static final Map<EntityModel<?>, Map<String, List<ModelPart>>> CACHE = new WeakHashMap<>();
 	private static final Set<Class<?>> WARNED = new HashSet<>();
+	/** Cada ModelPart creado para un modelo de entidad → la raíz de su árbol (lo apunta EntityModelLoaderMixin). */
+	private static final Map<ModelPart, java.lang.ref.WeakReference<ModelPart>> ROOT_OF =
+		java.util.Collections.synchronizedMap(new WeakHashMap<>());
+	/** Por clase de modelo: sus campos de tipo ModelPart (se buscan una vez). */
+	private static final Map<Class<?>, List<java.lang.reflect.Field>> FIELDS = new java.util.concurrent.ConcurrentHashMap<>();
+
+	public static void registerRoot(ModelPart root) {
+		if (root == null) return;
+		java.lang.ref.WeakReference<ModelPart> ref = new java.lang.ref.WeakReference<>(root);
+		mark(root, ref, 0);
+	}
+
+	private static void mark(ModelPart p, java.lang.ref.WeakReference<ModelPart> ref, int depth) {
+		ROOT_OF.put(p, ref);
+		if (depth > 10) return;
+		for (ModelPart c : ((ModelPartAccessor) (Object) p).opeope$children().values()) mark(c, ref, depth + 1);
+	}
+
+	/** Último recurso: la raíz del árbol de cualquier campo ModelPart del modelo (pollo, lobo, caballo, zorro…). */
+	private static ModelPart rootByFields(EntityModel<?> model) {
+		List<java.lang.reflect.Field> fs = FIELDS.computeIfAbsent(model.getClass(), k -> {
+			List<java.lang.reflect.Field> out = new ArrayList<>();
+			for (Class<?> c = k; c != null && c != Object.class; c = c.getSuperclass()) {
+				for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+					if (java.lang.reflect.Modifier.isStatic(f.getModifiers()) || f.getType() != ModelPart.class) continue;
+					try {
+						f.setAccessible(true);
+						out.add(f);
+					} catch (RuntimeException ignored) {
+					}
+				}
+			}
+			return out;
+		});
+		for (java.lang.reflect.Field f : fs) {
+			try {
+				Object v = f.get(model);
+				if (!(v instanceof ModelPart mp)) continue;
+				java.lang.ref.WeakReference<ModelPart> r = ROOT_OF.get(mp);
+				ModelPart root = r == null ? null : r.get();
+				if (root != null) return root;
+			} catch (IllegalAccessException ignored) {
+			}
+		}
+		return null;
+	}
 
 	public static Map<String, List<ModelPart>> of(EntityModel<?> model) {
 		Map<String, List<ModelPart>> m = CACHE.get(model);
@@ -66,6 +112,9 @@ public final class ModelParts {
 				top.put("left_hind_leg", a.opeope$leftHindLeg());
 				top.put("right_front_leg", a.opeope$rightFrontLeg());
 				top.put("left_front_leg", a.opeope$leftFrontLeg());
+			} else {
+				ModelPart root = rootByFields(model);
+				if (root != null) top.putAll(((ModelPartAccessor) (Object) root).opeope$children());
 			}
 			for (Map.Entry<String, ModelPart> e : top.entrySet()) {
 				if (e.getValue() == null) continue;

@@ -2932,6 +2932,7 @@ public final class AutoTest {
 	 */
 	private static void planDesmembramiento(MinecraftClient mc, IntegratedServer srv, UUID id) {
 		final int DX = 80, DZ = 50;
+		step(1, "d: medir modelos", () -> OpeOpeMod.LOG.info("AUTOTEST anatomías medidas: {}", dev.opeope.client.dismember.AnatomyDump.logAll()));
 		step(2, "d: preparar", () -> {
 			srvA = -1;
 			DRES.clear();
