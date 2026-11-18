@@ -85,19 +85,32 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 				ms.translate(cx / 16.0, -cy / 16.0, -cz / 16.0);
 				// aquí un punto P del JSON está en (−P.x, P.y, P.z) / 16: las caras de corte
 				boolean locked = e.locked();
+				float[] pl = e.plane();
 				if (caps) {
 					for (String seg : e.segments()) {
 						Anatomy.Segment sg = a.get(seg);
 						if (sg == null || sg.parent() == null || e.segments().contains(sg.parent())) continue;
 						ClientDismember.cap(ms, vcp, a, sg, time, locked, true);
 					}
+					if (pl != null) {
+						java.util.Set<String> skip = new java.util.HashSet<>(a.segments.keySet());
+						skip.removeAll(e.segments());
+						ClientDismember.planeCaps(ms, vcp, a, skip, pl, time, locked, true);
+					}
+				}
+				// corte libre: de cada parte solo lo que queda de este lado del plano (aquí P del JSON está en (−P.x, P.y, P.z)/16)
+				VertexConsumerProvider draw = vcp;
+				if (pl != null) {
+					org.joml.Matrix4f m = new org.joml.Matrix4f(ms.peek().getPositionMatrix());
+					final float fx = -pl[0], fy = pl[1], fz = pl[2], fd = pl[3] / 16f;
+					draw = layer -> new dev.opeope.client.dismember.SliceConsumer(vcp.getBuffer(layer), m, fx, fy, fz, fd);
 				}
 				// el marco del modelo (el mismo que LivingEntityRenderer)
 				ms.scale(-1f, -1f, 1f);
 				ms.translate(0, -1.501f, 0);
 				boolean walking = e.autonomous() && e.getVelocity().horizontalLengthSquared() > 1e-4;
 				// el buffer del modelo se pide después de las caras (cada getBuffer de otra capa cierra el anterior)
-				VertexConsumer vc = vcp.getBuffer(model.getLayer(tex));
+				VertexConsumer vc = draw.getBuffer(model.getLayer(tex));
 				int k = 0;
 				for (String seg : e.segments()) {
 					Anatomy.Segment sg = a.get(seg);
@@ -117,7 +130,7 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 						k++;
 						if (!name.equals("right_arm") && !name.equals("left_arm")) continue;
 						List<ModelPart> chain = ModelParts.chain(model, name);
-						if (chain != null) heldItem(v, chain, name, ms, vcp, light, time, sg, k, e.getId(), host != null);
+						if (chain != null) heldItem(v, chain, name, ms, draw, light, time, sg, k, e.getId(), host != null);
 					}
 				}
 			} finally {

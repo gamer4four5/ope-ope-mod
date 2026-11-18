@@ -48,6 +48,8 @@ public class BodyPartEntity extends Entity {
 	private static final TrackedData<Byte> FLAGS = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.BYTE);
 	private static final TrackedData<Integer> HOST = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.INTEGER);
 	private static final TrackedData<String> HOST_SEG = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.STRING);
+	/** Corte libre: el plano (píxeles del JSON, «nx,ny,nz,d»); esta pieza es lo que queda del lado n·P &gt; d. */
+	private static final TrackedData<String> PLANE = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.STRING);
 
 	public static final int F_LOCKED = 1;   // Radio Knife: no se puede reunir aún (borde eléctrico)
 
@@ -88,6 +90,47 @@ public class BodyPartEntity extends Entity {
 		return e;
 	}
 
+	/** Una pieza de un corte libre: las partes del otro lado del plano y la otra mitad de las atravesadas. */
+	public static BodyPartEntity createSlice(ServerWorld w, LivingEntity victim, List<String> segs, float[] plane, UUID cutter) {
+		BodyPartEntity e = new BodyPartEntity(ModEntities.BODY_PART, w);
+		e.victimUuid = victim.getUuid();
+		e.cutter = cutter;
+		e.dataTracker.set(TYPE, EntityType.getId(victim.getType()).toString());
+		e.dataTracker.set(SCALE, victim.getScale() * (victim.isBaby() ? 0.5f : 1f));
+		e.dataTracker.set(VICTIM, victim.getId());
+		e.setPlane(plane);
+		e.setSegments(segs);
+		e.spinYaw = (w.random.nextFloat() - 0.5f) * 10f;
+		e.setYaw(victim.getBodyYaw());
+		return e;
+	}
+
+	private float[] planeCache;
+
+	public boolean isSlice() {
+		return !dataTracker.get(PLANE).isEmpty();
+	}
+
+	/** El plano del corte libre (o null). */
+	public float[] plane() {
+		if (planeCache != null) return planeCache;
+		String s = dataTracker.get(PLANE);
+		if (s.isEmpty()) return null;
+		String[] f = s.split(",");
+		if (f.length != 4) return null;
+		try {
+			planeCache = new float[]{Float.parseFloat(f[0]), Float.parseFloat(f[1]), Float.parseFloat(f[2]), Float.parseFloat(f[3])};
+		} catch (NumberFormatException ex) {
+			return null;
+		}
+		return planeCache;
+	}
+
+	public void setPlane(float[] p) {
+		planeCache = null;
+		dataTracker.set(PLANE, p == null ? "" : p[0] + "," + p[1] + "," + p[2] + "," + p[3]);
+	}
+
 	// ------------------------------------------------------------------ datos
 
 	@Override
@@ -100,6 +143,7 @@ public class BodyPartEntity extends Entity {
 		builder.add(FLAGS, (byte) 0);
 		builder.add(HOST, -1);
 		builder.add(HOST_SEG, "");
+		builder.add(PLANE, "");
 	}
 
 	public void setSegments(List<String> segs) {
@@ -181,7 +225,7 @@ public class BodyPartEntity extends Entity {
 		for (String sg : segments) {
 			Anatomy.Segment x = a.get(sg);
 			if (x == null) continue;
-			if (x.has("vision") || sg.equals(a.core)) return false;
+			if (x.has("vision") || (sg.equals(a.core) && !isSlice())) return false;
 			if (x.has("locomotion")) legs++;
 		}
 		return legs >= 2;
@@ -237,10 +281,25 @@ public class BodyPartEntity extends Entity {
 		spinPitch = (random.nextFloat() - 0.5f) * 30f;
 	}
 
-	/** La caja de sus partes, en píxeles del modelo. */
+	/** La caja de sus partes, en píxeles del modelo (en una pieza de corte libre, solo lo de su lado del plano). */
 	public double[] modelBox() {
 		Anatomy a = anatomy();
-		return a == null ? null : a.union(segments);
+		if (a == null) return null;
+		float[] pl = plane();
+		if (pl == null) return a.union(segments);
+		double[] out = null;
+		for (String sg : segments) {
+			Anatomy.Segment x = a.get(sg);
+			if (x == null) continue;
+			double[] c = Anatomy.clipBox(x.box(), pl, true);
+			if (c == null) continue;
+			if (out == null) out = c.clone();
+			else for (int k = 0; k < 3; k++) {
+				out[k] = Math.min(out[k], c[k]);
+				out[k + 3] = Math.max(out[k + 3], c[k + 3]);
+			}
+		}
+		return out == null ? a.union(segments) : out;
 	}
 
 	private void refreshDims() {
@@ -279,6 +338,9 @@ public class BodyPartEntity extends Entity {
 			refreshDims();
 		} else if (TYPE.equals(data) || SCALE.equals(data)) {
 			refreshDims();
+		} else if (PLANE.equals(data)) {
+			planeCache = null;
+			refreshDims();
 		}
 	}
 
@@ -287,6 +349,7 @@ public class BodyPartEntity extends Entity {
 		if (nbt.containsUuid("victim")) victimUuid = nbt.getUuid("victim");
 		if (nbt.containsUuid("cutter")) cutter = nbt.getUuid("cutter");
 		dataTracker.set(TYPE, nbt.getString("type"));
+		if (nbt.contains("plane")) setPlane(toPlane(nbt.getString("plane")));
 		if (nbt.contains("scale")) dataTracker.set(SCALE, nbt.getFloat("scale"));
 		String s = nbt.getString("segments");
 		setSegments(s.isEmpty() ? List.of() : new ArrayList<>(List.of(s.split(","))));
@@ -303,12 +366,23 @@ public class BodyPartEntity extends Entity {
 		if (victimUuid != null) nbt.putUuid("victim", victimUuid);
 		if (cutter != null) nbt.putUuid("cutter", cutter);
 		nbt.putString("type", dataTracker.get(TYPE));
+		if (isSlice()) nbt.putString("plane", dataTracker.get(PLANE));
 		nbt.putFloat("scale", dataTracker.get(SCALE));
 		nbt.putString("segments", String.join(",", segments));
 		nbt.putInt("life", life);
 		if (hostUuid != null) {
 			nbt.putUuid("host", hostUuid);
 			nbt.putString("host_seg", hostSegment());
+		}
+	}
+
+	private static float[] toPlane(String s) {
+		String[] f = s.split(",");
+		if (f.length != 4) return null;
+		try {
+			return new float[]{Float.parseFloat(f[0]), Float.parseFloat(f[1]), Float.parseFloat(f[2]), Float.parseFloat(f[3])};
+		} catch (NumberFormatException ex) {
+			return null;
 		}
 	}
 

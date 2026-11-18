@@ -74,11 +74,13 @@ public final class AnatomyDump {
 				EntityModel<?> model = lr.getModel();
 				Map<String, List<ModelPart>> parts = ModelParts.of(model);
 				JsonObject tree = new JsonObject();
+				java.util.Set<List<ModelPart>> full = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+				for (Map.Entry<String, List<ModelPart>> en : parts.entrySet()) if (en.getKey().contains("/")) full.add(en.getValue());
 				for (Map.Entry<String, List<ModelPart>> en : parts.entrySet()) {
 					List<ModelPart> chain = en.getValue();
 					String path = en.getKey();
-					// solo las rutas completas (los nombres sueltos repetidos son atajos)
-					if (!path.contains("/") && chain.size() > 1) continue;
+					// solo las rutas completas (los nombres sueltos repetidos son atajos de una ruta)
+					if (!path.contains("/") && full.contains(chain)) continue;
 					float[] b = bounds(chain);
 					float[] own = ownBounds(chain);
 					JsonObject o = new JsonObject();
@@ -136,8 +138,7 @@ public final class AnatomyDump {
 			String core = parts.containsKey("body") ? "body" : null;
 			for (Map.Entry<String, List<ModelPart>> en : parts.entrySet()) {
 				String name = en.getKey();
-				if (name.contains("/")) continue;
-				if (en.getValue().size() > 1) continue;   // solo las de arriba; los hijos van con su padre
+				if (name.contains("/")) continue;   // solo las de arriba; los hijos van con su padre
 				float[] b = bounds(en.getValue());
 				if (b == null) continue;
 				if (core == null) core = name;

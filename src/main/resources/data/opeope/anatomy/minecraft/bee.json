@@ -1,0 +1,101 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "parent": null,
+      "model_parts": [
+        "bone/body"
+      ],
+      "joint": [
+        0.0,
+        5.0,
+        0.0
+      ],
+      "box": [
+        -3.5,
+        2.0,
+        -5.0,
+        3.5,
+        9.0,
+        5.0
+      ],
+      "mass": 0.5
+    },
+    "right_wing": {
+      "parent": "body",
+      "model_parts": [
+        "bone/right_wing"
+      ],
+      "joint": [
+        -1.5,
+        9.0,
+        -3.0
+      ],
+      "box": [
+        -11.75,
+        9.0,
+        -5.33,
+        -1.5,
+        9.0,
+        2.8
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    },
+    "left_wing": {
+      "parent": "body",
+      "model_parts": [
+        "bone/left_wing"
+      ],
+      "joint": [
+        1.5,
+        9.0,
+        -3.0
+      ],
+      "box": [
+        1.5,
+        9.0,
+        -5.33,
+        11.75,
+        9.0,
+        2.8
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    },
+    "legs": {
+      "parent": "body",
+      "model_parts": [
+        "bone/front_legs",
+        "bone/middle_legs",
+        "bone/back_legs"
+      ],
+      "joint": [
+        1.5,
+        2.0,
+        -2.0
+      ],
+      "box": [
+        -3.5,
+        0.0,
+        -2.0,
+        3.5,
+        2.0,
+        2.0
+      ],
+      "mass": 0.05
+    }
+  },
+  "cut_groups": {
+    "wings": [
+      "right_wing",
+      "left_wing"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

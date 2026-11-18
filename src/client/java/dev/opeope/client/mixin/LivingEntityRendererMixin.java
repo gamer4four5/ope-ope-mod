@@ -38,7 +38,7 @@ public class LivingEntityRendererMixin {
 		at = @At("HEAD"), argsOnly = true)
 	private VertexConsumerProvider opeope$cut(VertexConsumerProvider provider, LivingEntity entity, float yaw, float tickDelta,
 		MatrixStack matrices, VertexConsumerProvider original, int light) {
-		return CutRendering.wrap(provider, entity, tickDelta, matrices);
+		return ClientDismember.wrapSlice(CutRendering.wrap(provider, entity, tickDelta, matrices), entity, tickDelta, matrices);
 	}
 
 	@Inject(

@@ -42,16 +42,17 @@ import java.util.Set;
 public final class ClientDismember {
 	private ClientDismember() {}
 
-	public record Info(Set<String> detached, Set<String> locked, float drop, Set<String> foreign) {}
+	public record Info(Set<String> detached, Set<String> locked, float drop, Set<String> foreign, float[] plane) {}
 
 	public static final Int2ObjectOpenHashMap<Info> STATE = new Int2ObjectOpenHashMap<>();
 
 	public static void receive(Payloads.DismemberSync p) {
-		if (p.detached().isEmpty() && p.foreign().isEmpty()) {
+		if (p.detached().isEmpty() && p.foreign().isEmpty() && p.plane().length != 4) {
 			STATE.remove(p.entityId());
 			Dismember.CLIENT_HEIGHT.remove(p.entityId());
 		} else {
-			STATE.put(p.entityId(), new Info(Set.copyOf(p.detached()), Set.copyOf(p.locked()), p.drop(), Set.copyOf(p.foreign())));
+			STATE.put(p.entityId(), new Info(Set.copyOf(p.detached()), Set.copyOf(p.locked()), p.drop(), Set.copyOf(p.foreign()),
+				p.plane().length == 4 ? p.plane() : null));
 			if (p.heightScale() < 0.999f) Dismember.CLIENT_HEIGHT.put(p.entityId(), p.heightScale());
 			else Dismember.CLIENT_HEIGHT.remove(p.entityId());
 		}
@@ -112,6 +113,27 @@ public final class ClientDismember {
 	private static final Deque<Set<String>> NAMES = new ArrayDeque<>();
 	private static final Set<Object> CAP_WARNED = new HashSet<>();
 
+	private static int begun = Integer.MIN_VALUE;
+
+	/**
+	 * Corte libre: el ser se dibuja solo con su lado del plano (el modelo, la armadura, lo que lleva en la mano). El plano
+	 * está en píxeles del JSON; aquí se pasa al marco del momento (los pies del ser, ejes del mundo), girado con su cuerpo.
+	 */
+	public static VertexConsumerProvider wrapSlice(VertexConsumerProvider base, LivingEntity e, float tickDelta, MatrixStack ms) {
+		Info i = STATE.get(e.getId());
+		if (i == null || i.plane == null) return base;
+		float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
+		double s = e.getScale() * (e.isBaby() ? 0.5 : 1);
+		Vec3d n = Anatomy.toWorld(new Vec3d(i.plane[0], i.plane[1], i.plane[2]), yaw, 16).normalize();
+		float d = (float) (i.plane[3] * s / 16.0);
+		// si la bajada de «sin piernas» aún no se aplicó a la matriz, el modelo se dibujará más abajo que este marco
+		if (begun != e.getId() && i.drop > 0) d -= (float) (n.y * i.drop);
+		Matrix4f m = new Matrix4f(ms.peek().getPositionMatrix());
+		// el ser se queda con el lado n·P < d: se pasa el plano dado la vuelta
+		final float fx = (float) -n.x, fy = (float) -n.y, fz = (float) -n.z, fd = -d;
+		return layer -> new SliceConsumer(base.getBuffer(layer), m, fx, fy, fz, fd);
+	}
+
 	/** Antes de dibujar un ser: oculta sus partes cortadas y, sin piernas, lo baja. Siempre emparejado con end(). */
 	public static void begin(LivingEntity e, EntityModel<?> model, MatrixStack ms) {
 		List<ModelPart> hid = new ArrayList<>();
@@ -129,6 +151,7 @@ public final class ClientDismember {
 			}
 			drop = i.drop;
 		}
+		begun = e.getId();
 		HIDDEN.push(hid);
 		NAMES.push(i == null ? Set.of() : hiddenParts(e));
 		DROPS.push(new float[]{drop});
@@ -160,6 +183,7 @@ public final class ClientDismember {
 	public static void end(LivingEntity e, MatrixStack ms, VertexConsumerProvider vcp, float tickDelta) {
 		if (HIDDEN.isEmpty()) return;
 		for (ModelPart p : HIDDEN.pop()) p.visible = true;
+		begun = Integer.MIN_VALUE;
 		if (!NAMES.isEmpty()) NAMES.pop();
 		float drop = DROPS.isEmpty() ? 0 : DROPS.pop()[0];
 		try {
@@ -176,8 +200,11 @@ public final class ClientDismember {
 					for (String seg : i.detached) {
 						Anatomy.Segment sg = a.get(seg);
 						if (sg == null || sg.parent() == null || i.detached.contains(sg.parent()) || i.foreign.contains(seg)) continue;
+						// lo que se llevó la pieza de un corte libre no deja cara en la articulación (ese trozo de torso tampoco está)
+						if (i.plane != null && Anatomy.classify(sg.box(), i.plane) >= 0) continue;
 						cap(ms, vcp, a, sg, time, i.locked.contains(seg), false);
 					}
+					if (i.plane != null) planeCaps(ms, vcp, a, i.detached, i.plane, time, i.locked.contains("#slice"), false);
 				} catch (RuntimeException ex) {
 					if (CAP_WARNED.add(e.getType())) dev.opeope.OpeOpeMod.LOG.warn("Desmembramiento: cara de corte de {}: {}", e.getType(), ex.toString());
 				} finally {
@@ -234,6 +261,99 @@ public final class ClientDismember {
 		quad(glow, m, axis, u, v, pl, cu, cv + hv - t / 2, hu, t / 2, er, eg, eb, al, er, eg, eb);
 		quad(glow, m, axis, u, v, pl, cu - hu + t / 2, cv, t / 2, hv, er, eg, eb, al, er, eg, eb);
 		quad(glow, m, axis, u, v, pl, cu + hu - t / 2, cv, t / 2, hv, er, eg, eb, al, er, eg, eb);
+	}
+
+	/**
+	 * Las caras de un corte libre: la sección del plano en cada parte que atraviesa (un polígono con la forma de esa
+	 * parte cortada), color carne con su borde azul. sliceSide: la cara que mira a la pieza (si no, al ser).
+	 */
+	public static void planeCaps(MatrixStack ms, VertexConsumerProvider vcp, Anatomy a, Set<String> skip, float[] pl, float time, boolean locked, boolean sliceSide) {
+		Matrix4f m = ms.peek().getPositionMatrix();
+		int col = a.capColor;
+		int r = (col >> 16) & 255, g = (col >> 8) & 255, bl = col & 255;
+		float pulse = 0.6f + 0.4f * MathHelper.sin(time * 0.25f);
+		int er = locked ? 255 : 143, eg = locked ? 227 : 216, eb = locked ? 106 : 255;
+		// un pelín hacia fuera del lado que se ve
+		double off = sliceSide ? -0.03 : 0.03;
+		VertexConsumer fill = vcp.getBuffer(RenderLayer.getDebugQuads());
+		List<List<double[]>> polys = new ArrayList<>();
+		for (Anatomy.Segment sg : a.segments.values()) {
+			if (skip.contains(sg.id()) && !sg.id().equals(a.core)) continue;
+			List<double[]> poly = Anatomy.section(sg.box(), pl);
+			if (poly.isEmpty()) continue;
+			for (double[] p : poly) {
+				p[0] += pl[0] * off;
+				p[1] += pl[1] * off;
+				p[2] += pl[2] * off;
+			}
+			polys.add(poly);
+			double cx = 0, cy = 0, cz = 0;
+			for (double[] p : poly) {
+				cx += p[0];
+				cy += p[1];
+				cz += p[2];
+			}
+			cx /= poly.size();
+			cy /= poly.size();
+			cz /= poly.size();
+			// la carne en abanico desde el centro, y el hueso: el mismo polígono más pequeño y claro
+			for (int k = 0; k < poly.size(); k++) {
+				double[] p = poly.get(k), q = poly.get((k + 1) % poly.size());
+				tri(fill, m, new double[]{cx, cy, cz}, p, q, r, g, bl, 255, Math.min(255, r + 18), Math.min(255, g + 14), Math.min(255, bl + 10));
+			}
+			double[] c2 = {cx + pl[0] * off * 0.2, cy + pl[1] * off * 0.2, cz + pl[2] * off * 0.2};
+			for (int k = 0; k < poly.size(); k++) {
+				double[] p = lerp(c2, poly.get(k), 0.34), q = lerp(c2, poly.get((k + 1) % poly.size()), 0.34);
+				tri(fill, m, c2, p, q, 242, 238, 228, 255, 250, 248, 240);
+			}
+		}
+		VertexConsumer glow = vcp.getBuffer(RenderLayer.getLightning());
+		int al = (int) (200 * pulse);
+		for (List<double[]> poly : polys) {
+			double cx = 0, cy = 0, cz = 0;
+			for (double[] p : poly) {
+				cx += p[0];
+				cy += p[1];
+				cz += p[2];
+			}
+			double[] c = {cx / poly.size(), cy / poly.size(), cz / poly.size()};
+			for (int k = 0; k < poly.size(); k++) {
+				double[] p = poly.get(k), q = poly.get((k + 1) % poly.size());
+				double[] pi = lerp(c, p, 0.9), qi = lerp(c, q, 0.9);
+				quad4(glow, m, p, q, qi, pi, er, eg, eb, al);
+			}
+		}
+	}
+
+	private static double[] lerp(double[] a, double[] b, double t) {
+		return new double[]{a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t};
+	}
+
+	private static void v(VertexConsumer vc, Matrix4f m, double[] p, int r, int g, int b, int a) {
+		vc.vertex(m, (float) (-p[0] / 16.0), (float) (p[1] / 16.0), (float) (p[2] / 16.0)).color(r, g, b, a);
+	}
+
+	/** Un triángulo (como cuadrilátero con el último repetido), por las dos caras. */
+	private static void tri(VertexConsumer vc, Matrix4f m, double[] c, double[] p, double[] q, int r, int g, int b, int a, int r2, int g2, int b2) {
+		v(vc, m, c, r2, g2, b2, a);
+		v(vc, m, p, r, g, b, a);
+		v(vc, m, q, r, g, b, a);
+		v(vc, m, q, r, g, b, a);
+		v(vc, m, q, r, g, b, a);
+		v(vc, m, p, r, g, b, a);
+		v(vc, m, c, r2, g2, b2, a);
+		v(vc, m, c, r2, g2, b2, a);
+	}
+
+	private static void quad4(VertexConsumer vc, Matrix4f m, double[] a1, double[] a2, double[] a3, double[] a4, int r, int g, int b, int a) {
+		v(vc, m, a1, r, g, b, a);
+		v(vc, m, a2, r, g, b, a);
+		v(vc, m, a3, r, g, b, a);
+		v(vc, m, a4, r, g, b, a);
+		v(vc, m, a4, r, g, b, a);
+		v(vc, m, a3, r, g, b, a);
+		v(vc, m, a2, r, g, b, a);
+		v(vc, m, a1, r, g, b, a);
 	}
 
 	/** Un rectángulo en el plano axis = plane (coordenadas del JSON), por las dos caras. */
@@ -445,6 +565,7 @@ public final class ClientDismember {
 			}
 		}
 		headCamera(mc);
+		syncHeadCamera();
 	}
 
 	private static void headCamera(MinecraftClient mc) {

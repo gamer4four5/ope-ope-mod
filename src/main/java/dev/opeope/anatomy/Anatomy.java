@@ -163,6 +163,121 @@ public final class Anatomy {
 		return toWorld(p.x, p.y, p.z, bodyYaw, scale);
 	}
 
+	// ------------------------------------------------------------------ corte libre por plano (n·P = d, en píxeles del JSON)
+
+	private static final int[][] EDGES = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+
+	private static double[] corner(double[] b, int i) {
+		return new double[]{(i & 1) == 0 ? b[0] : b[3], (i & 2) == 0 ? b[1] : b[4], (i & 4) == 0 ? b[2] : b[5]};
+	}
+
+	private static double side(float[] pl, double[] p) {
+		return pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] - pl[3];
+	}
+
+	/** −1 la caja está entera del lado n·P &lt; d, +1 entera del otro, 0 la atraviesa. */
+	public static int classify(double[] b, float[] pl) {
+		boolean pos = false, neg = false;
+		for (int i = 0; i < 8; i++) {
+			double s = side(pl, corner(b, i));
+			if (s > 0.01) pos = true;
+			else if (s < -0.01) neg = true;
+		}
+		return pos && neg ? 0 : pos ? 1 : -1;
+	}
+
+	/** Qué parte (0..1) de la caja queda del lado positivo (muestreo de 4×4×4 puntos). */
+	public static double positiveFraction(double[] b, float[] pl) {
+		int n = 0, in = 0;
+		for (int x = 0; x < 4; x++)
+			for (int y = 0; y < 4; y++)
+				for (int z = 0; z < 4; z++) {
+					double[] p = {b[0] + (b[3] - b[0]) * (x + 0.5) / 4, b[1] + (b[4] - b[1]) * (y + 0.5) / 4, b[2] + (b[5] - b[2]) * (z + 0.5) / 4};
+					n++;
+					if (side(pl, p) > 0) in++;
+				}
+		return in / (double) n;
+	}
+
+	/** La caja de lo que queda de b del lado positivo (null si nada). */
+	public static double[] clipBox(double[] b, float[] pl, boolean positive) {
+		double[] out = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+		boolean any = false;
+		for (int i = 0; i < 8; i++) {
+			double[] c = corner(b, i);
+			double s = side(pl, c);
+			if (positive ? s >= 0 : s <= 0) {
+				grow(out, c);
+				any = true;
+			}
+		}
+		for (double[] c : section(b, pl)) {
+			grow(out, c);
+			any = true;
+		}
+		return any ? out : null;
+	}
+
+	private static void grow(double[] o, double[] c) {
+		for (int k = 0; k < 3; k++) {
+			o[k] = Math.min(o[k], c[k]);
+			o[k + 3] = Math.max(o[k + 3], c[k]);
+		}
+	}
+
+	/** La sección del plano en la caja: un polígono convexo, ordenado alrededor de su centro (vacío si no la corta). */
+	public static List<double[]> section(double[] b, float[] pl) {
+		List<double[]> pts = new ArrayList<>();
+		for (int[] e : EDGES) {
+			double[] a = corner(b, e[0]), c = corner(b, e[1]);
+			double sa = side(pl, a), sc = side(pl, c);
+			if ((sa > 0) == (sc > 0) || Math.abs(sa - sc) < 1e-9) continue;
+			double t = sa / (sa - sc);
+			pts.add(new double[]{a[0] + (c[0] - a[0]) * t, a[1] + (c[1] - a[1]) * t, a[2] + (c[2] - a[2]) * t});
+		}
+		if (pts.size() < 3) return List.of();
+		double cx = 0, cy = 0, cz = 0;
+		for (double[] p : pts) {
+			cx += p[0];
+			cy += p[1];
+			cz += p[2];
+		}
+		cx /= pts.size();
+		cy /= pts.size();
+		cz /= pts.size();
+		// una base en el plano para ordenar por ángulo
+		double nx = pl[0], ny = pl[1], nz = pl[2];
+		double ux, uy, uz;
+		if (Math.abs(nx) < 0.9) {
+			ux = 0;
+			uy = nz;
+			uz = -ny;
+		} else {
+			ux = -nz;
+			uy = 0;
+			uz = nx;
+		}
+		double ul = Math.sqrt(ux * ux + uy * uy + uz * uz);
+		ux /= ul;
+		uy /= ul;
+		uz /= ul;
+		double vx = ny * uz - nz * uy, vy = nz * ux - nx * uz, vz = nx * uy - ny * ux;
+		final double fcx = cx, fcy = cy, fcz = cz, fux = ux, fuy = uy, fuz = uz, fvx = vx, fvy = vy, fvz = vz;
+		pts.sort((p, q) -> Double.compare(
+			Math.atan2((p[0] - fcx) * fvx + (p[1] - fcy) * fvy + (p[2] - fcz) * fvz, (p[0] - fcx) * fux + (p[1] - fcy) * fuy + (p[2] - fcz) * fuz),
+			Math.atan2((q[0] - fcx) * fvx + (q[1] - fcy) * fvy + (q[2] - fcz) * fvz, (q[0] - fcx) * fux + (q[1] - fcy) * fuy + (q[2] - fcz) * fuz)));
+		// quitar puntos repetidos (el plano por una esquina da dos iguales)
+		List<double[]> out = new ArrayList<>();
+		for (double[] p : pts) {
+			if (!out.isEmpty()) {
+				double[] l = out.get(out.size() - 1);
+				if (Math.abs(l[0] - p[0]) + Math.abs(l[1] - p[1]) + Math.abs(l[2] - p[2]) < 1e-4) continue;
+			}
+			out.add(p);
+		}
+		return out.size() < 3 ? List.of() : out;
+	}
+
 	/** Lo contrario de toWorld: un desplazamiento desde los pies (bloques) → píxeles del JSON. */
 	public static Vec3d toModel(Vec3d off, float bodyYaw, double scale) {
 		double a = Math.toRadians(180 - bodyYaw), c = Math.cos(a), s = Math.sin(a);

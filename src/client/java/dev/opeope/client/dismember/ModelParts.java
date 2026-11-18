@@ -94,8 +94,10 @@ public final class ModelParts {
 		m = new LinkedHashMap<>();
 		try {
 			Map<String, ModelPart> top = new LinkedHashMap<>();
+			ModelPart base = null;   // la raíz que se dibuja con su propio giro/desplazamiento (la rana la sube 24 píxeles)
 			if (model instanceof SinglePartEntityModel<?> sp) {
-				top.putAll(((ModelPartAccessor) (Object) sp.getPart()).opeope$children());
+				base = sp.getPart();
+				top.putAll(((ModelPartAccessor) (Object) base).opeope$children());
 			} else if (model instanceof BipedEntityModel<?> b) {
 				top.put("head", b.head);
 				top.put("hat", b.hat);
@@ -125,7 +127,7 @@ public final class ModelParts {
 			}
 			for (Map.Entry<String, ModelPart> e : top.entrySet()) {
 				if (e.getValue() == null) continue;
-				List<ModelPart> chain = List.of(e.getValue());
+				List<ModelPart> chain = base == null ? List.of(e.getValue()) : List.of(base, e.getValue());
 				m.put(e.getKey(), chain);
 				walk(m, e.getKey(), chain, 0);
 			}

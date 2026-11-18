@@ -527,7 +527,7 @@ public final class Payloads {
 	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal).
 	 */
 	public record DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
-								float heightScale, java.util.List<String> foreign) implements CustomPayload {
+								float heightScale, java.util.List<String> foreign, float[] plane) implements CustomPayload {
 		public static final Id<DismemberSync> ID = new Id<>(OpeOpeMod.id("dismember_sync"));
 		public static final PacketCodec<RegistryByteBuf, DismemberSync> CODEC = PacketCodec.of(DismemberSync::write, DismemberSync::read);
 		private static final int CAP = 64;
@@ -537,7 +537,11 @@ public final class Payloads {
 			java.util.List<String> d = strings(buf);
 			java.util.List<String> l = strings(buf);
 			float drop = buf.readFloat(), hs = buf.readFloat();
-			return new DismemberSync(id, d, l, drop, hs, strings(buf));
+			java.util.List<String> f = strings(buf);
+			int np = Math.min(4, buf.readVarInt());
+			float[] pl = new float[np];
+			for (int i = 0; i < np; i++) pl[i] = buf.readFloat();
+			return new DismemberSync(id, d, l, drop, hs, f, pl);
 		}
 
 		private static java.util.List<String> strings(RegistryByteBuf buf) {
@@ -560,6 +564,9 @@ public final class Payloads {
 			buf.writeFloat(drop);
 			buf.writeFloat(heightScale);
 			strings(buf, foreign);
+			int np = plane == null ? 0 : Math.min(4, plane.length);
+			buf.writeVarInt(np);
+			for (int i = 0; i < np; i++) buf.writeFloat(plane[i]);
 		}
 
 		@Override

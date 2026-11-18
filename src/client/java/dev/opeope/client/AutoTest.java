@@ -3433,6 +3433,57 @@ public final class AutoTest {
 			pig.discard();
 		}));
 
+		// D15: corte libre por el torso (no por una articulación): un zombi partido por la cintura y una vaca en diagonal
+		step(2, "D15 corte libre", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				OpeConfig.FREE_PLANE_CUTS = true;
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity z = spawnZombie(w, gx0 + DX - 1.0, gfy + 1, gz0 + DZ - 4.0, 20f, false);
+				net.minecraft.entity.passive.CowEntity cow = EntityType.COW.create(w);
+				if (z == null || cow == null) return;
+				cow.refreshPositionAndAngles(gx0 + DX + 2.5, gfy + 1, gz0 + DZ - 4.5, 70f, 0f);
+				cow.setBodyYaw(70f);
+				cow.setAiDisabled(true);
+				cow.setPersistent();
+				w.spawnEntity(cow);
+				dA = z.getId();
+				dB = cow.getId();
+				boolean did = dev.opeope.power.Dismember.sweep(sp, z,
+					List.of(new CutEngine.Plane(new Vec3d(0.15, 1, 0).normalize(), z.getPos().add(0, 1.08, 0))), false);
+				List<dev.opeope.entity.BodyPartEntity> ps = partsOf(w, z);
+				dev.opeope.anatomy.DismemberState st = dev.opeope.power.Dismember.state(z);
+				dres("D15 corte libre: un tajo por la cintura parte el torso en dos", did && ps.size() == 1 && ps.get(0).isSlice() && st != null && st.plane != null ? null
+					: "cortó " + did + ", " + ps.size() + " piezas" + (ps.isEmpty() ? "" : " slice=" + ps.get(0).isSlice()));
+				dres("D15 corte libre: el zombi se queda con la cabeza y sin piernas (no anda)",
+					st != null && !st.detached.containsKey("head") && z.getAttributeValue(EntityAttributes.GENERIC_MOVEMENT_SPEED) < 0.02 ? null
+						: "estado " + (st == null ? "-" : st.detached.keySet()) + ", velocidad " + fmt(z.getAttributeValue(EntityAttributes.GENERIC_MOVEMENT_SPEED)));
+				dres("D15 corte libre: la mitad de abajo anda sola", !ps.isEmpty() && ps.get(0).autonomous() ? null : "no es autónoma");
+				Vec3d cc = cow.getBoundingBox().getCenter();
+				boolean did2 = dev.opeope.power.Dismember.sweep(sp, cow, List.of(new CutEngine.Plane(new Vec3d(1, 1.2, 0.3).normalize(), cc)), false);
+				dres("D15 corte libre: una vaca en diagonal", did2 && partsOf(w, cow).size() == 1 && partsOf(w, cow).get(0).isSlice() ? null
+					: "cortó " + did2 + ", " + partsOf(w, cow).size() + " piezas");
+				sp.networkHandler.requestTeleport(gx0 + DX + 0.5, gfy + 1, gz0 + DZ + 0.5, 180f, 20f);
+			});
+		});
+		step(20, "D15 corte libre: captura", () -> {
+			drain();
+			shot(mc, "d15-corte-libre");
+		});
+		step(2, "D15 corte libre: cerca", () -> server(srv, id, (sp, pw) ->
+			sp.networkHandler.requestTeleport(gx0 + DX + 0.6, gfy + 1, gz0 + DZ - 1.6, 180f, 30f)));
+		step(8, "D15 corte libre: captura cerca", () -> shot(mc, "d15-corte-libre-cerca"));
+		step(2, "D15 corte libre: reunir", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			for (int eid : new int[]{dA, dB}) {
+				if (!(w.getEntityById(eid) instanceof LivingEntity le)) continue;
+				for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, le)) dev.opeope.power.Dismember.shamblesPair(sp, bp, le);
+				dres("D15 corte libre: Shambles vuelve a unir la pieza (" + EntityType.getId(le.getType()).getPath() + ")",
+					dev.opeope.power.Dismember.state(le) == null && partsOf(w, le).isEmpty() ? null : "sigue partido");
+				le.discard();
+			}
+		}));
+
 		// la cámara en la cabeza: al jugador sin cabeza la vista se le va a su cabeza; al reunirla, vuelve
 		step(2, "D cámara: cortar", () -> {
 			drain();

@@ -82,7 +82,7 @@ public final class Dismember {
 	/** Cliente: la altura de la caja de cada ser (por id de red), la rellena el cliente al llegar DismemberSync. */
 	public static final Map<Integer, Float> CLIENT_HEIGHT = new ConcurrentHashMap<>();
 
-	public static int cutsDone, reattachDone, transplantsDone, reclaimsDone;
+	public static int cutsDone, reattachDone, transplantsDone, reclaimsDone, planeCutsDone;
 	/** Servidor: cuánto lleva cada mob tocando su parte (para volver a pegársela). */
 	private static final Map<UUID, Integer> TOUCH = new HashMap<>();
 	/** Servidor: dueños de corazones (Mes) que han muerto: su cubo desaparece. */
@@ -119,7 +119,9 @@ public final class Dismember {
 			DismemberState st = entity.getAttached(ModAttachments.DISMEMBER);
 			if (st == null || st.isEmpty() || !(entity.getWorld() instanceof ServerWorld w)) return;
 			// el botín sale una sola vez, del ser; sus partes se van con un destello azul
-			for (UUID id : new HashSet<>(st.detached.values())) {
+			Set<UUID> mine = new HashSet<>(st.detached.values());
+			if (st.slice != null) mine.add(st.slice);
+			for (UUID id : mine) {
 				if (w.getEntity(id) instanceof BodyPartEntity part) {
 					vanishFx(w, part);
 					part.discard();
@@ -132,6 +134,8 @@ public final class Dismember {
 			st.detached.clear();
 			st.lockedUntil.clear();
 			st.foreign.clear();
+			st.plane = null;
+			st.slice = null;
 			entity.removeAttached(ModAttachments.DISMEMBER);
 			ACTIVE.remove(entity.getUuid());
 			CAPS.remove(entity.getUuid());
@@ -151,6 +155,9 @@ public final class Dismember {
 				st.detached.clear();
 				st.lockedUntil.clear();
 				st.foreign.clear();
+				st.plane = null;
+				st.slice = null;
+				st.impaired.clear();
 				p.removeAttached(ModAttachments.DISMEMBER);
 				recompute(p);
 			}
@@ -194,7 +201,7 @@ public final class Dismember {
 
 	public static boolean owns(LivingEntity v, BodyPartEntity part) {
 		DismemberState st = state(v);
-		return st != null && st.detached.containsValue(part.getUuid());
+		return st != null && (st.detached.containsValue(part.getUuid()) || part.getUuid().equals(st.slice));
 	}
 
 	/** ¿Lleva ese ser puesta esa parte de otro (quimera)? */
@@ -240,7 +247,10 @@ public final class Dismember {
 
 	public static int partCount(LivingEntity le) {
 		DismemberState st = state(le);
-		return st == null ? 0 : new HashSet<>(st.detached.values()).size();
+		if (st == null) return 0;
+		Set<UUID> mine = new HashSet<>(st.detached.values());
+		if (st.slice != null) mine.add(st.slice);
+		return mine.size();
 	}
 
 	// ------------------------------------------------------------------ cortar
@@ -358,7 +368,11 @@ public final class Dismember {
 		Set<String> picked = new LinkedHashSet<>();
 		for (CutEngine.Plane pl : planes) {
 			double dc = pl.n().dotProduct(coreC.subtract(pl.p()));
-			if (Math.abs(dc) < thr) continue;
+			if (Math.abs(dc) < thr) {
+				// por el medio del torso: corte libre por ese plano (si se puede); si no, se cortará como siempre
+				if (OpeConfig.FREE_PLANE_CUTS && picked.isEmpty() && (st == null || st.plane == null) && planeCut(cutter, le, pl, radio)) return true;
+				continue;
+			}
 			for (Anatomy.Segment s : a.segments.values()) {
 				if (s.id().equals(a.core) || picked.contains(s.id())) continue;
 				Set<String> both = new HashSet<>(gone);
@@ -404,12 +418,93 @@ public final class Dismember {
 		return any;
 	}
 
+	/**
+	 * Corte libre (estilo Law, en cualquier ángulo): el plano parte el cuerpo. El ser se queda con el lado de su cabeza (o
+	 * del centro del torso) y lo demás sale como una pieza viva que lleva las partes enteras del otro lado y la otra mitad
+	 * de las atravesadas. Las caras de corte siguen la forma de cada parte cortada.
+	 */
+	public static boolean planeCut(ServerPlayerEntity cutter, LivingEntity le, CutEngine.Plane wp, boolean radio) {
+		if (!(le.getWorld() instanceof ServerWorld w) || refusal(le) != null || !le.isAlive()) return false;
+		Anatomy a = anatomy(le);
+		if (a == null || a.get(a.core) == null) return false;
+		DismemberState st = state(le);
+		if (st != null && st.plane != null) return false;
+		if (partCount(le) >= OpeConfig.MAX_PARTS_PER_ENTITY || BodyPartEntity.LIVE >= OpeConfig.MAX_PARTS_WORLD) return false;
+		float yaw = le.getBodyYaw();
+		double scale = le.getScale() * (le.isBaby() ? 0.5 : 1);
+		Vec3d feet = le.getPos().add(0, -caps(le).drop, 0);
+		Vec3d nj = Anatomy.toModel(wp.n(), yaw, scale);
+		if (nj.lengthSquared() < 1e-9) return false;
+		nj = nj.normalize();
+		Vec3d pj = Anatomy.toModel(wp.p().subtract(feet), yaw, scale);
+		float[] pl = {(float) nj.x, (float) nj.y, (float) nj.z, (float) nj.dotProduct(pj)};
+		Set<String> gone = gone(st);
+		if (Anatomy.classify(a.get(a.core).box(), pl) != 0) return false;
+		// ¿con qué lado se queda el ser? con el de la cabeza; si no se decide, con el del centro del torso
+		int visPos = 0, visNeg = 0;
+		for (Anatomy.Segment sg : a.segments.values()) {
+			if (!sg.has("vision") || !a.attached(sg.id(), gone)) continue;
+			if (Anatomy.positiveFraction(sg.box(), pl) >= 0.5) visPos++;
+			else visNeg++;
+		}
+		Vec3d cc = a.get(a.core).center();
+		boolean flip = visPos != visNeg ? visPos > visNeg : pl[0] * cc.x + pl[1] * cc.y + pl[2] * cc.z - pl[3] > 0;
+		if (flip) pl = new float[]{-pl[0], -pl[1], -pl[2], -pl[3]};
+		List<String> slice = new ArrayList<>();
+		List<String> far = new ArrayList<>();
+		Set<String> impaired = new LinkedHashSet<>();
+		for (Anatomy.Segment sg : a.segments.values()) {
+			if (!a.attached(sg.id(), gone)) continue;
+			int c = Anatomy.classify(sg.box(), pl);
+			if (c > 0 && !sg.id().equals(a.core)) {
+				slice.add(sg.id());
+				far.add(sg.id());
+			} else if (c == 0 || sg.id().equals(a.core)) {
+				slice.add(sg.id());
+				if (!sg.id().equals(a.core) && !sg.functions().isEmpty() && Anatomy.positiveFraction(sg.box(), pl) >= 0.5) impaired.add(sg.id());
+			}
+		}
+		if (slice.size() < 1) return false;
+		BodyPartEntity part = BodyPartEntity.createSlice(w, le, slice, pl, cutter == null ? null : cutter.getUuid());
+		double[] box = part.modelBox();
+		if (box == null) return false;
+		Vec3d mc = new Vec3d((box[0] + box[3]) / 2, (box[1] + box[4]) / 2, (box[2] + box[5]) / 2);
+		Vec3d center = feet.add(Anatomy.toWorld(mc, yaw, scale));
+		part.setPosition(center.x, Math.max(le.getY(), center.y - part.getHeight() / 2), center.z);
+		Vec3d out = Anatomy.toWorld(new Vec3d(pl[0], pl[1], pl[2]), yaw, 16).normalize();
+		part.kick(new Vec3d(out.x * 0.18, 0.12 + Math.max(0, out.y) * 0.15, out.z * 0.18));
+		w.spawnEntity(part);
+		if (st == null) st = new DismemberState();
+		for (String sg : far) st.detached.put(sg, part.getUuid());
+		st.plane = pl;
+		st.slice = part.getUuid();
+		st.impaired.clear();
+		st.impaired.addAll(impaired);
+		if (cutter != null) st.cutter = cutter.getUuid();
+		le.setAttached(ModAttachments.DISMEMBER, st);
+		ACTIVE.put(le.getUuid(), le);
+		boolean legs = false;
+		for (String sg : far) if (a.get(sg).has("locomotion")) legs = true;
+		if (legs) {
+			le.stopRiding();
+			le.removeAllPassengers();
+		}
+		recompute(le);
+		sync(le);
+		cutFx(w, le.getBoundingBox().getCenter(), le);
+		if (radio) lock(le, part, OpeConfig.RADIO_LOCK_TICKS);
+		planeCutsDone++;
+		cutsDone++;
+		return true;
+	}
+
 	/** Radio Knife: esas partes no se pueden reunir (ni Shambles, ni la IA, ni el tiempo) hasta que pase ticks. */
 	public static void lock(LivingEntity le, BodyPartEntity part, int ticks) {
 		DismemberState st = state(le);
 		if (st == null) return;
 		long until = le.getWorld().getTime() + ticks;
 		for (Map.Entry<String, UUID> e : st.detached.entrySet()) if (e.getValue().equals(part.getUuid())) st.lockedUntil.put(e.getKey(), until);
+		if (part.getUuid().equals(st.slice)) st.lockedUntil.put("#slice", until);
 		part.setLocked(true);
 		sync(le);
 	}
@@ -418,6 +513,10 @@ public final class Dismember {
 		DismemberState st = state(le);
 		if (st == null) return false;
 		long now = le.getWorld().getTime();
+		if (part.getUuid().equals(st.slice)) {
+			Long su = st.lockedUntil.get("#slice");
+			if (su != null && su > now) return true;
+		}
 		for (Map.Entry<String, UUID> e : st.detached.entrySet()) {
 			if (!e.getValue().equals(part.getUuid())) continue;
 			Long until = st.lockedUntil.get(e.getKey());
@@ -437,13 +536,7 @@ public final class Dismember {
 		}
 		UUID id = part.getUuid();
 		long now = le.getWorld().getTime();
-		if (!force) {
-			for (Map.Entry<String, UUID> e : st.detached.entrySet()) {
-				if (!e.getValue().equals(id)) continue;
-				Long until = st.lockedUntil.get(e.getKey());
-				if (until != null && until > now) return false;
-			}
-		}
+		if (!force && isLocked(le, part)) return false;
 		Vec3d at = part.getBoundingBox().getCenter();
 		if (part.mounted()) part.unmount();
 		// el sitio lo ocupaba una parte de otro: esa se suelta (sigue siendo de su dueño)
@@ -454,7 +547,13 @@ public final class Dismember {
 			}
 		}
 		st.detached.values().removeIf(id::equals);
-		st.lockedUntil.keySet().removeIf(k -> !st.detached.containsKey(k));
+		if (id.equals(st.slice)) {
+			st.slice = null;
+			st.plane = null;
+			st.impaired.clear();
+			st.lockedUntil.remove("#slice");
+		}
+		st.lockedUntil.keySet().removeIf(k -> !k.equals("#slice") && !st.detached.containsKey(k));
 		part.discard();
 		after(le, st);
 		if (le.getWorld() instanceof ServerWorld w) {
@@ -541,9 +640,18 @@ public final class Dismember {
 	public static void reattachAll(LivingEntity le, boolean force) {
 		DismemberState st = state(le);
 		if (st == null || !(le.getWorld() instanceof ServerWorld w)) return;
-		for (UUID id : new HashSet<>(st.detached.values())) {
+		Set<UUID> mine = new HashSet<>(st.detached.values());
+		if (st.slice != null) mine.add(st.slice);
+		for (UUID id : mine) {
 			if (w.getEntity(id) instanceof BodyPartEntity part) reattach(le, part, force);
-			else if (force) st.detached.values().removeIf(id::equals);
+			else if (force) {
+				st.detached.values().removeIf(id::equals);
+				if (id.equals(st.slice)) {
+					st.slice = null;
+					st.plane = null;
+					st.impaired.clear();
+				}
+			}
 		}
 		after(le, st);
 	}
@@ -571,7 +679,8 @@ public final class Dismember {
 			le.calculateDimensions();
 			return;
 		}
-		Set<String> gone = gone(st);
+		Set<String> gone = new HashSet<>(gone(st));
+		gone.addAll(st.impaired);
 		int legs = a.legs, missing = 0;
 		boolean main = true, off = true, vision = false, visionLeft = false, arms = false;
 		for (Anatomy.Segment s : a.segments.values()) {
@@ -637,7 +746,9 @@ public final class Dismember {
 			}
 			boolean changed = false;
 			// una parte que ya no está (otra dimensión, perdida): pasado un rato vuelve a su sitio
-			for (UUID id : new HashSet<>(st.detached.values())) {
+			Set<UUID> mine = new HashSet<>(st.detached.values());
+			if (st.slice != null) mine.add(st.slice);
+			for (UUID id : mine) {
 				if (w.getEntity(id) instanceof BodyPartEntity) {
 					MISSING.remove(id);
 					continue;
@@ -646,6 +757,11 @@ public final class Dismember {
 				if (n > OpeConfig.PART_ORPHAN_TICKS) {
 					MISSING.remove(id);
 					st.detached.values().removeIf(id::equals);
+					if (id.equals(st.slice)) {
+						st.slice = null;
+						st.plane = null;
+						st.impaired.clear();
+					}
 					changed = true;
 				}
 			}
@@ -663,7 +779,7 @@ public final class Dismember {
 			long now = w.getTime();
 			if (st.lockedUntil.values().removeIf(t -> t <= now)) changed = true;
 			if (changed) {
-				st.lockedUntil.keySet().removeIf(k -> !st.detached.containsKey(k));
+				st.lockedUntil.keySet().removeIf(k -> !k.equals("#slice") && !st.detached.containsKey(k));
 				resync.add(le);
 			}
 			Caps c = caps(le);
@@ -746,9 +862,9 @@ public final class Dismember {
 	public static Payloads.DismemberSync payload(LivingEntity le) {
 		DismemberState st = state(le);
 		Caps c = caps(le);
-		if (st == null || st.isEmpty()) return new Payloads.DismemberSync(le.getId(), List.of(), List.of(), 0f, 1f, List.of());
+		if (st == null || st.isEmpty()) return new Payloads.DismemberSync(le.getId(), List.of(), List.of(), 0f, 1f, List.of(), new float[0]);
 		return new Payloads.DismemberSync(le.getId(), new ArrayList<>(st.detached.keySet()), new ArrayList<>(st.lockedUntil.keySet()),
-			c.drop, c.heightScale, new ArrayList<>(st.foreign.keySet()));
+			c.drop, c.heightScale, new ArrayList<>(st.foreign.keySet()), st.plane == null ? new float[0] : st.plane.clone());
 	}
 
 	public static void sync(LivingEntity le) {
