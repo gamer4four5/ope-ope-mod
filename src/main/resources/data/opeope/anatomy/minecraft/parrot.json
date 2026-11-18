@@ -1,0 +1,177 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "parent": null,
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        7.5,
+        -3.0
+      ],
+      "box": [
+        -1.5,
+        1.5,
+        -4.5,
+        1.5,
+        7.5,
+        -1.5
+      ],
+      "mass": 0.5
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head"
+      ],
+      "joint": [
+        0.0,
+        8.31,
+        -2.76
+      ],
+      "box": [
+        -1.0,
+        6.81,
+        -5.76,
+        1.0,
+        14.46,
+        -0.61
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "left_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_leg"
+      ],
+      "joint": [
+        1.0,
+        2.0,
+        -1.05
+      ],
+      "box": [
+        0.5,
+        0.0,
+        -1.55,
+        1.5,
+        2.0,
+        -0.55
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_wing": {
+      "parent": "body",
+      "model_parts": [
+        "right_wing"
+      ],
+      "joint": [
+        -1.5,
+        7.06,
+        -2.76
+      ],
+      "box": [
+        -2.0,
+        2.06,
+        -4.26,
+        -1.0,
+        7.06,
+        -1.26
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    },
+    "right_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_leg"
+      ],
+      "joint": [
+        -1.0,
+        2.0,
+        -1.05
+      ],
+      "box": [
+        -1.5,
+        0.0,
+        -1.55,
+        -0.5,
+        2.0,
+        -0.55
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "tail": {
+      "parent": "body",
+      "model_parts": [
+        "tail"
+      ],
+      "joint": [
+        0.0,
+        2.93,
+        1.16
+      ],
+      "box": [
+        -1.5,
+        -0.07,
+        0.16,
+        1.5,
+        3.93,
+        1.16
+      ],
+      "mass": 0.04,
+      "function": [
+        "tail"
+      ]
+    },
+    "left_wing": {
+      "parent": "body",
+      "model_parts": [
+        "left_wing"
+      ],
+      "joint": [
+        1.5,
+        7.06,
+        -2.76
+      ],
+      "box": [
+        1.0,
+        2.06,
+        -4.26,
+        2.0,
+        7.06,
+        -1.26
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "left_leg",
+      "right_leg"
+    ],
+    "wings": [
+      "right_wing",
+      "left_wing"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

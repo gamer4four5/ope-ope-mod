@@ -2972,6 +2972,19 @@ public final class AutoTest {
 			}
 		});
 
+		// D1b: todas las anatomías de serie (las escritas a mano y las medidas de los modelos) están bien formadas
+		step(1, "D1 todas", () -> {
+			int n = 0;
+			List<String> bad = new java.util.ArrayList<>();
+			for (EntityType<?> t : net.minecraft.registry.Registries.ENTITY_TYPE) {
+				dev.opeope.anatomy.Anatomy a = dev.opeope.anatomy.AnatomyRegistry.get(t);
+				if (a == null) continue;
+				n++;
+				if (!a.problems().isEmpty()) bad.add(EntityType.getId(t).getPath() + ": " + a.problems());
+			}
+			check(n >= 60 && bad.isEmpty(), "D1 anatomías de serie bien formadas (" + n + ")", bad.toString());
+		});
+
 		// D2: cortar el brazo derecho de un zombi (pedido como lo pide el cliente) → una parte suya; a 1,5 bloques no pega
 		step(1, "D2 brazo: cortar", () -> server(srv, id, (sp, pw) -> {
 			ServerWorld w = sp.getServerWorld();
@@ -3459,7 +3472,8 @@ public final class AutoTest {
 					st != null && !st.detached.containsKey("head") && z.getAttributeValue(EntityAttributes.GENERIC_MOVEMENT_SPEED) < 0.02 ? null
 						: "estado " + (st == null ? "-" : st.detached.keySet()) + ", velocidad " + fmt(z.getAttributeValue(EntityAttributes.GENERIC_MOVEMENT_SPEED)));
 				dres("D15 corte libre: la mitad de abajo anda sola", !ps.isEmpty() && ps.get(0).autonomous() ? null : "no es autónoma");
-				Vec3d cc = cow.getBoundingBox().getCenter();
+				dev.opeope.anatomy.Anatomy ca = dev.opeope.power.Dismember.anatomy(cow);
+				Vec3d cc = cow.getPos().add(dev.opeope.anatomy.Anatomy.toWorld(ca.get(ca.core).center(), cow.getBodyYaw(), cow.getScale()));
 				boolean did2 = dev.opeope.power.Dismember.sweep(sp, cow, List.of(new CutEngine.Plane(new Vec3d(1, 1.2, 0.3).normalize(), cc)), false);
 				dres("D15 corte libre: una vaca en diagonal", did2 && partsOf(w, cow).size() == 1 && partsOf(w, cow).get(0).isSlice() ? null
 					: "cortó " + did2 + ", " + partsOf(w, cow).size() + " piezas");

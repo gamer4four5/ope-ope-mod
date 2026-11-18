@@ -1,0 +1,208 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "parent": null,
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        6.4,
+        0.0
+      ],
+      "box": [
+        -8.0,
+        -1.6,
+        -8.0,
+        8.0,
+        14.4,
+        8.0
+      ],
+      "mass": 0.5
+    },
+    "tentacle0": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle0"
+      ],
+      "joint": [
+        -3.75,
+        -0.6,
+        -5.0
+      ],
+      "box": [
+        -4.75,
+        -8.6,
+        -6.0,
+        -2.75,
+        -0.6,
+        -4.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle1": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle1"
+      ],
+      "joint": [
+        1.25,
+        -0.6,
+        -5.0
+      ],
+      "box": [
+        0.25,
+        -13.6,
+        -6.0,
+        2.25,
+        -0.6,
+        -4.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle8": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle8"
+      ],
+      "joint": [
+        6.25,
+        -0.6,
+        5.0
+      ],
+      "box": [
+        5.25,
+        -12.6,
+        4.0,
+        7.25,
+        -0.6,
+        6.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle6": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle6"
+      ],
+      "joint": [
+        -3.75,
+        -0.6,
+        5.0
+      ],
+      "box": [
+        -4.75,
+        -12.6,
+        4.0,
+        -2.75,
+        -0.6,
+        6.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle7": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle7"
+      ],
+      "joint": [
+        1.25,
+        -0.6,
+        5.0
+      ],
+      "box": [
+        0.25,
+        -9.6,
+        4.0,
+        2.25,
+        -0.6,
+        6.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle4": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle4"
+      ],
+      "joint": [
+        -1.25,
+        -0.6,
+        0.0
+      ],
+      "box": [
+        -2.25,
+        -11.6,
+        -1.0,
+        -0.25,
+        -0.6,
+        1.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle5": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle5"
+      ],
+      "joint": [
+        3.75,
+        -0.6,
+        0.0
+      ],
+      "box": [
+        2.75,
+        -10.6,
+        -1.0,
+        4.75,
+        -0.6,
+        1.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle2": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle2"
+      ],
+      "joint": [
+        6.25,
+        -0.6,
+        -5.0
+      ],
+      "box": [
+        5.25,
+        -9.6,
+        -6.0,
+        7.25,
+        -0.6,
+        -4.0
+      ],
+      "mass": 0.04
+    },
+    "tentacle3": {
+      "parent": "body",
+      "model_parts": [
+        "tentacle3"
+      ],
+      "joint": [
+        -6.25,
+        -0.6,
+        0.0
+      ],
+      "box": [
+        -7.25,
+        -11.6,
+        -1.0,
+        -5.25,
+        -0.6,
+        1.0
+      ],
+      "mass": 0.04
+    }
+  },
+  "cut_groups": {},
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

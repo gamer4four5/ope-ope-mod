@@ -1,0 +1,79 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "parent": null,
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        23.0,
+        0.0
+      ],
+      "box": [
+        -8.0,
+        15.0,
+        -8.0,
+        8.0,
+        29.0,
+        8.0
+      ],
+      "mass": 0.5
+    },
+    "left_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_leg"
+      ],
+      "joint": [
+        4.0,
+        16.0,
+        0.0
+      ],
+      "box": [
+        2.0,
+        0.0,
+        -2.0,
+        6.0,
+        16.0,
+        2.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_leg"
+      ],
+      "joint": [
+        -4.0,
+        16.0,
+        0.0
+      ],
+      "box": [
+        -6.0,
+        0.0,
+        -2.0,
+        -2.0,
+        16.0,
+        2.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "left_leg",
+      "right_leg"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}
