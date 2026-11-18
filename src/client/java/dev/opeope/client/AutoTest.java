@@ -3343,6 +3343,9 @@ public final class AutoTest {
 			d12Ticks = 0;
 			server(srv, id, (sp, pw) -> {
 				OpeConfig.MOBS_RECLAIM_PARTS = true;
+				// con Gravedad Cero el brazo flotaría arriba del ROOM, fuera de su alcance
+				pw.zeroGravityRoom = false;
+				pw.dirty = true;
 				ServerWorld w = sp.getServerWorld();
 				ZombieEntity z = spawnZombie(w, gx0 + DX + 5.5, gfy + 1, gz0 + DZ - 7.0, 0f, true);
 				if (z == null) return;
