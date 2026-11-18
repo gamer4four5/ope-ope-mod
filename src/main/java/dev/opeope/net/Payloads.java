@@ -527,32 +527,39 @@ public final class Payloads {
 	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal).
 	 */
 	public record DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
-								float heightScale) implements CustomPayload {
+								float heightScale, java.util.List<String> foreign) implements CustomPayload {
 		public static final Id<DismemberSync> ID = new Id<>(OpeOpeMod.id("dismember_sync"));
 		public static final PacketCodec<RegistryByteBuf, DismemberSync> CODEC = PacketCodec.of(DismemberSync::write, DismemberSync::read);
 		private static final int CAP = 64;
 
 		static DismemberSync read(RegistryByteBuf buf) {
 			int id = buf.readVarInt();
+			java.util.List<String> d = strings(buf);
+			java.util.List<String> l = strings(buf);
+			float drop = buf.readFloat(), hs = buf.readFloat();
+			return new DismemberSync(id, d, l, drop, hs, strings(buf));
+		}
+
+		private static java.util.List<String> strings(RegistryByteBuf buf) {
 			int n = len(buf.readVarInt(), CAP);
-			java.util.List<String> d = new java.util.ArrayList<>(n);
-			for (int i = 0; i < n; i++) d.add(buf.readString(64));
-			int m = len(buf.readVarInt(), CAP);
-			java.util.List<String> l = new java.util.ArrayList<>(m);
-			for (int i = 0; i < m; i++) l.add(buf.readString(64));
-			return new DismemberSync(id, d, l, buf.readFloat(), buf.readFloat());
+			java.util.List<String> out = new java.util.ArrayList<>(n);
+			for (int i = 0; i < n; i++) out.add(buf.readString(64));
+			return out;
+		}
+
+		private static void strings(RegistryByteBuf buf, java.util.List<String> list) {
+			int n = Math.min(list.size(), CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeString(list.get(i), 64);
 		}
 
 		public void write(RegistryByteBuf buf) {
 			buf.writeVarInt(entityId);
-			int n = Math.min(detached.size(), CAP);
-			buf.writeVarInt(n);
-			for (int i = 0; i < n; i++) buf.writeString(detached.get(i), 64);
-			int m = Math.min(locked.size(), CAP);
-			buf.writeVarInt(m);
-			for (int i = 0; i < m; i++) buf.writeString(locked.get(i), 64);
+			strings(buf, detached);
+			strings(buf, locked);
 			buf.writeFloat(drop);
 			buf.writeFloat(heightScale);
+			strings(buf, foreign);
 		}
 
 		@Override

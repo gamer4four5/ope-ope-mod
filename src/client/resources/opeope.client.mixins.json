@@ -17,7 +17,8 @@
     "HeldItemFeatureRendererMixin",
     "HeadFeatureRendererMixin",
     "EntityModelLoaderMixin",
-    "EntityModelAccessorMixin"
+    "EntityModelAccessorMixin",
+    "FirstPersonArmMixin"
   ],
   "injectors": {
     "defaultRequire": 1

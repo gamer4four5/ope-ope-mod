@@ -157,14 +157,18 @@ public final class OpeConfig {
 	public static final boolean ALLOW_PETS = true;           // cortar mascotas domesticadas
 	public static final java.util.Set<String> EXCLUDED_ENTITIES = java.util.Set.of(   // nunca se cortan por partes
 		"minecraft:ender_dragon", "minecraft:wither", "minecraft:warden", "minecraft:elder_guardian");
-	public static final boolean PLAYER_HEAD_CAMERA = true;   // (fase 3) un jugador sin cabeza ve desde su cabeza
-	public static final boolean MOBS_RECLAIM_PARTS = true;   // (fase 3) los mobs van a por sus partes
-	public static final boolean LOWER_HALF_WANDERS = true;   // (fase 3) la mitad de abajo camina sola
-	public static final boolean HEAD_CONTROLS_AI = true;     // (fase 4) con cabezas cambiadas manda la cabeza
+	public static boolean PLAYER_HEAD_CAMERA = true;         // un jugador sin cabeza ve desde su cabeza (y sigue moviendo el cuerpo)
+	public static boolean MOBS_RECLAIM_PARTS = true;         // los mobs van a por sus partes y se las vuelven a pegar
+	public static final int RECLAIM_TOUCH_TICKS = 40;        // ticks tocando su parte para volver a pegársela
+	public static final double RECLAIM_RANGE = 16;           // bloques: hasta dónde busca un mob sus partes (sin cabeza, solo a tientas: 3)
+	public static boolean LOWER_HALF_WANDERS = true;         // la mitad de abajo (o unas patas sueltas) camina sola y huye de quien cortó
+	public static final boolean HEAD_CONTROLS_AI = true;     // con una cabeza trasplantada, el cuerpo persigue a quien persigue el dueño de la cabeza
 	public static final boolean PLAYER_SOUL_SWAP = false;    // (fase 4) cambio de cuerpos entre jugadores
-	public static final boolean MES_CAN_KILL = false;        // (fase 3) aplastar el corazón mata
-	public static final float MES_SQUEEZE_DMG = 2f;          // (fase 3) daño de un apretón
-	public static final int RADIO_LOCK_TICKS = 20 * 30;      // (fase 2) lo cortado con Radio Knife no se puede reunir en este tiempo
+	public static final boolean MES_CAN_KILL = false;        // apretar el corazón puede matar (si no, deja a su dueño con medio corazón)
+	public static final float MES_SQUEEZE_DMG = 2f;          // daño de un apretón del corazón (Mes)
+	public static final float PART_IMPACT_DMG = 5f;          // daño de una parte lanzada (Takt) por bloque/tick de velocidad; su dueño se lleva la mitad
+	public static final boolean ALLOW_TRANSPLANT = true;     // Shambles parte de A → B pone la parte de A en el sitio de B (quimeras)
+	public static final int RADIO_LOCK_TICKS = 20 * 30;      // lo cortado con Radio Knife no se puede reunir en este tiempo
 	public static final boolean FREE_PLANE_CUTS = false;     // (fase 4) cortes libres por plano que rehacen la malla
 	public static final int MAX_PLANES_PER_PIECE = 4;        // (fase 4)
 	public static final boolean SLIME_SPLIT_NATIVE = true;   // (fase 4) los slimes se dividen a su manera

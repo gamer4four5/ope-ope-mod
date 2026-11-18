@@ -71,7 +71,21 @@ public final class Techniques {
 	}
 
 	private static LivingEntity livingInSight(ServerPlayerEntity p, double range) {
-		Entity e = PowerManager.raycastEntity(p, range, 0.4, ent -> ent instanceof LivingEntity && ent.isAlive());
+		Entity e = PowerManager.raycastEntity(p, range, 0.4, ent -> (ent instanceof LivingEntity && ent.isAlive())
+			|| ent instanceof dev.opeope.entity.BodyPartEntity);
+		if (e instanceof dev.opeope.entity.BodyPartEntity part) {
+			// una parte cortada sigue unida a su dueño: lo que se le hace a ella (Gamma, Counter Shock, Mes…) le llega a él
+			LivingEntity v = part.victim();
+			if (v == null || !v.isAlive() || v == p) return null;
+			Vec3d a = part.getBoundingBox().getCenter(), b = v.getBoundingBox().getCenter();
+			ServerWorld w = p.getServerWorld();
+			double len = a.distanceTo(b);
+			for (double t = 0; t <= len; t += 0.4) {
+				Vec3d q = a.add(b.subtract(a).multiply(t / Math.max(1e-3, len)));
+				w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, q.x, q.y, q.z, 1, 0.02, 0.02, 0.02, 0);
+			}
+			return v;
+		}
 		return e instanceof LivingEntity le ? le : null;
 	}
 
@@ -1018,6 +1032,11 @@ public final class Techniques {
 			p.sendMessage(Text.translatable("opeope.msg.too_far"), true);
 			return;
 		}
+		if (OpeConfig.EXCLUDED_ENTITIES.contains(net.minecraft.entity.EntityType.getId(t.getType()).toString())) {
+			p.sendMessage(Text.translatable("opeope.msg.part_refused", t.getDisplayName()), true);
+			return;
+		}
+		Dismember.DEAD_HEARTS.remove(t.getUuid());   // un jugador que murió y volvió tiene corazón nuevo
 		ItemStack heart = new ItemStack(ModItems.HEART);
 		HeartItem.setOwner(heart, t.getUuid());
 		heart.set(DataComponentTypes.CUSTOM_NAME, Text.translatable("opeope.heart_of", t.getDisplayName()));
@@ -1045,8 +1064,14 @@ public final class Techniques {
 			p.sendMessage(Text.translatable("opeope.msg.heart_far"), true);
 			return;
 		}
-		le.damage(p.getWorld().getDamageSources().indirectMagic(p, p), 2f);
+		float dmg = OpeConfig.MES_SQUEEZE_DMG;
+		if (!OpeConfig.MES_CAN_KILL) dmg = Math.min(dmg, Math.max(0f, le.getHealth() - 1f));   // apretar duele, no mata
+		if (dmg > 0) {
+			le.timeUntilRegen = 0;   // un apretón no espera a los ticks de invulnerabilidad del último golpe
+			le.damage(p.getWorld().getDamageSources().indirectMagic(p, p), dmg);
+		}
 		le.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 40, 0, false, true));
+		if (le instanceof ServerPlayerEntity victim) victim.sendMessage(Text.translatable("opeope.msg.heart_squeezed"), true);
 		p.getServerWorld().spawnParticles(ParticleTypes.DAMAGE_INDICATOR, le.getX(), le.getY() + le.getHeight() / 2, le.getZ(), 4, 0.3, 0.3, 0.3, 0.1);
 		sound(p, p.getPos(), SoundEvents.ENTITY_WARDEN_HEARTBEAT, 1.5f, 1.6f);
 		sound(p, le.getPos(), SoundEvents.ENTITY_WARDEN_HEARTBEAT, 1.5f, 1.6f);

@@ -2951,6 +2951,7 @@ public final class AutoTest {
 				PowerManager.broadcastRoom(sp, 0, pw.room);
 				sp.changeGameMode(GameMode.SURVIVAL);
 				pw.zeroGravityRoom = false;   // con Gravedad Cero las partes flotarían (como todo en el ROOM)
+				OpeConfig.MOBS_RECLAIM_PARTS = false;   // D2–D6 miran al ser sin sus partes; la IA que las recoge se prueba aparte (D12)
 				pw.dirty = true;
 				sp.networkHandler.requestTeleport(ax0 + 0.5, ay0 + 1, az0 + 0.5, 180f, 10f);
 				sp.setHealth(sp.getMaxHealth());
@@ -3196,6 +3197,267 @@ public final class AutoTest {
 			});
 		});
 		waitFor("d: fin", 40, "el servidor no terminó D8", () -> dDone == 1, AutoTest::drain);
+		planDesmembramiento2(mc, srv, id);
+	}
+
+	private static volatile int dA = -1, dB = -1, dP = -1;
+	private static volatile double dPx, dPz;
+
+	/** (fases 2–4) D7 Radio Knife, D9 guardar y cargar, D10 Mes, D11 piernas que andan, D12 la IA recoge, D13 quimera, D14 parte lanzada, cámara en la cabeza. */
+	private static void planDesmembramiento2(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int DX = 80, DZ = 50;
+		// el lector genérico de modelos: el pollo y el lobo (sin campos con nombre) se leen por su árbol
+		step(1, "D modelos", () -> {
+			for (EntityType<?> t : List.<EntityType<?>>of(EntityType.CHICKEN, EntityType.WOLF, EntityType.HORSE, EntityType.FOX)) {
+				Entity e = t.create(mc.world);
+				boolean ok = e instanceof LivingEntity le && mc.getEntityRenderDispatcher().getRenderer(le) instanceof net.minecraft.client.render.entity.LivingEntityRenderer<?, ?> lr
+					&& dev.opeope.client.dismember.ModelParts.of(lr.getModel()).keySet().stream().anyMatch(k -> k.contains("head"));
+				check(ok, "D modelos: se lee el modelo de " + EntityType.getId(t).getPath(), "no se encontró su cabeza");
+			}
+		});
+		// D7: Radio Knife: lo cortado no se puede reunir hasta que pasa el bloqueo
+		step(2, "D7 radio", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			ZombieEntity z = spawnZombie(w, gx0 + DX + 3.5, gfy + 1, gz0 + DZ - 3.0, 0f, false);
+			if (z == null) return;
+			dA = z.getId();
+			dev.opeope.power.Dismember.sweep(sp, z, List.of(new CutEngine.Plane(new Vec3d(0, 1, 0), z.getPos().add(0, 0.55, 0))), true);
+			List<dev.opeope.entity.BodyPartEntity> ps = partsOf(w, z);
+			if (ps.size() != 1) {
+				dres("D7 radio: corta", ps.size() + " partes");
+				return;
+			}
+			dev.opeope.power.Dismember.shamblesPair(sp, ps.get(0), z);
+			dres("D7 radio: bloqueada no se reúne", partsOf(w, z).size() == 1 && ps.get(0).locked() ? null : "se reunió o no quedó bloqueada");
+			dev.opeope.anatomy.DismemberState st = dev.opeope.power.Dismember.state(z);
+			long soon = w.getTime() + 10;
+			st.lockedUntil.replaceAll((k, v) -> soon);
+		}));
+		step(20, "D7 radio: pasa el bloqueo", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			if (!(w.getEntityById(dA) instanceof ZombieEntity z)) return;
+			for (dev.opeope.entity.BodyPartEntity p : partsOf(w, z)) dev.opeope.power.Dismember.shamblesPair(sp, p, z);
+			dres("D7 radio: pasado el bloqueo, sí se reúne", partsOf(w, z).isEmpty() ? null : "sigue suelta");
+			z.discard();
+		}));
+
+		// D9: guardar y cargar: el ser recuerda qué le falta y la parte a quién pertenece
+		step(2, "D9 persistencia", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity z = spawnZombie(w, gx0 + DX - 3.5, gfy + 1, gz0 + DZ - 3.0, 0f, false);
+				if (z == null) return;
+				dev.opeope.entity.BodyPartEntity part = dev.opeope.power.Dismember.cut(z, List.of("right_arm"), sp);
+				net.minecraft.nbt.NbtCompound zn = new net.minecraft.nbt.NbtCompound();
+				z.writeNbt(zn);
+				ZombieEntity z2 = EntityType.ZOMBIE.create(w);
+				z2.readNbt(zn);
+				dev.opeope.anatomy.DismemberState st2 = z2.getAttached(dev.opeope.registry.ModAttachments.DISMEMBER);
+				dres("D9 persistencia: el ser guarda qué le falta", st2 != null && part != null && part.getUuid().equals(st2.detached.get("right_arm")) ? null
+					: "estado leído " + (st2 == null ? "nulo" : st2.detached));
+				net.minecraft.nbt.NbtCompound pn = new net.minecraft.nbt.NbtCompound();
+				if (part != null) part.writeNbt(pn);
+				dev.opeope.entity.BodyPartEntity p2 = new dev.opeope.entity.BodyPartEntity(dev.opeope.registry.ModEntities.BODY_PART, w);
+				p2.readNbt(pn);
+				dres("D9 persistencia: la parte guarda su dueño y sus partes", z.getUuid().equals(p2.victimUuid) && p2.segments().equals(List.of("right_arm")) ? null
+					: p2.victimUuid + " " + p2.segments());
+				if (part != null) part.discard();
+				z.discard();
+			});
+		});
+
+		// D10: Mes: apretar el corazón duele y aturde; si su dueño muere, el cubo deja de valer
+		step(2, "D10 mes", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity z = spawnZombie(w, gx0 + DX - 5.5, gfy + 1, gz0 + DZ - 3.0, 0f, false);
+				if (z == null) return;
+				ItemStack heart = new ItemStack(dev.opeope.registry.ModItems.HEART);
+				dev.opeope.item.HeartItem.setOwner(heart, z.getUuid());
+				float h0 = z.getHealth();
+				Techniques.squeezeHeart(sp, heart);
+				dres("D10 mes: apretar le quita vida y lo aturde", z.getHealth() < h0 - 0.5f && z.hasStatusEffect(ModEffects.STUN) ? null
+					: "vida " + fmt(h0) + " → " + fmt(z.getHealth()) + ", aturdido " + z.hasStatusEffect(ModEffects.STUN));
+				z.setHealth(1.5f);
+				Techniques.squeezeHeart(sp, heart);
+				dres("D10 mes: apretar no mata (MES_CAN_KILL = false)", z.isAlive() ? null : "murió");
+				z.damage(w.getDamageSources().magic(), 100f);
+				dres("D10 mes: si su dueño muere, el corazón se apaga", dev.opeope.power.Dismember.DEAD_HEARTS.contains(z.getUuid()) ? null : "no se apuntó");
+				for (Entity e : w.getEntitiesByClass(ItemEntity.class, z.getBoundingBox().expand(4), en -> true)) e.discard();
+			});
+		});
+
+		// D11: la mitad de abajo anda sola (y huye de quien la cortó)
+		step(2, "D11 piernas solas", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity z = spawnZombie(w, gx0 + DX + 0.5, gfy + 1, gz0 + DZ - 6.0, 0f, false);
+				if (z == null) return;
+				dB = z.getId();
+				dev.opeope.entity.BodyPartEntity part = dev.opeope.power.Dismember.cut(z, dev.opeope.power.Dismember.resolve(
+					dev.opeope.power.Dismember.anatomy(z), dev.opeope.power.Dismember.state(z), "lower_half"), sp);
+				dP = part == null ? -1 : part.getId();
+				dres("D11 piernas solas: van solas", part != null && part.autonomous() ? null : "no son autónomas");
+				if (part != null) {
+					dPx = part.getX();
+					dPz = part.getZ();
+				}
+			});
+		});
+		step(30, "D11 piernas: captura", () -> {
+			drain();
+			shot(mc, "d11-piernas-andando");
+		});
+		step(170, "D11 piernas: cuánto anduvieron", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			Entity p = w.getEntityById(dP);
+			double moved = p == null ? -1 : Math.hypot(p.getX() - dPx, p.getZ() - dPz);
+			dres("D11 piernas solas: se mueven > 2 bloques en 200 ticks", moved > 2 ? null : "se movieron " + fmt(moved));
+			if (w.getEntityById(dB) instanceof LivingEntity z) {
+				for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, z)) bp.discard();
+				z.discard();
+			}
+		}));
+
+		// D12: la IA: un zombi sin brazo va a por él y se lo vuelve a pegar
+		step(2, "D12 recoger", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				OpeConfig.MOBS_RECLAIM_PARTS = true;
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity z = spawnZombie(w, gx0 + DX + 5.5, gfy + 1, gz0 + DZ - 7.0, 0f, true);
+				if (z == null) return;
+				dA = z.getId();
+				dev.opeope.entity.BodyPartEntity part = dev.opeope.power.Dismember.cut(z, List.of("right_arm"), sp);
+				if (part != null) part.kick(new Vec3d(0.35, 0.2, 0));   // que tenga que ir a por él
+			});
+		});
+		waitFor("D12 recoger: se lo vuelve a pegar", 400, "no recogió su brazo en 20 s", () -> {
+			ServerPlayerEntity sp = srv.getPlayerManager().getPlayer(id);
+			return sp != null && sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z
+				&& dev.opeope.power.Dismember.state(z) == null && partsOf(sp.getServerWorld(), z).isEmpty();
+		}, () -> {
+			ok("D12 recoger: el zombi va a por su brazo y se lo pega");
+			server(srv, id, (sp, pw) -> {
+				if (sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z) z.discard();
+				OpeConfig.MOBS_RECLAIM_PARTS = false;
+			});
+		});
+
+		// D13: quimera: la cabeza de un zombi en un husk (el husk ve; el daño a esa cabeza va al zombi) y vuelta a su sitio
+		step(2, "D13 quimera", () -> server(srv, id, (sp, pw) -> {
+			OpeConfig.MOBS_RECLAIM_PARTS = false;
+			ServerWorld w = sp.getServerWorld();
+			ZombieEntity a = spawnZombie(w, gx0 + DX - 1.2, gfy + 1, gz0 + DZ - 4.5, 20f, false);
+			net.minecraft.entity.mob.HuskEntity b = EntityType.HUSK.create(w);
+			if (a == null || b == null) return;
+			b.refreshPositionAndAngles(gx0 + DX + 1.8, gfy + 1, gz0 + DZ - 4.5, -20f, 0f);
+			b.setBodyYaw(-20f);
+			b.setHeadYaw(-20f);
+			b.setAiDisabled(true);
+			b.setPersistent();
+			w.spawnEntity(b);
+			dA = a.getId();
+			dB = b.getId();
+			dev.opeope.entity.BodyPartEntity head = dev.opeope.power.Dismember.cut(a, List.of("head"), sp);
+			if (head == null) {
+				dres("D13 quimera", "no se cortó la cabeza");
+				return;
+			}
+			dP = head.getId();
+			dev.opeope.power.Dismember.shamblesPair(sp, head, b);
+			dev.opeope.anatomy.DismemberState sb = dev.opeope.power.Dismember.state(b);
+			dres("D13 quimera: la cabeza del zombi está puesta en el husk", head.mounted() && sb != null && head.getUuid().equals(sb.foreign.get("head")) ? null
+				: "montada " + head.mounted() + ", estado " + (sb == null ? "-" : sb.foreign));
+			dres("D13 quimera: la cabeza del husk sale suelta", partsOf(w, b).size() == 1 ? null : partsOf(w, b).size() + " partes del husk");
+			dres("D13 quimera: con esa cabeza el husk ve", !dev.opeope.power.Dismember.caps(b).blind() ? null : "sigue ciego");
+			float h0 = a.getHealth();
+			head.damage(w.getDamageSources().magic(), 3f);
+			dres("D13 quimera: el daño a esa cabeza le duele a su dueño (el zombi)", a.getHealth() < h0 - 2.5f ? null : "vida " + fmt(h0) + " → " + fmt(a.getHealth()));
+			sp.networkHandler.requestTeleport(gx0 + DX + 0.3, gfy + 1, gz0 + DZ - 0.5, 180f, 15f);
+		}));
+		step(30, "D13 quimera: captura", () -> {
+			drain();
+			shot(mc, "d13-quimera");
+		});
+		step(2, "D13 quimera: devolver", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			if (!(w.getEntityById(dA) instanceof ZombieEntity a) || !(w.getEntityById(dB) instanceof LivingEntity b)
+				|| !(w.getEntityById(dP) instanceof dev.opeope.entity.BodyPartEntity head)) {
+				dres("D13 quimera: devolver", "faltan entidades");
+				return;
+			}
+			dev.opeope.power.Dismember.shamblesPair(sp, head, a);
+			dev.opeope.anatomy.DismemberState sb = dev.opeope.power.Dismember.state(b);
+			dres("D13 quimera: vuelve a su dueño y el husk queda sin cabeza", head.isRemoved() && dev.opeope.power.Dismember.state(a) == null
+				&& (sb == null || sb.foreign.isEmpty()) && dev.opeope.power.Dismember.caps(b).blind() ? null
+				: "quitada " + head.isRemoved() + ", husk " + (sb == null ? "-" : sb.foreign) + " ciego " + dev.opeope.power.Dismember.caps(b).blind());
+			for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, b)) dev.opeope.power.Dismember.shamblesPair(sp, bp, b);
+			dres("D13 quimera: el husk recupera su cabeza", partsOf(w, b).isEmpty() && dev.opeope.power.Dismember.state(b) == null ? null : "no");
+			a.discard();
+			b.discard();
+		}));
+
+		// D14: una parte lanzada golpea a otro, y a su dueño le duele la mitad
+		step(2, "D14 parte lanzada", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				ZombieEntity owner = spawnZombie(w, gx0 + DX - 8.5, gfy + 1, gz0 + DZ - 9.0, 0f, false);
+				net.minecraft.entity.passive.PigEntity pig = EntityType.PIG.create(w);
+				if (owner == null || pig == null) return;
+				pig.refreshPositionAndAngles(gx0 + DX + 6.5, gfy + 1, gz0 + DZ - 9.0, 0f, 0f);
+				pig.setAiDisabled(true);
+				w.spawnEntity(pig);
+				dev.opeope.entity.BodyPartEntity part = dev.opeope.power.Dismember.cut(owner, List.of("left_arm"), sp);
+				if (part == null) return;
+				part.setPosition(pig.getX() - 1.5, pig.getY() + 0.3, pig.getZ());
+				part.kick(new Vec3d(1.0, 0.05, 0));
+				dA = owner.getId();
+				dB = pig.getId();
+			});
+		});
+		step(12, "D14 parte lanzada: golpe", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			if (!(w.getEntityById(dA) instanceof LivingEntity owner) || !(w.getEntityById(dB) instanceof LivingEntity pig)) {
+				dres("D14 parte lanzada", "faltan entidades");
+				return;
+			}
+			dres("D14 parte lanzada: golpea al cerdo", pig.getHealth() < pig.getMaxHealth() ? null : "el cerdo sigue entero");
+			dres("D14 parte lanzada: al dueño le duele", owner.getHealth() < owner.getMaxHealth() ? null : "el dueño sigue entero");
+			for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, owner)) bp.discard();
+			owner.discard();
+			pig.discard();
+		}));
+
+		// la cámara en la cabeza: al jugador sin cabeza la vista se le va a su cabeza; al reunirla, vuelve
+		step(2, "D cámara: cortar", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				sp.networkHandler.requestTeleport(gx0 + DX + 0.5, gfy + 1, gz0 + DZ + 0.5, 180f, 10f);
+				dev.opeope.power.Dismember.cut(sp, List.of("head"), sp);
+			});
+		});
+		waitFor("D cámara: ve desde su cabeza", 60, "la cámara no pasó a la cabeza",
+			() -> mc.getCameraEntity() instanceof dev.opeope.entity.BodyPartEntity, () -> ok("D cámara: un jugador sin cabeza ve desde su cabeza"));
+		step(25, "D cámara: captura", () -> shot(mc, "d-camara-cabeza"));
+		step(2, "D cámara: reunir", () -> server(srv, id, (sp, pw) -> dev.opeope.power.Dismember.reattachAll(sp, true)));
+		waitFor("D cámara: vuelve", 60, "la cámara no volvió al jugador", () -> mc.getCameraEntity() == mc.player,
+			() -> ok("D cámara: al reunirla vuelve a su cuerpo"));
+
+		step(2, "D fin 2", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			Box arena = new Box(gx0 + DX - 30, gfy - 4, gz0 + DZ - 30, gx0 + DX + 31, gfy + 20, gz0 + DZ + 31);
+			for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity
+				|| en instanceof ItemEntity)) e.discard();
+			OpeConfig.MOBS_RECLAIM_PARTS = true;
+			sp.setHealth(sp.getMaxHealth());
+			dDone = 2;
+		}));
+		waitFor("d: fin 2", 40, "el servidor no terminó las pruebas D de las fases 2–4", () -> dDone == 2, AutoTest::drain);
 	}
 
 	/** En el hilo del servidor: el terreno de setup en x0..x1 × z0..z1 (piedra, tres de tierra, hierba en fy y aire encima). */

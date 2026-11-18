@@ -52,6 +52,14 @@ public class HeartItem extends Item {
 		return TypedActionResult.success(stack, world.isClient);
 	}
 
+	/** Si su dueño muere (por lo que sea), el corazón deja de latir y el cubo desaparece. */
+	@Override
+	public void inventoryTick(ItemStack stack, World world, net.minecraft.entity.Entity entity, int slot, boolean selected) {
+		if (world.isClient || world.getTime() % 20 != 0) return;
+		UUID o = owner(stack);
+		if (o != null && dev.opeope.power.Dismember.DEAD_HEARTS.contains(o)) stack.setCount(0);
+	}
+
 	@Override
 	public boolean hasGlint(ItemStack stack) {
 		return true;

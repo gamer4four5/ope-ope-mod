@@ -65,6 +65,7 @@ public final class AnatomyDump {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.world == null) return 0;
 		int n = 0;
+		OpeOpeMod.LOG.info("ANATOMIA partes de modelos conocidas: {}", ModelParts.rootsKnown());
 		for (EntityType<?> type : Registries.ENTITY_TYPE) {
 			try {
 				Entity e = type.create(mc.world);

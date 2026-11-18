@@ -82,7 +82,16 @@ public final class Dismember {
 	/** Cliente: la altura de la caja de cada ser (por id de red), la rellena el cliente al llegar DismemberSync. */
 	public static final Map<Integer, Float> CLIENT_HEIGHT = new ConcurrentHashMap<>();
 
-	public static int cutsDone, reattachDone;
+	public static int cutsDone, reattachDone, transplantsDone, reclaimsDone;
+	/** Servidor: cuánto lleva cada mob tocando su parte (para volver a pegársela). */
+	private static final Map<UUID, Integer> TOUCH = new HashMap<>();
+	/** Servidor: dueños de corazones (Mes) que han muerto: su cubo desaparece. */
+	public static final Set<UUID> DEAD_HEARTS = java.util.Collections.newSetFromMap(new java.util.LinkedHashMap<>() {
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<UUID, Boolean> e) {
+			return size() > 512;
+		}
+	});
 
 	public static void init() {
 		ServerTickEvents.END_SERVER_TICK.register(Dismember::tick);
@@ -105,6 +114,7 @@ public final class Dismember {
 			if (a instanceof LivingEntity la && a == source.getSource() && !caps(la).mainHand) return false;
 			return true;
 		});
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> DEAD_HEARTS.add(entity.getUuid()));
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
 			DismemberState st = entity.getAttached(ModAttachments.DISMEMBER);
 			if (st == null || st.isEmpty() || !(entity.getWorld() instanceof ServerWorld w)) return;
@@ -115,8 +125,13 @@ public final class Dismember {
 					part.discard();
 				}
 			}
+			// lo que llevaba de otros (quimera) se suelta: sigue siendo de su dueño
+			for (UUID id : new HashSet<>(st.foreign.values())) {
+				if (w.getEntity(id) instanceof BodyPartEntity part) part.unmount();
+			}
 			st.detached.clear();
 			st.lockedUntil.clear();
+			st.foreign.clear();
 			entity.removeAttached(ModAttachments.DISMEMBER);
 			ACTIVE.remove(entity.getUuid());
 			CAPS.remove(entity.getUuid());
@@ -135,6 +150,7 @@ public final class Dismember {
 			if (st != null && !st.isEmpty()) {
 				st.detached.clear();
 				st.lockedUntil.clear();
+				st.foreign.clear();
 				p.removeAttached(ModAttachments.DISMEMBER);
 				recompute(p);
 			}
@@ -144,6 +160,8 @@ public final class Dismember {
 			ACTIVE.clear();
 			MISSING.clear();
 			LAST_CUT.clear();
+			TOUCH.clear();
+			DEAD_HEARTS.clear();
 			BodyPartEntity.LIVE = 0;
 		});
 	}
@@ -177,6 +195,30 @@ public final class Dismember {
 	public static boolean owns(LivingEntity v, BodyPartEntity part) {
 		DismemberState st = state(v);
 		return st != null && st.detached.containsValue(part.getUuid());
+	}
+
+	/** ¿Lleva ese ser puesta esa parte de otro (quimera)? */
+	public static boolean hosts(LivingEntity host, BodyPartEntity part) {
+		DismemberState st = state(host);
+		return st != null && st.foreign.containsValue(part.getUuid());
+	}
+
+	/** Lo que de verdad le falta (lo cortado, menos los sitios que ocupa una parte de otro). */
+	public static Set<String> gone(DismemberState st) {
+		if (st == null) return Set.of();
+		if (st.foreign.isEmpty()) return st.detached.keySet();
+		Set<String> g = new HashSet<>(st.detached.keySet());
+		g.removeAll(st.foreign.keySet());
+		return g;
+	}
+
+	/** El centro del sitio de esa parte en el ser, en el mundo (para colocar una parte trasplantada). */
+	public static Vec3d slotCenter(LivingEntity le, String seg) {
+		Anatomy a = anatomy(le);
+		Anatomy.Segment s = a == null ? null : a.get(seg);
+		if (s == null) return le.getBoundingBox().getCenter();
+		Vec3d feet = le.getPos().add(0, -caps(le).drop, 0);
+		return feet.add(Anatomy.toWorld(s.center(), le.getBodyYaw(), le.getScale() * (le.isBaby() ? 0.5 : 1)));
 	}
 
 	public static Anatomy anatomy(LivingEntity le) {
@@ -403,6 +445,14 @@ public final class Dismember {
 			}
 		}
 		Vec3d at = part.getBoundingBox().getCenter();
+		if (part.mounted()) part.unmount();
+		// el sitio lo ocupaba una parte de otro: esa se suelta (sigue siendo de su dueño)
+		if (!st.foreign.isEmpty() && le.getWorld() instanceof ServerWorld sw0) {
+			for (String seg : part.segments()) {
+				UUID f = st.foreign.remove(seg);
+				if (f != null && sw0.getEntity(f) instanceof BodyPartEntity fp) fp.unmountQuiet();
+			}
+		}
 		st.detached.values().removeIf(id::equals);
 		st.lockedUntil.keySet().removeIf(k -> !st.detached.containsKey(k));
 		part.discard();
@@ -421,7 +471,8 @@ public final class Dismember {
 	public static boolean shamblesPair(ServerPlayerEntity p, Entity a, Entity b) {
 		BodyPartEntity part = a instanceof BodyPartEntity x ? x : b instanceof BodyPartEntity y ? y : null;
 		Entity other = part == a ? b : a;
-		if (part == null || !(other instanceof LivingEntity le) || !owns(le, part)) return false;
+		if (part == null || !(other instanceof LivingEntity le)) return false;
+		if (!owns(le, part)) return OpeConfig.ALLOW_TRANSPLANT && transplant(p, part, le);
 		if (!reattach(le, part, false)) {
 			p.sendMessage(Text.translatable("opeope.msg.part_locked"), true);
 			if (le.getWorld() instanceof ServerWorld w) {
@@ -430,6 +481,60 @@ public final class Dismember {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * Quimera / trasplante (Shambles parte de A → B): la parte de A ocupa en B el sitio del mismo nombre (cabeza por
+	 * cabeza, brazo por brazo). Lo que B tenía ahí sale como parte suelta suya. La parte sigue siendo de A (el daño va a
+	 * A), pero B gana su función (una cabeza le da vista). true si era un caso de trasplante (aunque se rechace).
+	 */
+	public static boolean transplant(ServerPlayerEntity p, BodyPartEntity part, LivingEntity host) {
+		LivingEntity owner = part.victim();
+		if (owner == null || owner == host || !host.isAlive() || part.mounted()) return false;
+		String seg = part.rootSegment();
+		Anatomy ha = anatomy(host);
+		if (seg == null || ha == null || !ha.segments.containsKey(seg) || seg.equals(ha.core)) {
+			if (p != null) p.sendMessage(Text.translatable("opeope.msg.part_no_slot", host.getDisplayName()), true);
+			return true;
+		}
+		if (refusal(host) != null) {
+			if (p != null) p.sendMessage(Text.translatable("opeope.msg.part_refused", host.getDisplayName()), true);
+			return true;
+		}
+		DismemberState hs = state(host);
+		if (hs != null && hs.foreign.containsKey(seg)) {
+			if (p != null) p.sendMessage(Text.translatable("opeope.msg.part_no_slot", host.getDisplayName()), true);
+			return true;
+		}
+		// lo de B en ese sitio sale fuera (si aún lo tiene)
+		if (hs == null || !hs.detached.containsKey(seg)) {
+			List<String> own = resolve(ha, hs, seg);
+			if (!own.isEmpty() && cut(host, own, p) == null) return true;
+		}
+		hs = state(host);
+		if (hs == null) hs = new DismemberState();
+		hs.foreign.put(seg, part.getUuid());
+		host.setAttached(ModAttachments.DISMEMBER, hs);
+		ACTIVE.put(host.getUuid(), host);
+		part.mount(host, seg);
+		recompute(host);
+		sync(host);
+		if (host.getWorld() instanceof ServerWorld w) {
+			Vec3d c = slotCenter(host, seg);
+			w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 14, 0.15, 0.15, 0.15, 0);
+			w.spawnParticles(ParticleTypes.END_ROD, c.x, c.y, c.z, 8, 0.1, 0.1, 0.1, 0.02);
+			w.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 0.9f);
+			w.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_BEACON_POWER_SELECT, SoundCategory.PLAYERS, 0.6f, 1.8f);
+		}
+		transplantsDone++;
+		return true;
+	}
+
+	/** La parte trasplantada se va del sitio de su anfitrión (vuelve con su dueño, o el anfitrión murió). */
+	public static void releaseForeign(LivingEntity host, BodyPartEntity part) {
+		DismemberState st = state(host);
+		if (st == null) return;
+		if (st.foreign.values().removeIf(part.getUuid()::equals)) after(host, st);
 	}
 
 	/** Lo une todo (al reconectar, al cerrar el ROOM si así se pide…). */
@@ -466,7 +571,7 @@ public final class Dismember {
 			le.calculateDimensions();
 			return;
 		}
-		Set<String> gone = st.detached.keySet();
+		Set<String> gone = gone(st);
 		int legs = a.legs, missing = 0;
 		boolean main = true, off = true, vision = false, visionLeft = false, arms = false;
 		for (Anatomy.Segment s : a.segments.values()) {
@@ -544,6 +649,17 @@ public final class Dismember {
 					changed = true;
 				}
 			}
+			// una parte de otro puesta aquí que ya no existe (su dueño murió): el sitio vuelve a estar vacío
+			for (UUID id : new HashSet<>(st.foreign.values())) {
+				if (!(w.getEntity(id) instanceof BodyPartEntity fp) || fp.isRemoved()) {
+					int n = MISSING.merge(id, 1, Integer::sum);
+					if (n > 40) {
+						MISSING.remove(id);
+						st.foreign.values().removeIf(id::equals);
+						changed = true;
+					}
+				}
+			}
 			long now = w.getTime();
 			if (st.lockedUntil.values().removeIf(t -> t <= now)) changed = true;
 			if (changed) {
@@ -551,6 +667,8 @@ public final class Dismember {
 				resync.add(le);
 			}
 			Caps c = caps(le);
+			if (le instanceof MobEntity mob && !st.detached.isEmpty()) reclaim(w, mob, st, c);
+			if (OpeConfig.HEAD_CONTROLS_AI && le instanceof MobEntity mob && le.age % 10 == 0) headControl(w, mob, st);
 			if (c.blind && le instanceof MobEntity mob) {
 				mob.setTarget(null);
 				// a ciegas: gira la vista al azar de vez en cuando
@@ -563,14 +681,74 @@ public final class Dismember {
 		}
 	}
 
+	/**
+	 * La IA de quien ha perdido partes: va a por la más cercana (sin cabeza, solo si la tiene al lado: a tientas) y se la
+	 * vuelve a pegar tras tocarla un rato. Mientras tanto no persigue a nadie (primero, recomponerse).
+	 */
+	private static void reclaim(ServerWorld w, MobEntity mob, DismemberState st, Caps c) {
+		if (!OpeConfig.MOBS_RECLAIM_PARTS || mob.isAiDisabled() || c.speedMul <= 0) return;
+		double range = c.blind ? 3 : OpeConfig.RECLAIM_RANGE;
+		BodyPartEntity best = null;
+		double bd = range * range;
+		long now = w.getTime();
+		for (Map.Entry<String, UUID> e : st.detached.entrySet()) {
+			if (st.foreign.containsKey(e.getKey())) continue;
+			Long until = st.lockedUntil.get(e.getKey());
+			if (until != null && until > now) continue;
+			if (!(w.getEntity(e.getValue()) instanceof BodyPartEntity part) || part.mounted() || Takt.held(part.getId())) continue;
+			double d = part.squaredDistanceTo(mob);
+			if (d < bd) {
+				bd = d;
+				best = part;
+			}
+		}
+		UUID id = mob.getUuid();
+		if (best == null) {
+			TOUCH.remove(id);
+			return;
+		}
+		if (mob.getTarget() != null) mob.setTarget(null);
+		boolean touching = mob.getBoundingBox().expand(0.45).intersects(best.getBoundingBox());
+		if (touching) {
+			int t = TOUCH.merge(id, 1, Integer::sum);
+			mob.getNavigation().stop();
+			mob.getLookControl().lookAt(best, 30f, 30f);
+			if (t % 8 == 0) {
+				Vec3d pc = best.getBoundingBox().getCenter();
+				w.spawnParticles(CutEngine.ROOM_DUST, pc.x, pc.y, pc.z, 3, 0.12, 0.12, 0.12, 0);
+			}
+			if (t >= OpeConfig.RECLAIM_TOUCH_TICKS) {
+				TOUCH.remove(id);
+				if (reattach(mob, best, false)) reclaimsDone++;
+			}
+		} else {
+			TOUCH.remove(id);
+			if (mob.age % 10 == 0) mob.getNavigation().startMovingTo(best.getX(), best.getY(), best.getZ(), 1.1);
+		}
+	}
+
+	/** Con una cabeza de otro puesta, persigue a quien persigue el dueño de esa cabeza. */
+	private static void headControl(ServerWorld w, MobEntity mob, DismemberState st) {
+		if (st.foreign.isEmpty()) return;
+		Anatomy a = anatomy(mob);
+		if (a == null) return;
+		for (Map.Entry<String, UUID> e : st.foreign.entrySet()) {
+			Anatomy.Segment s = a.get(e.getKey());
+			if (s == null || !s.has("vision")) continue;
+			if (!(w.getEntity(e.getValue()) instanceof BodyPartEntity part) || !(part.victim() instanceof MobEntity owner)) continue;
+			LivingEntity t = owner.getTarget();
+			if (t != null && t != mob && t.isAlive() && mob.getTarget() != t) mob.setTarget(t);
+		}
+	}
+
 	// ------------------------------------------------------------------ red y efectos
 
 	public static Payloads.DismemberSync payload(LivingEntity le) {
 		DismemberState st = state(le);
 		Caps c = caps(le);
-		if (st == null || st.isEmpty()) return new Payloads.DismemberSync(le.getId(), List.of(), List.of(), 0f, 1f);
+		if (st == null || st.isEmpty()) return new Payloads.DismemberSync(le.getId(), List.of(), List.of(), 0f, 1f, List.of());
 		return new Payloads.DismemberSync(le.getId(), new ArrayList<>(st.detached.keySet()), new ArrayList<>(st.lockedUntil.keySet()),
-			c.drop, c.heightScale);
+			c.drop, c.heightScale, new ArrayList<>(st.foreign.keySet()));
 	}
 
 	public static void sync(LivingEntity le) {

@@ -162,6 +162,14 @@ public final class Takt {
 		return HOLDERS.get(entityId);
 	}
 
+	/** ¿La lleva ahora mismo alguien con Takt (en la mano, en el anillo…)? */
+	public static boolean held(int entityId) {
+		UUID h = HOLDERS.get(entityId);
+		if (h == null) return false;
+		PlayerPower hp = PowerManager.peek(h);
+		return hp != null && hp.takt.contains(entityId);
+	}
+
 	public static void forget(int entityId) {
 		HOLDERS.remove(entityId);
 	}

@@ -42,16 +42,16 @@ import java.util.Set;
 public final class ClientDismember {
 	private ClientDismember() {}
 
-	public record Info(Set<String> detached, Set<String> locked, float drop) {}
+	public record Info(Set<String> detached, Set<String> locked, float drop, Set<String> foreign) {}
 
 	public static final Int2ObjectOpenHashMap<Info> STATE = new Int2ObjectOpenHashMap<>();
 
 	public static void receive(Payloads.DismemberSync p) {
-		if (p.detached().isEmpty()) {
+		if (p.detached().isEmpty() && p.foreign().isEmpty()) {
 			STATE.remove(p.entityId());
 			Dismember.CLIENT_HEIGHT.remove(p.entityId());
 		} else {
-			STATE.put(p.entityId(), new Info(Set.copyOf(p.detached()), Set.copyOf(p.locked()), p.drop()));
+			STATE.put(p.entityId(), new Info(Set.copyOf(p.detached()), Set.copyOf(p.locked()), p.drop(), Set.copyOf(p.foreign())));
 			if (p.heightScale() < 0.999f) Dismember.CLIENT_HEIGHT.put(p.entityId(), p.heightScale());
 			else Dismember.CLIENT_HEIGHT.remove(p.entityId());
 		}
@@ -83,6 +83,7 @@ public final class ClientDismember {
 		if (a == null) return false;
 		String fn = arm == e.getMainArm() ? "main_hand" : "off_hand";
 		for (String s : i.detached) {
+			if (i.foreign.contains(s)) continue;   // un brazo de otro puesto ahí sí sirve
 			Anatomy.Segment seg = a.get(s);
 			if (seg != null && seg.has(fn)) return true;
 		}
@@ -174,7 +175,7 @@ public final class ClientDismember {
 					float time = e.age + tickDelta;
 					for (String seg : i.detached) {
 						Anatomy.Segment sg = a.get(seg);
-						if (sg == null || sg.parent() == null || i.detached.contains(sg.parent())) continue;
+						if (sg == null || sg.parent() == null || i.detached.contains(sg.parent()) || i.foreign.contains(seg)) continue;
 						cap(ms, vcp, a, sg, time, i.locked.contains(seg), false);
 					}
 				} catch (RuntimeException ex) {
@@ -421,11 +422,92 @@ public final class ClientDismember {
 		}
 	}
 
-	/** El nombre de la parte resaltada bajo la mira, mientras se apunta. */
+	// ------------------------------------------------------------------ cada tick: Scan, la cámara en la cabeza
+
+	/**
+	 * Con Scan activo, un hilo azul tenue une cada parte suelta con su dueño (se ve de quién es cada cosa). Un jugador
+	 * sin cabeza ve desde su cabeza (PLAYER_HEAD_CAMERA) y sigue moviendo su cuerpo a ciegas.
+	 */
+	public static void tick(MinecraftClient mc) {
+		if (mc.world == null || mc.player == null) return;
+		if (ClientState.scanTicks > 0 && mc.world.getTime() % 3 == 0) {
+			for (Entity en : mc.world.getEntities()) {
+				if (!(en instanceof dev.opeope.entity.BodyPartEntity part) || part.squaredDistanceTo(mc.player) > 48 * 48) continue;
+				LivingEntity v = part.mounted() ? null : part.victim();
+				if (v == null) continue;
+				Vec3d a = part.getBoundingBox().getCenter(), b = v.getBoundingBox().getCenter();
+				double len = a.distanceTo(b);
+				int n = (int) Math.min(40, len / 0.5);
+				for (int k = 0; k <= n; k++) {
+					Vec3d q = a.add(b.subtract(a).multiply(k / (double) Math.max(1, n)));
+					mc.world.addParticle(dev.opeope.power.CutEngine.ROOM_DUST, q.x, q.y, q.z, 0, 0, 0);
+				}
+			}
+		}
+		headCamera(mc);
+	}
+
+	private static void headCamera(MinecraftClient mc) {
+		Entity cam = mc.getCameraEntity();
+		dev.opeope.entity.BodyPartEntity head = OpeConfig.PLAYER_HEAD_CAMERA ? ownHead(mc) : null;
+		if (head != null) {
+			if (cam != head) mc.setCameraEntity(head);
+		} else if (cam instanceof dev.opeope.entity.BodyPartEntity) {
+			mc.setCameraEntity(mc.player);
+		}
+	}
+
+	/** La cabeza suelta del propio jugador (si le falta y está cerca). */
+	private static dev.opeope.entity.BodyPartEntity ownHead(MinecraftClient mc) {
+		Info i = STATE.get(mc.player.getId());
+		if (i == null) return null;
+		Anatomy a = AnatomyRegistry.get(mc.player.getType());
+		if (a == null) return null;
+		boolean blind = false;
+		for (String s : i.detached) {
+			Anatomy.Segment sg = a.get(s);
+			if (sg != null && sg.has("vision") && !i.foreign.contains(s)) blind = true;
+		}
+		if (!blind) return null;
+		for (Entity en : mc.world.getEntities()) {
+			if (en instanceof dev.opeope.entity.BodyPartEntity part && part.victimId() == mc.player.getId() && !part.mounted()
+				&& part.hasVision() && part.squaredDistanceTo(mc.player) < 64 * 64) return part;
+		}
+		return null;
+	}
+
+	/** Al empezar cada fotograma: la cabeza-cámara mira a donde el jugador mueve el ratón (sin esperar al servidor). */
+	public static void syncHeadCamera() {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player != null && mc.getCameraEntity() instanceof dev.opeope.entity.BodyPartEntity head) {
+			head.setYaw(mc.player.getYaw());
+			head.setPitch(mc.player.getPitch());
+			head.prevYaw = mc.player.prevYaw;
+			head.prevPitch = mc.player.prevPitch;
+		}
+	}
+
+	/** El nombre de la parte resaltada bajo la mira, mientras se apunta; y, si al jugador le faltan partes, cuáles. */
 	public static void renderHud(DrawContext ctx, RenderTickCounter tc) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player != null) {
+			Info mine = STATE.get(mc.player.getId());
+			if (mine != null && !mine.detached.isEmpty()) {
+				Anatomy a = AnatomyRegistry.get(mc.player.getType());
+				List<String> names = new ArrayList<>();
+				for (String sgn : mine.detached) {
+					Anatomy.Segment sg = a == null ? null : a.get(sgn);
+					if (mine.foreign.contains(sgn) || (sg != null && sg.parent() != null && mine.detached.contains(sg.parent()))) continue;
+					names.add(name(sgn));
+				}
+				if (!names.isEmpty()) {
+					String t = net.minecraft.text.Text.translatable("opeope.hud.missing", String.join(", ", names)).getString();
+					ctx.drawTextWithShadow(mc.textRenderer, "✂ " + t, 8, ctx.getScaledWindowHeight() / 2 - 40, 0xFF8FD8FF);
+				}
+			}
+		}
 		String sel = selected();
 		if (sel == null) return;
-		MinecraftClient mc = MinecraftClient.getInstance();
 		String label = "✂ " + name(sel) + (candidates.size() > 1 ? "  (" + (Math.floorMod(aimIndex, candidates.size()) + 1) + "/" + candidates.size() + ")" : "");
 		int w = mc.textRenderer.getWidth(label);
 		int x = ctx.getScaledWindowWidth() / 2 - w / 2, y = ctx.getScaledWindowHeight() / 2 + 14;

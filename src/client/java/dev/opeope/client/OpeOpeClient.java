@@ -71,6 +71,7 @@ public class OpeOpeClient implements ClientModInitializer {
 			ClientState.tick();
 			InputHandler.tick(client);
 			if (InputHandler.isDragging()) dev.opeope.client.dismember.ClientDismember.aimTick();
+			dev.opeope.client.dismember.ClientDismember.tick(client);
 			RoomFxClient.tick(client);
 			TerrainFx.tick(client);
 			TaktFxClient.tick(client);
@@ -81,6 +82,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(CutFx::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.dismember.ClientDismember::renderAim);
+		WorldRenderEvents.START.register(ctx -> dev.opeope.client.dismember.ClientDismember.syncHeadCamera());
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(TerrainFx::render);   // justo después del corte (diseño §5.1)
 		HudRenderCallback.EVENT.register(HudRoot::render);
 		HudRenderCallback.EVENT.register(CutFx::renderHud);

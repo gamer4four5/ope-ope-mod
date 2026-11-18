@@ -35,21 +35,29 @@ public final class ModelParts {
 	private static final Map<EntityModel<?>, Map<String, List<ModelPart>>> CACHE = new WeakHashMap<>();
 	private static final Set<Class<?>> WARNED = new HashSet<>();
 	/** Cada ModelPart creado para un modelo de entidad → la raíz de su árbol (lo apunta EntityModelLoaderMixin). */
-	private static final Map<ModelPart, java.lang.ref.WeakReference<ModelPart>> ROOT_OF =
-		java.util.Collections.synchronizedMap(new WeakHashMap<>());
+	private static final Map<ModelPart, ModelPart> ROOT_OF = java.util.Collections.synchronizedMap(new java.util.IdentityHashMap<>());
 	/** Por clase de modelo: sus campos de tipo ModelPart (se buscan una vez). */
 	private static final Map<Class<?>, List<java.lang.reflect.Field>> FIELDS = new java.util.concurrent.ConcurrentHashMap<>();
 
 	public static void registerRoot(ModelPart root) {
 		if (root == null) return;
-		java.lang.ref.WeakReference<ModelPart> ref = new java.lang.ref.WeakReference<>(root);
-		mark(root, ref, 0);
+		mark(root, root, 0);
 	}
 
-	private static void mark(ModelPart p, java.lang.ref.WeakReference<ModelPart> ref, int depth) {
-		ROOT_OF.put(p, ref);
+	/** Al recargar los modelos (F3+T, paquetes de recursos) se olvidan los árboles viejos. */
+	public static void clearRoots() {
+		ROOT_OF.clear();
+		CACHE.clear();
+	}
+
+	public static int rootsKnown() {
+		return ROOT_OF.size();
+	}
+
+	private static void mark(ModelPart p, ModelPart root, int depth) {
+		ROOT_OF.put(p, root);
 		if (depth > 10) return;
-		for (ModelPart c : ((ModelPartAccessor) (Object) p).opeope$children().values()) mark(c, ref, depth + 1);
+		for (ModelPart c : ((ModelPartAccessor) (Object) p).opeope$children().values()) mark(c, root, depth + 1);
 	}
 
 	/** Último recurso: la raíz del árbol de cualquier campo ModelPart del modelo (pollo, lobo, caballo, zorro…). */
@@ -72,8 +80,7 @@ public final class ModelParts {
 			try {
 				Object v = f.get(model);
 				if (!(v instanceof ModelPart mp)) continue;
-				java.lang.ref.WeakReference<ModelPart> r = ROOT_OF.get(mp);
-				ModelPart root = r == null ? null : r.get();
+				ModelPart root = ROOT_OF.get(mp);
 				if (root != null) return root;
 			} catch (IllegalAccessException ignored) {
 			}
