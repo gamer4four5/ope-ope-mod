@@ -823,8 +823,9 @@ public final class Dismember {
 			TOUCH.remove(id);
 			return;
 		}
-		if (mob.getTarget() != null) mob.setTarget(null);
-		boolean touching = mob.getBoundingBox().expand(0.45).intersects(best.getBoundingBox());
+		boolean distracted = mob.getTarget() != null;
+		if (distracted) mob.setTarget(null);
+		boolean touching = mob.getBoundingBox().expand(0.6).intersects(best.getBoundingBox());
 		if (touching) {
 			int t = TOUCH.merge(id, 1, Integer::sum);
 			mob.getNavigation().stop();
@@ -839,7 +840,15 @@ public final class Dismember {
 			}
 		} else {
 			TOUCH.remove(id);
-			if (mob.age % 10 == 0) mob.getNavigation().startMovingTo(best.getX(), best.getY(), best.getZ(), 1.1);
+			if (bd < 3 * 3) {
+				// ya está al lado: derecho a por ella (el camino del navegador a veces no llega al último medio bloque)
+				mob.getNavigation().stop();
+				mob.getMoveControl().moveTo(best.getX(), best.getY(), best.getZ(), 1.1);
+				mob.getLookControl().lookAt(best, 30f, 30f);
+			} else if (distracted || mob.age % 5 == 0 || mob.getNavigation().isIdle()) {
+				// si otra meta (atacar) le cambió el camino, se lo vuelve a poner hacia su parte
+				mob.getNavigation().startMovingTo(best.getX(), best.getY(), best.getZ(), 1.1);
+			}
 		}
 	}
 

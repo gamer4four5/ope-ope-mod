@@ -299,13 +299,13 @@ public final class Anatomy {
 	// ------------------------------------------------------------------ JSON
 
 	public static Anatomy parse(Identifier entity, JsonObject o) {
-		String core = o.has("core") ? o.get("core").getAsString() : "body";
+		String core = o.has("core") && !o.get("core").isJsonNull() ? o.get("core").getAsString() : "body";
 		Map<String, Segment> segs = new LinkedHashMap<>();
 		JsonObject so = o.getAsJsonObject("segments");
 		if (so != null) {
 			for (Map.Entry<String, JsonElement> e : so.entrySet()) {
 				JsonObject s = e.getValue().getAsJsonObject();
-				String parent = s.has("parent") ? s.get("parent").getAsString() : null;
+				String parent = s.has("parent") && !s.get("parent").isJsonNull() ? s.get("parent").getAsString() : null;
 				List<String> parts = new ArrayList<>();
 				if (s.has("model_parts")) for (JsonElement p : s.getAsJsonArray("model_parts")) parts.add(p.getAsString());
 				else parts.add(e.getKey());

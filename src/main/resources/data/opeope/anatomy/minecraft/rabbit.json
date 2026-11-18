@@ -2,7 +2,6 @@
   "core": "body",
   "segments": {
     "body": {
-      "parent": null,
       "model_parts": [
         "body"
       ],

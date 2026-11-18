@@ -2,7 +2,6 @@
   "core": "lower_body",
   "segments": {
     "lower_body": {
-      "parent": null,
       "model_parts": [
         "lower_body"
       ],
