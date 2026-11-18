@@ -3,6 +3,7 @@ package dev.opeope.entity;
 import dev.opeope.OpeConfig;
 import dev.opeope.anatomy.Anatomy;
 import dev.opeope.anatomy.AnatomyRegistry;
+import dev.opeope.power.CutEngine;
 import dev.opeope.power.Dismember;
 import dev.opeope.power.Takt;
 import dev.opeope.registry.ModEntities;
@@ -67,6 +68,8 @@ public class BodyPartEntity extends Entity {
 	/** Quimera: el ser en el que está puesta (servidor) y en qué sitio. */
 	public UUID hostUuid;
 	private float walkYaw;
+	private int returning;
+	private Vec3d returnTo;
 	private int turnTicks, impactCd, soundCd = 80;
 	private boolean auto;
 
@@ -494,8 +497,32 @@ public class BodyPartEntity extends Entity {
 		}
 	}
 
+	/** Durante unos ticks va derecha (flotando) hacia ese punto: su dueño la llama y no llega. */
+	public void pullTo(Vec3d to) {
+		returnTo = to;
+		returning = 4;
+	}
+
+	/** Está volviendo sola a su dueño (la Gravedad Cero del ROOM no la sujeta). */
+	public boolean returning() {
+		return returning > 0;
+	}
+
 	private void physics() {
 		Vec3d vel = getVelocity();
+		if (returning > 0 && returnTo != null) {
+			returning--;
+			Vec3d d = returnTo.subtract(getBoundingBox().getCenter());
+			Vec3d want = d.lengthSquared() < 1e-4 ? Vec3d.ZERO : d.normalize().multiply(Math.min(0.22, d.length()));
+			vel = vel.multiply(0.5).add(want.multiply(0.5));
+			noClip = true;   // atraviesa lo que haya en medio (como los hilos de la ROOM)
+			move(MovementType.SELF, vel);
+			noClip = false;
+			setVelocity(vel);
+			if (age % 4 == 0 && getWorld() instanceof ServerWorld sw)
+				sw.spawnParticles(CutEngine.ROOM_DUST, getX(), getY() + getHeight() / 2, getZ(), 1, 0.1, 0.1, 0.1, 0);
+			return;
+		}
 		if (!hasNoGravity()) vel = vel.add(0, -0.04, 0);
 		double preY = vel.y;
 		move(MovementType.SELF, vel);

@@ -85,6 +85,8 @@ public final class Dismember {
 	public static int cutsDone, reattachDone, transplantsDone, reclaimsDone, planeCutsDone;
 	/** Servidor: cuánto lleva cada mob tocando su parte (para volver a pegársela). */
 	private static final Map<UUID, Integer> TOUCH = new HashMap<>();
+	/** Cuánto lleva cada ser yendo a por una parte sin llegar (si tarda, la parte va hacia él). */
+	private static final Map<UUID, Integer> SEEK = new HashMap<>();
 	/** Servidor: dueños de corazones (Mes) que han muerto: su cubo desaparece. */
 	public static final Set<UUID> DEAD_HEARTS = java.util.Collections.newSetFromMap(new java.util.LinkedHashMap<>() {
 		@Override
@@ -168,6 +170,7 @@ public final class Dismember {
 			MISSING.clear();
 			LAST_CUT.clear();
 			TOUCH.clear();
+			SEEK.clear();
 			DEAD_HEARTS.clear();
 			BodyPartEntity.LIVE = 0;
 		});
@@ -821,12 +824,15 @@ public final class Dismember {
 		UUID id = mob.getUuid();
 		if (best == null) {
 			TOUCH.remove(id);
+			SEEK.remove(id);
 			return;
 		}
 		boolean distracted = mob.getTarget() != null;
 		if (distracted) mob.setTarget(null);
 		boolean touching = mob.getBoundingBox().expand(0.6).intersects(best.getBoundingBox());
 		if (touching) {
+			// si vino flotando, se queda pegada a él mientras se une
+			if (SEEK.getOrDefault(id, 0) > OpeConfig.RECLAIM_PULL_TICKS) best.pullTo(mob.getBoundingBox().getCenter());
 			int t = TOUCH.merge(id, 1, Integer::sum);
 			mob.getNavigation().stop();
 			mob.getLookControl().lookAt(best, 30f, 30f);
@@ -836,10 +842,13 @@ public final class Dismember {
 			}
 			if (t >= OpeConfig.RECLAIM_TOUCH_TICKS) {
 				TOUCH.remove(id);
+				SEEK.remove(id);
 				if (reattach(mob, best, false)) reclaimsDone++;
 			}
 		} else {
 			TOUCH.remove(id);
+			// la parte sigue viva y unida a él: si el ser no llega (está alta, flotando o tras un hueco), ella va a su encuentro
+			if (SEEK.merge(id, 1, Integer::sum) > OpeConfig.RECLAIM_PULL_TICKS) best.pullTo(mob.getBoundingBox().getCenter());
 			if (bd < 3 * 3) {
 				// ya está al lado: derecho a por ella (el camino del navegador a veces no llega al último medio bloque)
 				mob.getNavigation().stop();

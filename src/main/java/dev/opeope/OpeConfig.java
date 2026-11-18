@@ -160,6 +160,8 @@ public final class OpeConfig {
 	public static boolean PLAYER_HEAD_CAMERA = true;         // un jugador sin cabeza ve desde su cabeza (y sigue moviendo el cuerpo)
 	public static boolean MOBS_RECLAIM_PARTS = true;         // los mobs van a por sus partes y se las vuelven a pegar
 	public static final int RECLAIM_TOUCH_TICKS = 40;        // ticks tocando su parte para volver a pegársela
+	/** Si un ser no alcanza su parte en este tiempo (ticks), la parte va flotando hacia él. */
+	public static int RECLAIM_PULL_TICKS = 80;
 	public static final double RECLAIM_RANGE = 16;           // bloques: hasta dónde busca un mob sus partes (sin cabeza, solo a tientas: 3)
 	public static boolean LOWER_HALF_WANDERS = true;         // la mitad de abajo (o unas patas sueltas) camina sola y huye de quien cortó
 	public static final boolean HEAD_CONTROLS_AI = true;     // con una cabeza trasplantada, el cuerpo persigue a quien persigue el dueño de la cabeza

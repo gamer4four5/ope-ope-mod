@@ -864,6 +864,7 @@ public final class Techniques {
 			for (Entity e : w.getOtherEntities(p, box, ent -> ent.isAlive() && room.contains(ent.getPos()))) {
 				if (pw.takt.contains(e.getId())) continue;
 				if (e instanceof PieceEntity pe && pe.weapon != null) continue;
+				if (e instanceof dev.opeope.entity.BodyPartEntity bp && bp.returning()) continue;
 				e.fallDistance = 0f;
 				Vec3d v = e.getVelocity();
 				double targetVy = 0.035 + 0.025 * Math.sin((p.age + e.getId() * 7) * 0.12);

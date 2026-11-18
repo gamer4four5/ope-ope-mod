@@ -3360,7 +3360,8 @@ public final class AutoTest {
 				// diagnóstico: dónde están el zombi y su brazo y qué hace
 				List<dev.opeope.entity.BodyPartEntity> ps = partsOf(sp.getServerWorld(), z);
 				OpeOpeMod.LOG.info("AUTOTEST D12 diag t={} zombi={} objetivo={} navInactiva={} partes={}", d12Ticks, z.getPos(), z.getTarget(),
-					z.getNavigation().isIdle(), ps.stream().map(q -> q.getPos() + " d=" + fmt((float) q.distanceTo(z)) + " bloq=" + dev.opeope.power.Dismember.isLocked(z, q)).toList());
+					z.getNavigation().isIdle(), ps.stream().map(q -> q.getPos() + " v=" + q.getVelocity() + " suelo=" + q.isOnGround() + " d=" + fmt((float) q.distanceTo(z)) + " bloq=" + dev.opeope.power.Dismember.isLocked(z, q)
+					+ " zeroG=" + dev.opeope.power.PowerManager.get(sp).zeroGravityRoom).toList());
 			}
 			return sp != null && sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z
 				&& dev.opeope.power.Dismember.state(z) == null && partsOf(sp.getServerWorld(), z).isEmpty();
