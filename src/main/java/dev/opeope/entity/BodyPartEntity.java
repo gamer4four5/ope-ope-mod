@@ -527,6 +527,8 @@ public class BodyPartEntity extends Entity {
 		}
 		if (!hasNoGravity()) vel = vel.add(0, -0.04, 0);
 		double preY = vel.y;
+		// la velocidad (con la gravedad) va al ser antes de moverse: move() solo la corta al chocar
+		setVelocity(vel);
 		move(MovementType.SELF, vel);
 		vel = getVelocity();
 		if (isOnGround()) {
