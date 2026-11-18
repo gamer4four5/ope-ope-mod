@@ -1,0 +1,159 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        14.0,
+        0.0
+      ],
+      "box": [
+        -9.5,
+        7.5,
+        -13.0,
+        9.5,
+        20.5,
+        13.0
+      ],
+      "mass": 0.5
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head"
+      ],
+      "joint": [
+        0.0,
+        12.5,
+        -17.0
+      ],
+      "box": [
+        -8.5,
+        7.5,
+        -23.0,
+        8.5,
+        20.5,
+        -12.0
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "right_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_hind_leg"
+      ],
+      "joint": [
+        -5.5,
+        9.0,
+        9.0
+      ],
+      "box": [
+        -8.5,
+        0.0,
+        6.0,
+        -2.5,
+        9.0,
+        12.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_hind_leg"
+      ],
+      "joint": [
+        5.5,
+        9.0,
+        9.0
+      ],
+      "box": [
+        2.5,
+        0.0,
+        6.0,
+        8.5,
+        9.0,
+        12.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_front_leg"
+      ],
+      "joint": [
+        -5.5,
+        9.0,
+        -9.0
+      ],
+      "box": [
+        -8.5,
+        0.0,
+        -12.0,
+        -2.5,
+        9.0,
+        -6.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_front_leg"
+      ],
+      "joint": [
+        5.5,
+        9.0,
+        -9.0
+      ],
+      "box": [
+        2.5,
+        0.0,
+        -12.0,
+        8.5,
+        9.0,
+        -6.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "right_hind_leg",
+      "left_hind_leg",
+      "right_front_leg",
+      "left_front_leg"
+    ],
+    "hind_legs": [
+      "right_hind_leg",
+      "left_hind_leg"
+    ],
+    "front_legs": [
+      "right_front_leg",
+      "left_front_leg"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

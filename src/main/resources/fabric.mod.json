@@ -13,6 +13,7 @@
     "client": ["dev.opeope.client.OpeOpeClient"]
   },
   "mixins": [
+    "opeope.mixins.json",
     {
       "config": "opeope.client.mixins.json",
       "environment": "client"

@@ -110,5 +110,12 @@
   "subtitles.opeope.takt.land": "Takt: toca el suelo",
   "subtitles.opeope.takt.seal": "Takt: queda sellado",
   "subtitles.opeope.takt.zone": "Takt: levanta la zona",
-  "subtitles.opeope.takt.rewind": "Takt: todo vuelve"
+  "subtitles.opeope.takt.rewind": "Takt: todo vuelve",
+  "opeope.msg.part_refused": "Can't be cut into parts: %s",
+  "opeope.msg.part_no_slot": "%s has no free slot for that part",
+  "opeope.msg.heart_squeezed": "Someone is squeezing your heart!",
+  "opeope.hud.missing": "Missing: %s",
+  "opeope.msg.part_limit": "Too many loose parts",
+  "opeope.msg.part_locked": "Radio Knife: that part can't be rejoined yet",
+  "entity.opeope.parte": "Severed part"
 }

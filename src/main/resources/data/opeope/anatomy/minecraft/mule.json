@@ -1,0 +1,182 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        13.0,
+        5.0
+      ],
+      "box": [
+        -5.0,
+        11.0,
+        -12.0,
+        5.0,
+        21.0,
+        10.0
+      ],
+      "mass": 0.5
+    },
+    "right_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_front_leg"
+      ],
+      "joint": [
+        -4.0,
+        10.0,
+        -12.0
+      ],
+      "box": [
+        -5.0,
+        0.01,
+        -13.9,
+        -1.0,
+        11.01,
+        -9.9
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_hind_leg"
+      ],
+      "joint": [
+        -4.0,
+        10.0,
+        7.0
+      ],
+      "box": [
+        -5.0,
+        0.01,
+        6.0,
+        -1.0,
+        11.01,
+        10.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head_parts"
+      ],
+      "joint": [
+        0.0,
+        20.0,
+        -12.0
+      ],
+      "box": [
+        -4.03,
+        13.8,
+        -23.56,
+        4.03,
+        36.33,
+        -3.43
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "left_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_hind_leg"
+      ],
+      "joint": [
+        4.0,
+        10.0,
+        7.0
+      ],
+      "box": [
+        1.0,
+        0.01,
+        6.0,
+        5.0,
+        11.01,
+        10.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "tail": {
+      "parent": "body",
+      "model_parts": [
+        "body/tail"
+      ],
+      "joint": [
+        0.0,
+        18.0,
+        7.0
+      ],
+      "box": [
+        -1.5,
+        5.88,
+        7.0,
+        1.5,
+        20.0,
+        17.46
+      ],
+      "mass": 0.04,
+      "function": [
+        "tail"
+      ]
+    },
+    "left_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_front_leg"
+      ],
+      "joint": [
+        4.0,
+        10.0,
+        -12.0
+      ],
+      "box": [
+        1.0,
+        0.01,
+        -13.9,
+        5.0,
+        11.01,
+        -9.9
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "right_front_leg",
+      "right_hind_leg",
+      "left_hind_leg",
+      "left_front_leg"
+    ],
+    "hind_legs": [
+      "right_hind_leg",
+      "left_hind_leg"
+    ],
+    "front_legs": [
+      "right_front_leg",
+      "left_front_leg"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

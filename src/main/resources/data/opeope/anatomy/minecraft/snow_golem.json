@@ -1,0 +1,125 @@
+{
+  "core": "lower_body",
+  "segments": {
+    "lower_body": {
+      "model_parts": [
+        "lower_body"
+      ],
+      "joint": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "box": [
+        -6.0,
+        0.0,
+        -6.0,
+        6.0,
+        12.0,
+        6.0
+      ],
+      "mass": 0.5
+    },
+    "head": {
+      "parent": "upper_body",
+      "model_parts": [
+        "head"
+      ],
+      "joint": [
+        0.0,
+        20.0,
+        0.0
+      ],
+      "box": [
+        -4.0,
+        20.0,
+        -4.0,
+        4.0,
+        28.0,
+        4.0
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "right_arm": {
+      "parent": "upper_body",
+      "model_parts": [
+        "right_arm"
+      ],
+      "joint": [
+        -5.0,
+        18.0,
+        -1.0
+      ],
+      "box": [
+        -10.94,
+        7.66,
+        -2.0,
+        -2.78,
+        18.84,
+        0.0
+      ],
+      "mass": 0.06,
+      "function": [
+        "main_hand",
+        "attack"
+      ]
+    },
+    "left_arm": {
+      "parent": "upper_body",
+      "model_parts": [
+        "left_arm"
+      ],
+      "joint": [
+        5.0,
+        18.0,
+        1.0
+      ],
+      "box": [
+        2.78,
+        7.66,
+        0.0,
+        10.94,
+        18.84,
+        2.0
+      ],
+      "mass": 0.06,
+      "function": [
+        "off_hand",
+        "attack"
+      ]
+    },
+    "upper_body": {
+      "parent": "lower_body",
+      "model_parts": [
+        "upper_body"
+      ],
+      "joint": [
+        0.0,
+        11.0,
+        0.0
+      ],
+      "box": [
+        -5.0,
+        11.0,
+        -5.0,
+        5.0,
+        21.0,
+        5.0
+      ],
+      "mass": 0.3
+    }
+  },
+  "cut_groups": {
+    "arms_both": [
+      "right_arm",
+      "left_arm"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

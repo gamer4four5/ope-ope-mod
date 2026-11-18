@@ -1,0 +1,155 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        4.5,
+        0.0
+      ],
+      "box": [
+        -1.5,
+        -0.5,
+        -1.0,
+        1.5,
+        4.5,
+        1.0
+      ],
+      "mass": 0.5
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "head"
+      ],
+      "joint": [
+        0.0,
+        4.49,
+        0.0
+      ],
+      "box": [
+        -2.5,
+        4.49,
+        -2.5,
+        2.5,
+        9.49,
+        2.5
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "right_arm": {
+      "parent": "body",
+      "model_parts": [
+        "body/right_arm"
+      ],
+      "joint": [
+        -1.75,
+        4.0,
+        0.0
+      ],
+      "box": [
+        -2.5,
+        0.5,
+        -1.0,
+        -1.5,
+        4.5,
+        1.0
+      ],
+      "mass": 0.06,
+      "function": [
+        "main_hand",
+        "attack"
+      ]
+    },
+    "left_arm": {
+      "parent": "body",
+      "model_parts": [
+        "body/left_arm"
+      ],
+      "joint": [
+        1.75,
+        4.0,
+        0.0
+      ],
+      "box": [
+        1.5,
+        0.5,
+        -1.0,
+        2.5,
+        4.5,
+        1.0
+      ],
+      "mass": 0.06,
+      "function": [
+        "off_hand",
+        "attack"
+      ]
+    },
+    "right_wing": {
+      "parent": "body",
+      "model_parts": [
+        "body/right_wing"
+      ],
+      "joint": [
+        -0.5,
+        4.5,
+        0.6
+      ],
+      "box": [
+        -0.5,
+        -1.5,
+        0.6,
+        -0.5,
+        3.5,
+        8.6
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    },
+    "left_wing": {
+      "parent": "body",
+      "model_parts": [
+        "body/left_wing"
+      ],
+      "joint": [
+        0.5,
+        4.5,
+        0.6
+      ],
+      "box": [
+        0.5,
+        -1.5,
+        0.6,
+        0.5,
+        3.5,
+        8.6
+      ],
+      "mass": 0.05,
+      "function": [
+        "flight"
+      ]
+    }
+  },
+  "cut_groups": {
+    "arms_both": [
+      "right_arm",
+      "left_arm"
+    ],
+    "wings": [
+      "right_wing",
+      "left_wing"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

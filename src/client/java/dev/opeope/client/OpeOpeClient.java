@@ -39,6 +39,9 @@ public class OpeOpeClient implements ClientModInitializer {
 		EntityRendererRegistry.register(ModEntities.PIECE, PieceRenderer::new);
 		EntityRendererRegistry.register(ModEntities.STERBEN, SterbenRenderer::new);
 		EntityRendererRegistry.register(ModEntities.MARKER_STONE, FlyingItemEntityRenderer::new);
+		EntityRendererRegistry.register(ModEntities.BODY_PART, dev.opeope.client.render.BodyPartRenderer::new);
+		ClientPlayNetworking.registerGlobalReceiver(Payloads.DismemberSync.ID, (payload, ctx) -> dev.opeope.client.dismember.ClientDismember.receive(payload));
+		dev.opeope.client.dismember.AnatomyDump.register();
 
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.State.ID, (payload, ctx) -> ClientState.apply(payload));
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.Room.ID, (payload, ctx) -> ClientState.room(payload));
@@ -56,6 +59,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		// que dibuja y lee todo esto (si no, una ConcurrentModificationException podía cortar el guardado del progreso)
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {
 			ClientState.clear();
+			dev.opeope.client.dismember.ClientDismember.clear();
 			CutFx.clear();
 			TerrainFx.clear();
 			TaktFxClient.clear();
@@ -66,6 +70,8 @@ public class OpeOpeClient implements ClientModInitializer {
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			ClientState.tick();
 			InputHandler.tick(client);
+			if (InputHandler.isDragging()) dev.opeope.client.dismember.ClientDismember.aimTick();
+			dev.opeope.client.dismember.ClientDismember.tick(client);
 			RoomFxClient.tick(client);
 			TerrainFx.tick(client);
 			TaktFxClient.tick(client);
@@ -75,9 +81,12 @@ public class OpeOpeClient implements ClientModInitializer {
 		});
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(RoomRenderer::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(CutFx::render);
+		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.dismember.ClientDismember::renderAim);
+		WorldRenderEvents.START.register(ctx -> dev.opeope.client.dismember.ClientDismember.syncHeadCamera());
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(TerrainFx::render);   // justo después del corte (diseño §5.1)
 		HudRenderCallback.EVENT.register(HudRoot::render);
 		HudRenderCallback.EVENT.register(CutFx::renderHud);
+		HudRenderCallback.EVENT.register(dev.opeope.client.dismember.ClientDismember::renderHud);
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");
 		if (Boolean.getBoolean("opeope.autotest")) {
 			ProcessHandle.current().info().arguments().ifPresent(args -> OpeOpeMod.LOG.info("Autotest, argumentos del juego: {}",

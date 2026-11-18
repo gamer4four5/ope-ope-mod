@@ -1,0 +1,207 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "model_parts": [
+        "bone/body"
+      ],
+      "joint": [
+        0.0,
+        19.0,
+        0.0
+      ],
+      "box": [
+        -12.5,
+        4.0,
+        -20.0,
+        12.5,
+        33.0,
+        20.0
+      ],
+      "mass": 0.5
+    },
+    "right_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/right_front_leg"
+      ],
+      "joint": [
+        -7.5,
+        9.0,
+        -15.0
+      ],
+      "box": [
+        -11.0,
+        0.0,
+        -19.0,
+        -4.0,
+        10.0,
+        -11.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/right_hind_leg"
+      ],
+      "joint": [
+        -7.5,
+        9.0,
+        15.0
+      ],
+      "box": [
+        -11.0,
+        0.0,
+        11.0,
+        -4.0,
+        10.0,
+        19.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_mid_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/right_mid_leg"
+      ],
+      "joint": [
+        -7.5,
+        9.0,
+        0.0
+      ],
+      "box": [
+        -11.0,
+        0.0,
+        -4.0,
+        -4.0,
+        10.0,
+        4.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_hind_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/left_hind_leg"
+      ],
+      "joint": [
+        7.5,
+        9.0,
+        15.0
+      ],
+      "box": [
+        4.0,
+        0.0,
+        11.0,
+        11.0,
+        10.0,
+        19.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "bone/body/head"
+      ],
+      "joint": [
+        0.0,
+        12.5,
+        -19.48
+      ],
+      "box": [
+        -7.51,
+        1.0,
+        -39.98,
+        7.51,
+        20.0,
+        -19.98
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "left_mid_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/left_mid_leg"
+      ],
+      "joint": [
+        7.5,
+        9.0,
+        0.0
+      ],
+      "box": [
+        4.0,
+        0.0,
+        -4.0,
+        11.0,
+        10.0,
+        4.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "left_front_leg": {
+      "parent": "body",
+      "model_parts": [
+        "bone/left_front_leg"
+      ],
+      "joint": [
+        7.5,
+        9.0,
+        -15.0
+      ],
+      "box": [
+        4.0,
+        0.0,
+        -19.0,
+        11.0,
+        10.0,
+        -11.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "right_front_leg",
+      "right_hind_leg",
+      "right_mid_leg",
+      "left_hind_leg",
+      "left_mid_leg",
+      "left_front_leg"
+    ],
+    "hind_legs": [
+      "right_hind_leg",
+      "left_hind_leg"
+    ],
+    "front_legs": [
+      "right_front_leg",
+      "left_front_leg"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

@@ -15,6 +15,7 @@ public final class ModEntities {
 	public static EntityType<PieceEntity> PIECE;
 	public static EntityType<MarkerStoneEntity> MARKER_STONE;
 	public static EntityType<SterbenEntity> STERBEN;
+	public static EntityType<dev.opeope.entity.BodyPartEntity> BODY_PART;
 
 	public static void init() {
 		PIECE = Registry.register(Registries.ENTITY_TYPE, OpeOpeMod.id("pieza"),
@@ -26,5 +27,8 @@ public final class ModEntities {
 		STERBEN = Registry.register(Registries.ENTITY_TYPE, OpeOpeMod.id("sterben"),
 			EntityType.Builder.<SterbenEntity>create(SterbenEntity::new, SpawnGroup.MISC)
 				.dimensions(2.4f, 0.6f).maxTrackingRange(10).trackingTickInterval(1).build("sterben"));
+		BODY_PART = Registry.register(Registries.ENTITY_TYPE, OpeOpeMod.id("parte"),
+			EntityType.Builder.<dev.opeope.entity.BodyPartEntity>create(dev.opeope.entity.BodyPartEntity::new, SpawnGroup.MISC)
+				.dimensions(0.5f, 0.5f).maxTrackingRange(10).trackingTickInterval(2).build("parte"));
 	}
 }

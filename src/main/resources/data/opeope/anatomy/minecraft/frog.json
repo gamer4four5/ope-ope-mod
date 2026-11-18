@@ -1,0 +1,155 @@
+{
+  "core": "body",
+  "segments": {
+    "body": {
+      "model_parts": [
+        "body"
+      ],
+      "joint": [
+        0.0,
+        2.0,
+        4.0
+      ],
+      "box": [
+        -3.5,
+        1.0,
+        -4.0,
+        3.5,
+        4.0,
+        5.0
+      ],
+      "mass": 0.5
+    },
+    "left_leg": {
+      "parent": "body",
+      "model_parts": [
+        "left_leg"
+      ],
+      "joint": [
+        3.5,
+        3.0,
+        4.0
+      ],
+      "box": [
+        1.5,
+        -0.01,
+        0.0,
+        9.5,
+        3.0,
+        8.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "right_leg": {
+      "parent": "body",
+      "model_parts": [
+        "right_leg"
+      ],
+      "joint": [
+        -3.5,
+        3.0,
+        4.0
+      ],
+      "box": [
+        -9.5,
+        -0.01,
+        0.0,
+        -1.5,
+        3.0,
+        8.0
+      ],
+      "mass": 0.08,
+      "function": [
+        "locomotion"
+      ]
+    },
+    "head": {
+      "parent": "body",
+      "model_parts": [
+        "body/head"
+      ],
+      "joint": [
+        0.0,
+        4.0,
+        3.0
+      ],
+      "box": [
+        -3.5,
+        3.0,
+        -4.0,
+        3.5,
+        8.0,
+        5.0
+      ],
+      "mass": 0.1,
+      "function": [
+        "vision",
+        "ai"
+      ],
+      "vital": true
+    },
+    "right_arm": {
+      "parent": "body",
+      "model_parts": [
+        "body/right_arm"
+      ],
+      "joint": [
+        -4.0,
+        3.0,
+        -2.5
+      ],
+      "box": [
+        -8.0,
+        -0.01,
+        -7.5,
+        0.0,
+        3.0,
+        0.5
+      ],
+      "mass": 0.06,
+      "function": [
+        "main_hand",
+        "attack"
+      ]
+    },
+    "left_arm": {
+      "parent": "body",
+      "model_parts": [
+        "body/left_arm"
+      ],
+      "joint": [
+        4.0,
+        3.0,
+        -2.5
+      ],
+      "box": [
+        0.0,
+        -0.01,
+        -7.5,
+        8.0,
+        3.0,
+        0.5
+      ],
+      "mass": 0.06,
+      "function": [
+        "off_hand",
+        "attack"
+      ]
+    }
+  },
+  "cut_groups": {
+    "lower_half": [
+      "left_leg",
+      "right_leg"
+    ],
+    "arms_both": [
+      "right_arm",
+      "left_arm"
+    ]
+  },
+  "cap_color": "#E8B4A0",
+  "excluded": false
+}

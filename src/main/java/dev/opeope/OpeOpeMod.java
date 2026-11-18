@@ -30,6 +30,8 @@ public class OpeOpeMod implements ModInitializer {
 		ModDamage.init();
 		Net.init();
 		PowerManager.init();
+		dev.opeope.anatomy.AnatomyRegistry.init();
+		dev.opeope.power.Dismember.init();
 		ModCommands.init();
 		LOG.info("Ope Ope no Mi: ROOM listo.");
 	}

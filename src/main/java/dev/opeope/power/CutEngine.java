@@ -660,6 +660,12 @@ public final class CutEngine {
 				List<Plane> crossing = new ArrayList<>();
 				for (Plane pl : planes) if (pl.crosses(b)) crossing.add(pl);
 				if (crossing.isEmpty()) continue;
+				// con anatomía y el plano por una articulación: lo del otro lado se separa en partes vivas (estilo Law)
+				if (!CutStates.isCut(le) && Dismember.sweep(player, le, crossing, noReattach > 0)) {
+					if (livingDamage > 0) le.damage(w.getDamageSources().playerAttack(player), livingDamage);
+					living++;
+					continue;
+				}
 				CutStates.cutLiving(le, crossing, OpeConfig.CUT_LIVING_TICKS, noReattach);
 				if (livingDamage > 0) le.damage(w.getDamageSources().playerAttack(player), livingDamage);
 				w.spawnParticles(ParticleTypes.END_ROD, b.getCenter().x, b.getCenter().y, b.getCenter().z, 12, b.getLengthX() / 2, b.getLengthY() / 3, b.getLengthZ() / 2, 0.02);

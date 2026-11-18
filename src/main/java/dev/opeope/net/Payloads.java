@@ -502,6 +502,79 @@ public final class Payloads {
 		}
 	}
 
+	/** Cliente → servidor: cortar una parte (Amputate dirigido). segment = id de la parte o de un grupo (lower_half…). */
+	public record CutPart(int entityId, String segment) implements CustomPayload {
+		public static final Id<CutPart> ID = new Id<>(OpeOpeMod.id("cut_part"));
+		public static final PacketCodec<RegistryByteBuf, CutPart> CODEC = PacketCodec.of(CutPart::write, CutPart::read);
+
+		static CutPart read(RegistryByteBuf buf) {
+			return new CutPart(buf.readVarInt(), buf.readString(64));
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(entityId);
+			buf.writeString(segment, 64);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
+	 * Servidor → cliente: lo que le falta a un ser vivo (vacío = entero). locked: partes que no se pueden reunir aún.
+	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal).
+	 */
+	public record DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
+								float heightScale, java.util.List<String> foreign, float[] plane) implements CustomPayload {
+		public static final Id<DismemberSync> ID = new Id<>(OpeOpeMod.id("dismember_sync"));
+		public static final PacketCodec<RegistryByteBuf, DismemberSync> CODEC = PacketCodec.of(DismemberSync::write, DismemberSync::read);
+		private static final int CAP = 64;
+
+		static DismemberSync read(RegistryByteBuf buf) {
+			int id = buf.readVarInt();
+			java.util.List<String> d = strings(buf);
+			java.util.List<String> l = strings(buf);
+			float drop = buf.readFloat(), hs = buf.readFloat();
+			java.util.List<String> f = strings(buf);
+			int np = Math.min(4, buf.readVarInt());
+			float[] pl = new float[np];
+			for (int i = 0; i < np; i++) pl[i] = buf.readFloat();
+			return new DismemberSync(id, d, l, drop, hs, f, pl);
+		}
+
+		private static java.util.List<String> strings(RegistryByteBuf buf) {
+			int n = len(buf.readVarInt(), CAP);
+			java.util.List<String> out = new java.util.ArrayList<>(n);
+			for (int i = 0; i < n; i++) out.add(buf.readString(64));
+			return out;
+		}
+
+		private static void strings(RegistryByteBuf buf, java.util.List<String> list) {
+			int n = Math.min(list.size(), CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeString(list.get(i), 64);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(entityId);
+			strings(buf, detached);
+			strings(buf, locked);
+			buf.writeFloat(drop);
+			buf.writeFloat(heightScale);
+			strings(buf, foreign);
+			int np = plane == null ? 0 : Math.min(4, plane.length);
+			buf.writeVarInt(np);
+			for (int i = 0; i < np; i++) buf.writeFloat(plane[i]);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
 	/** Cuántos elementos leer de un array: el largo que llega, entre 0 y su tope (como Cut.read, sin negativos). */
 	private static int len(int n, int cap) {
 		return Math.max(0, Math.min(n, cap));
