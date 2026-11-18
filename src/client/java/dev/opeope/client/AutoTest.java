@@ -3356,12 +3356,12 @@ public final class AutoTest {
 		});
 		waitFor("D12 recoger: se lo vuelve a pegar", 400, "no recogió su brazo en 20 s", () -> {
 			ServerPlayerEntity sp = srv.getPlayerManager().getPlayer(id);
-			if (sp != null && sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z && ++d12Ticks % 60 == 0) {
+			if (sp != null && sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z && (++d12Ticks % 60 == 0 || (d12Ticks <= 40 && d12Ticks % 5 == 0))) {
 				// diagnóstico: dónde están el zombi y su brazo y qué hace
 				List<dev.opeope.entity.BodyPartEntity> ps = partsOf(sp.getServerWorld(), z);
 				OpeOpeMod.LOG.info("AUTOTEST D12 diag t={} zombi={} objetivo={} navInactiva={} partes={}", d12Ticks, z.getPos(), z.getTarget(),
 					z.getNavigation().isIdle(), ps.stream().map(q -> q.getPos() + " v=" + q.getVelocity() + " suelo=" + q.isOnGround() + " d=" + fmt((float) q.distanceTo(z)) + " bloq=" + dev.opeope.power.Dismember.isLocked(z, q)
-					+ " zeroG=" + dev.opeope.power.PowerManager.get(sp).zeroGravityRoom).toList());
+					+ " zeroG=" + dev.opeope.power.PowerManager.get(sp).zeroGravityRoom + " sinGrav=" + q.hasNoGravity() + " edad=" + q.age + " montada=" + q.mounted()).toList());
 			}
 			return sp != null && sp.getServerWorld().getEntityById(dA) instanceof ZombieEntity z
 				&& dev.opeope.power.Dismember.state(z) == null && partsOf(sp.getServerWorld(), z).isEmpty();

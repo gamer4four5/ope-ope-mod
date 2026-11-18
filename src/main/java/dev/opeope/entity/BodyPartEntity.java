@@ -485,6 +485,8 @@ public class BodyPartEntity extends Entity {
 			return;
 		}
 		boolean held = Takt.held(getId());
+		// Takt la deja sin gravedad al cogerla; al soltarla (o lanzarla) vuelve a caer
+		if (!held && hasNoGravity()) setNoGravity(false);
 		if (!held && autonomous()) walk(sw);
 		else if (!held && hasVision()) headLife(sw, v);
 		physics();
