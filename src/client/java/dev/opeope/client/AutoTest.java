@@ -3810,6 +3810,71 @@ public final class AutoTest {
 		step(2, "E8 acercar cámara", () -> server(srv, id, (sp, pw) ->
 			sp.networkHandler.requestTeleport(gx0 + DX - 0.9, gfy + 1, gz0 + DZ - 3.2, 180f, 14f)));
 		step(10, "E8 captura cerca", () -> shot(mc, "e-corte-volumetrico-cerca"));
+		step(2, "E9 shaders y CEM", () -> {
+			// E9a: vértices encadenados de 3 args (shaders / 3dSkinLayers / features) recortados por VolumeSliceConsumer
+			dev.opeope.anatomy.CutVolume vol = dev.opeope.anatomy.CutVolume.ofSinglePlane(new float[]{0f, 1f, 0f, 12f});
+			dev.opeope.anatomy.Anatomy zAnat = dev.opeope.anatomy.AnatomyRegistry.get(EntityType.ZOMBIE);
+			dev.opeope.client.dismember.CapBuilder.Session ses = zAnat == null ? null
+				: new dev.opeope.client.dismember.CapBuilder.Session(vol, zAnat, List.of("body"));
+			List<float[]> outVerts = new ArrayList<>();
+			net.minecraft.client.render.VertexConsumer sink = new net.minecraft.client.render.VertexConsumer() {
+				private float vx, vy, vz;
+				@Override public net.minecraft.client.render.VertexConsumer vertex(float x, float y, float z) { vx = x; vy = y; vz = z; return this; }
+				@Override public net.minecraft.client.render.VertexConsumer color(int r, int g, int b, int a) { return this; }
+				@Override public net.minecraft.client.render.VertexConsumer texture(float u, float v) { return this; }
+				@Override public net.minecraft.client.render.VertexConsumer overlay(int u, int v) { return this; }
+				@Override public net.minecraft.client.render.VertexConsumer light(int u, int v) { return this; }
+				@Override public net.minecraft.client.render.VertexConsumer normal(float x, float y, float z) {
+					outVerts.add(new float[]{vx, vy, vz});
+					return this;
+				}
+			};
+			dev.opeope.client.dismember.VolumeSliceConsumer slicer = new dev.opeope.client.dismember.VolumeSliceConsumer(
+				sink, new org.joml.Matrix4f(), vol, ses);
+			float[][] quad = {{0f, 4f, 0f}, {8f, 4f, 0f}, {8f, 20f, 0f}, {0f, 20f, 0f}};
+			for (int qi = 0; qi < 4; qi++) {
+				slicer.vertex(quad[qi][0], quad[qi][1], quad[qi][2])
+					.color(255, 255, 255, 255).texture(0f, 0f).overlay(0, 10).light(240, 240).normal(0f, 0f, 1f);
+			}
+			boolean maxYOk = outVerts.size() == 4;
+			for (float[] vtx : outVerts) if (vtx[1] > 12.01f) maxYOk = false;
+			int segCnt = ses == null ? 0 : ses.recordedSegmentCount();
+			check(maxYOk && segCnt >= 1, "E9a vértices encadenados recortados con borde de tapa",
+				"verts=" + outVerts.size() + " segs=" + segCnt);
+
+			// E9b: hueso reparentado EMF_head2 dentro de body + ModelPartRotateMixin mantiene invisible tras animate()
+			net.minecraft.client.model.ModelData md = new net.minecraft.client.model.ModelData();
+			net.minecraft.client.model.ModelPartData rootData = md.getRoot();
+			rootData.addChild("head", net.minecraft.client.model.ModelPartBuilder.create(), net.minecraft.client.model.ModelTransform.NONE);
+			net.minecraft.client.model.ModelPartData bodyData = rootData.addChild("body",
+				net.minecraft.client.model.ModelPartBuilder.create().uv(0, 0).cuboid(-4f, 0f, -2f, 8f, 12f, 4f),
+				net.minecraft.client.model.ModelTransform.NONE);
+			bodyData.addChild("EMF_head2",
+				net.minecraft.client.model.ModelPartBuilder.create().uv(0, 0).cuboid(-4f, -8f, -4f, 8f, 8f, 8f),
+				net.minecraft.client.model.ModelTransform.NONE);
+			net.minecraft.client.model.ModelPart cemRoot = net.minecraft.client.model.TexturedModelData.of(md, 64, 64).createModel();
+			net.minecraft.client.render.entity.model.SinglePartEntityModel<LivingEntity> cemModel =
+				new net.minecraft.client.render.entity.model.SinglePartEntityModel<>() {
+					@Override public net.minecraft.client.model.ModelPart getPart() { return cemRoot; }
+					@Override public void setAngles(LivingEntity entity, float limbAngle, float limbDistance, float animationProgress, float headYaw, float headPitch) {}
+				};
+			List<List<net.minecraft.client.model.ModelPart>> headChains = dev.opeope.client.dismember.ModelParts.chainsFor(cemModel, "head");
+			net.minecraft.client.model.ModelPart emfHead = cemRoot.getChild("body").getChild("EMF_head2");
+			boolean resolvedEmf = headChains.stream().anyMatch(ch -> !ch.isEmpty() && ch.get(ch.size() - 1) == emfHead)
+				&& !dev.opeope.client.dismember.ModelParts.hasCuboidsDeep(cemRoot.getChild("head"))
+				&& dev.opeope.client.dismember.ModelParts.hasCuboidsDeep(emfHead);
+			dev.opeope.client.dismember.ClientDismember.pushHiddenParts(List.of(emfHead));
+			boolean stayedHidden = false;
+			try {
+				emfHead.visible = true; // simula root.animate() de EMF encendiendo la visibilidad del hueso
+				cemRoot.getChild("body").rotate(new net.minecraft.client.util.math.MatrixStack());
+				stayedHidden = !emfHead.visible;
+			} finally {
+				dev.opeope.client.dismember.ClientDismember.popHiddenParts();
+			}
+			check(resolvedEmf && stayedHidden, "E9b FreshAnimations/CEM EMF_head2 resuelto y re-ocultado por rotate()",
+				"resolved=" + resolvedEmf + " hidden=" + stayedHidden);
+		});
 		step(2, "E fin", () -> server(srv, id, (sp, pw) -> {
 			ServerWorld w = sp.getServerWorld();
 			Box arena = new Box(gx0 + DX - 30, gfy - 4, gz0 + DZ - 30, gx0 + DX + 31, gfy + 20, gz0 + DZ + 31);

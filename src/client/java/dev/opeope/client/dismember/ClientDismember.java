@@ -3,6 +3,7 @@ package dev.opeope.client.dismember;
 import dev.opeope.OpeConfig;
 import dev.opeope.anatomy.Anatomy;
 import dev.opeope.anatomy.AnatomyRegistry;
+import dev.opeope.anatomy.CutOp;
 import dev.opeope.anatomy.CutVolume;
 import dev.opeope.client.ClientState;
 import dev.opeope.net.Payloads;
@@ -31,8 +32,10 @@ import org.joml.Matrix4f;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +72,10 @@ public final class ClientDismember {
 		STATE.clear();
 		Dismember.CLIENT_HEIGHT.clear();
 		PASSES.clear();
+		HIDDEN.clear();
+		NAMES.clear();
+		DROPS.clear();
+		VolumeSliceConsumer.clearGlobalSlice();
 		CapBuilder.clearCache();
 		aimEntity = -1;
 		candidates.clear();
@@ -114,9 +121,11 @@ public final class ClientDismember {
 
 	// ------------------------------------------------------------------ dibujar al ser sin sus partes
 
-	private static final Deque<List<ModelPart>> HIDDEN = new ArrayDeque<>();
+	public record HiddenEntry(ModelPart part, boolean wasVisible) {}
+
+	private static final Deque<List<HiddenEntry>> HIDDEN = new ArrayDeque<>();
 	private static final Deque<float[]> DROPS = new ArrayDeque<>();
-	private record RenderPass(int entityId, Matrix4f modelPxToRender, VertexConsumerProvider rawVcp, CapBuilder.Session session) {}
+	private record RenderPass(int entityId, Matrix4f modelPxToRender, VertexConsumerProvider rawVcp, CapBuilder.Session session, boolean globalPushed) {}
 	private static final Deque<RenderPass> PASSES = new ArrayDeque<>();
 	/** Los nombres ocultos del ser que se está dibujando (para las capas que copian su postura). */
 	private static final Deque<Set<String>> NAMES = new ArrayDeque<>();
@@ -125,16 +134,66 @@ public final class ClientDismember {
 	private static int begun = Integer.MIN_VALUE;
 
 	/**
+	 * Re-oculta todas las partes desmembradas del render actual (se llama en {@code ModelPart.rotate} para que
+	 * animaciones externas de EMF / FreshAnimations no las vuelvan visibles a mitad del render).
+	 */
+	public static void rehideActive() {
+		if (HIDDEN.isEmpty()) return;
+		List<HiddenEntry> top = HIDDEN.peek();
+		if (top == null || top.isEmpty()) return;
+		for (int i = 0, n = top.size(); i < n; i++) top.get(i).part.visible = false;
+	}
+
+	/** Empuja partes ocultas temporales durante el render de una parte suelta (y para tests), protegidas contra {@code root.animate()}. */
+	public static void pushHiddenParts(List<ModelPart> parts) {
+		List<HiddenEntry> list = new ArrayList<>(parts.size());
+		for (ModelPart p : parts) {
+			list.add(new HiddenEntry(p, p.visible));
+			p.visible = false;
+		}
+		HIDDEN.push(list);
+	}
+
+	public static void popHiddenParts() {
+		if (HIDDEN.isEmpty()) return;
+		for (HiddenEntry he : HIDDEN.pop()) he.part.visible = he.wasVisible;
+	}
+
+	private static CutVolume subtractUnisolatedJoints(CutVolume vol, Anatomy a, Info i, EntityModel<?> model) {
+		if (model == null || i.detached.isEmpty()) return vol;
+		boolean emfOrSynth = ModelParts.isEmfModel(model) || a.isSynthetic();
+		if (!emfOrSynth) return vol;
+		for (String segId : i.detached) {
+			Anatomy.Segment sg = a.get(segId);
+			if (sg == null) continue;
+			if (!sg.modelParts().isEmpty() && ModelParts.hasAnyCuboidInChains(model, sg.modelParts())) continue;
+			double[] b = sg.box();
+			float pad = 0.35f;
+			float cx = (float) ((b[0] + b[3]) * 0.5);
+			float cy = (float) ((b[1] + b[4]) * 0.5);
+			float cz = (float) ((b[2] + b[5]) * 0.5);
+			float hx = (float) ((b[3] - b[0]) * 0.5) + pad;
+			float hy = (float) ((b[4] - b[1]) * 0.5) + pad;
+			float hz = (float) ((b[5] - b[2]) * 0.5) + pad;
+			vol = vol.subtractOp(new CutOp.BoxVolume(cx, cy, cz, hx, hy, hz, 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f, false));
+		}
+		return vol;
+	}
+
+	/**
 	 * Corte libre y volumétrico CSG: envuelve los vértices con {@link VolumeSliceConsumer} y recoge los bordes reales
 	 * en postura animada para dibujar las tapas y paredes internas con {@link CapBuilder}.
 	 */
 	public static VertexConsumerProvider wrapSlice(VertexConsumerProvider base, LivingEntity e, float tickDelta, MatrixStack ms) {
 		Info i = STATE.get(e.getId());
-		if (i == null || (i.volume == null && i.plane == null)) return base;
-		CutVolume vol = i.volume != null ? i.volume : CutVolume.ofSinglePlane(i.plane);
-		if (vol.isWhole()) return base;
+		if (i == null) return base;
 		Anatomy a = AnatomyRegistry.getOrSynthetic(e);
 		if (a == null) return base;
+		CutVolume origVol = i.volume != null ? i.volume : (i.plane != null ? CutVolume.ofSinglePlane(i.plane) : CutVolume.WHOLE);
+		boolean hasOrigVol = !origVol.isWhole();
+		EntityModel<?> model = MinecraftClient.getInstance().getEntityRenderDispatcher().getRenderer(e) instanceof LivingEntityRenderer<?, ?> lr ? lr.getModel() : null;
+		CutVolume vol = subtractUnisolatedJoints(origVol, a, i, model);
+		if (vol.isWhole()) return base;
 
 		float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
 		double s = e.getScale() * (e.isBaby() ? 0.5 : 1);
@@ -143,28 +202,33 @@ public final class ClientDismember {
 		modelPxToRender.rotateY((float) Math.toRadians(180f - yaw)).scale((float) (-s / 16.0), (float) (s / 16.0), (float) (s / 16.0));
 		Matrix4f renderToModelPx = new Matrix4f(modelPxToRender).invert();
 
-		List<String> activeSegs = new ArrayList<>();
-		for (String sgId : a.segments.keySet()) {
-			if (a.attached(sgId, i.detached)) activeSegs.add(sgId);
+		CapBuilder.Session session = null;
+		if (hasOrigVol) {
+			List<String> activeSegs = new ArrayList<>();
+			for (String sgId : a.segments.keySet()) {
+				if (a.attached(sgId, i.detached)) activeSegs.add(sgId);
+			}
+			session = new CapBuilder.Session(origVol, a, activeSegs);
 		}
-		CapBuilder.Session session = new CapBuilder.Session(vol, a, activeSegs);
-		PASSES.push(new RenderPass(e.getId(), modelPxToRender, base, session));
-		return layer -> new VolumeSliceConsumer(base.getBuffer(layer), renderToModelPx, vol, session);
+		PASSES.push(new RenderPass(e.getId(), modelPxToRender, base, session, true));
+		VolumeSliceConsumer.pushGlobalSlice(renderToModelPx, vol, session);
+		return VolumeSliceConsumer.wrapProvider(base, renderToModelPx, vol, session);
 	}
 
 	/** Antes de dibujar un ser: oculta sus partes cortadas y, sin piernas, lo baja. Siempre emparejado con end(). */
 	public static void begin(LivingEntity e, EntityModel<?> model, MatrixStack ms) {
-		List<ModelPart> hid = new ArrayList<>();
+		List<HiddenEntry> hid = new ArrayList<>();
 		float drop = 0;
 		Info i = STATE.get(e.getId());
 		if (i != null && model != null) {
+			Set<ModelPart> seen = Collections.newSetFromMap(new IdentityHashMap<>());
 			for (String name : hiddenParts(e)) {
-				List<ModelPart> chain = ModelParts.chain(model, name);
-				if (chain == null) continue;
-				ModelPart p = chain.get(chain.size() - 1);
-				if (p.visible) {
+				for (List<ModelPart> chain : ModelParts.chainsFor(model, name)) {
+					if (chain.isEmpty()) continue;
+					ModelPart p = chain.get(chain.size() - 1);
+					if (!seen.add(p)) continue;
+					hid.add(new HiddenEntry(p, p.visible));
 					p.visible = false;
-					hid.add(p);
 				}
 			}
 			drop = i.drop;
@@ -182,14 +246,16 @@ public final class ClientDismember {
 		Set<String> names = NAMES.peek();
 		if (names.isEmpty()) return;
 		try {
-			List<ModelPart> hid = HIDDEN.peek();
+			List<HiddenEntry> hid = HIDDEN.peek();
+			Set<ModelPart> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+			for (HiddenEntry he : hid) seen.add(he.part);
 			for (String name : names) {
-				List<ModelPart> chain = ModelParts.chain(copy, name);
-				if (chain == null) continue;
-				ModelPart p = chain.get(chain.size() - 1);
-				if (p.visible) {
+				for (List<ModelPart> chain : ModelParts.chainsFor(copy, name)) {
+					if (chain.isEmpty()) continue;
+					ModelPart p = chain.get(chain.size() - 1);
+					if (!seen.add(p)) continue;
+					hid.add(new HiddenEntry(p, p.visible));
 					p.visible = false;
-					hid.add(p);
 				}
 			}
 		} catch (RuntimeException ignored) {
@@ -200,11 +266,12 @@ public final class ClientDismember {
 	/** Después: lo vuelve a dejar todo como estaba y pinta las caras de corte del ser con luz y shaders reales. */
 	public static void end(LivingEntity e, MatrixStack ms, VertexConsumerProvider vcp, float tickDelta, int light) {
 		if (HIDDEN.isEmpty()) return;
-		for (ModelPart p : HIDDEN.pop()) p.visible = true;
+		for (HiddenEntry he : HIDDEN.pop()) he.part.visible = he.wasVisible;
 		begun = Integer.MIN_VALUE;
 		if (!NAMES.isEmpty()) NAMES.pop();
 		float drop = DROPS.isEmpty() ? 0 : DROPS.pop()[0];
 		RenderPass pass = !PASSES.isEmpty() && PASSES.peek().entityId == e.getId() ? PASSES.pop() : null;
+		if (pass != null && pass.globalPushed) VolumeSliceConsumer.popGlobalSlice();
 		VertexConsumerProvider outVcp = pass != null ? pass.rawVcp : vcp;
 		try {
 			Info i = STATE.get(e.getId());
@@ -230,7 +297,7 @@ public final class ClientDismember {
 					ms.pop();
 				}
 			}
-			if (pass != null && i != null) {
+			if (pass != null && pass.session != null && i != null) {
 				boolean locked = i.locked.contains("#slice") || i.locked.stream().anyMatch(k -> k.startsWith("#vol:"));
 				try {
 					pass.session.flush(pass.modelPxToRender, pass.rawVcp, light, overlay, time, locked, false, false);

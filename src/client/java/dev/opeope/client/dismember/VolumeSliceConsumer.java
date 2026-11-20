@@ -2,10 +2,16 @@ package dev.opeope.client.dismember;
 
 import dev.opeope.anatomy.CutOp;
 import dev.opeope.anatomy.CutVolume;
+import net.minecraft.client.render.OverlayTexture;
+import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexFormat;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -23,7 +29,9 @@ public final class VolumeSliceConsumer implements VertexConsumer {
 	private static final int STRIDE = 11; // vx, vy, vz, mx, my, mz, u, v, nx, ny, nz
 	private static final int MAX_POLY = 20;
 
-	private final VertexConsumer delegate;
+	private VertexConsumer delegate;
+	private final VertexConsumerProvider rawProvider;
+	private final RenderLayer layer;
 	private final Matrix4f renderToModelPx;
 	private final CutVolume volume;
 	private final List<CutOp.HalfSpace> halfSpaces;
@@ -32,6 +40,16 @@ public final class VolumeSliceConsumer implements VertexConsumer {
 	private final boolean pureHalfSpaces;
 	private final boolean active;
 	private final CapBuilder.Session session;
+
+	private float curX, curY, curZ, curU, curV;
+	private int curColor = -1;
+	private int curOverlay = OverlayTexture.DEFAULT_UV;
+	private int curLight;
+	private boolean hasPending;
+
+	private record GlobalSlice(Matrix4f renderToModelPx, CutVolume volume, CapBuilder.Session session) {}
+	private static final Deque<GlobalSlice> GLOBAL_STACK = new ArrayDeque<>();
+	private static int internalDepth;
 
 	private final float[] inF = new float[4 * STRIDE];
 	private final int[] inI = new int[4 * 3]; // color, overlay, light
@@ -52,7 +70,14 @@ public final class VolumeSliceConsumer implements VertexConsumer {
 	private final float[] edgeAC = new float[STRIDE];
 
 	public VolumeSliceConsumer(VertexConsumer delegate, Matrix4f renderToModelPx, CutVolume volume, CapBuilder.Session session) {
+		this(delegate, null, null, renderToModelPx, volume, session);
+	}
+
+	public VolumeSliceConsumer(VertexConsumer delegate, VertexConsumerProvider rawProvider, RenderLayer layer,
+							   Matrix4f renderToModelPx, CutVolume volume, CapBuilder.Session session) {
 		this.delegate = delegate;
+		this.rawProvider = rawProvider;
+		this.layer = layer;
 		this.renderToModelPx = renderToModelPx;
 		this.volume = volume;
 		this.halfSpaces = volume.halfSpaces();
@@ -61,6 +86,52 @@ public final class VolumeSliceConsumer implements VertexConsumer {
 		this.pureHalfSpaces = volume.isPureHalfSpaces();
 		this.active = !volume.isWhole();
 		this.session = session;
+	}
+
+	public static void pushGlobalSlice(Matrix4f renderToModelPx, CutVolume volume, CapBuilder.Session session) {
+		if (GLOBAL_STACK.size() > 8) GLOBAL_STACK.clear();
+		GLOBAL_STACK.push(new GlobalSlice(renderToModelPx, volume, session));
+	}
+
+	public static void popGlobalSlice() {
+		if (!GLOBAL_STACK.isEmpty()) GLOBAL_STACK.pop();
+	}
+
+	public static void clearGlobalSlice() {
+		GLOBAL_STACK.clear();
+		internalDepth = 0;
+	}
+
+	public static VertexConsumer getRawBuffer(VertexConsumerProvider provider, RenderLayer layer) {
+		internalDepth++;
+		try {
+			return provider.getBuffer(layer);
+		} finally {
+			internalDepth--;
+		}
+	}
+
+	public static VertexConsumerProvider wrapProvider(VertexConsumerProvider base, Matrix4f renderToModelPx,
+													  CutVolume volume, CapBuilder.Session session) {
+		return layer -> {
+			VertexConsumer raw = getRawBuffer(base, layer);
+			if (raw instanceof VolumeSliceConsumer) return raw;
+			return new VolumeSliceConsumer(raw, base, layer, renderToModelPx, volume, session);
+		};
+	}
+
+	public static VertexConsumer wrapIfActive(VertexConsumerProvider provider, RenderLayer layer, VertexConsumer vc) {
+		if (internalDepth > 0 || GLOBAL_STACK.isEmpty() || vc == null || vc instanceof VolumeSliceConsumer || layer == null) {
+			return vc;
+		}
+		if (layer.getDrawMode() != VertexFormat.DrawMode.QUADS) return vc;
+		String name = layer.toString();
+		if (name.contains("cut_cap") || name.contains("cut_rim") || name.contains("lightning")
+			|| name.contains("outline") || name.contains("debug")) {
+			return vc;
+		}
+		GlobalSlice gs = GLOBAL_STACK.peek();
+		return new VolumeSliceConsumer(vc, provider, layer, gs.renderToModelPx, gs.volume, gs.session);
 	}
 
 	@Override
@@ -377,45 +448,78 @@ public final class VolumeSliceConsumer implements VertexConsumer {
 
 	private void putArr(float[] arr, int o, int k) {
 		int io = (k & 3) * 3;
-		delegate.vertex(arr[o], arr[o + 1], arr[o + 2],
-			inI[io], arr[o + 6], arr[o + 7],
-			inI[io + 1], inI[io + 2],
-			arr[o + 8], arr[o + 9], arr[o + 10]);
+		float x = arr[o], y = arr[o + 1], z = arr[o + 2];
+		int color = inI[io];
+		float u = arr[o + 6], v = arr[o + 7];
+		int overlay = inI[io + 1], light = inI[io + 2];
+		float nx = arr[o + 8], ny = arr[o + 9], nz = arr[o + 10];
+		try {
+			delegate.vertex(x, y, z, color, u, v, overlay, light, nx, ny, nz);
+		} catch (IllegalStateException ex) {
+			if (rawProvider != null && layer != null) {
+				VertexConsumer refreshed = getRawBuffer(rawProvider, layer);
+				if (refreshed != null && refreshed != this) {
+					if (refreshed instanceof VolumeSliceConsumer vsc) refreshed = vsc.delegate;
+					delegate = refreshed;
+					delegate.vertex(x, y, z, color, u, v, overlay, light, nx, ny, nz);
+					return;
+				}
+			}
+			throw ex;
+		}
 	}
 
 	@Override
 	public VertexConsumer vertex(float x, float y, float z) {
-		delegate.vertex(x, y, z);
+		if (hasPending) {
+			hasPending = false;
+			vertex(curX, curY, curZ, curColor, curU, curV, curOverlay, curLight, 0f, 1f, 0f);
+		}
+		curX = x;
+		curY = y;
+		curZ = z;
+		curU = 0f;
+		curV = 0f;
+		curColor = -1;
+		curOverlay = OverlayTexture.DEFAULT_UV;
+		curLight = 0;
+		hasPending = true;
 		return this;
 	}
 
 	@Override
 	public VertexConsumer color(int r, int g, int b, int a) {
-		delegate.color(r, g, b, a);
+		curColor = ((a & 255) << 24) | ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
 		return this;
 	}
 
 	@Override
 	public VertexConsumer texture(float u, float v) {
-		delegate.texture(u, v);
+		curU = u;
+		curV = v;
 		return this;
 	}
 
 	@Override
 	public VertexConsumer overlay(int u, int v) {
-		delegate.overlay(u, v);
+		curOverlay = (u & 0xFFFF) | ((v & 0xFFFF) << 16);
 		return this;
 	}
 
 	@Override
 	public VertexConsumer light(int u, int v) {
-		delegate.light(u, v);
+		curLight = (u & 0xFFFF) | ((v & 0xFFFF) << 16);
 		return this;
 	}
 
 	@Override
 	public VertexConsumer normal(float x, float y, float z) {
-		delegate.normal(x, y, z);
+		if (hasPending) {
+			hasPending = false;
+			vertex(curX, curY, curZ, curColor, curU, curV, curOverlay, curLight, x, y, z);
+		} else {
+			delegate.normal(x, y, z);
+		}
 		return this;
 	}
 }

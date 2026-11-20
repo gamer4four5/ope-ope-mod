@@ -18,7 +18,9 @@
     "HeadFeatureRendererMixin",
     "EntityModelLoaderMixin",
     "EntityModelAccessorMixin",
-    "FirstPersonArmMixin"
+    "FirstPersonArmMixin",
+    "ModelPartRotateMixin",
+    "VertexConsumerProviderImmediateMixin"
   ],
   "injectors": {
     "defaultRequire": 1

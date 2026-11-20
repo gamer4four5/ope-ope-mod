@@ -82,6 +82,12 @@ public final class CapBuilder {
 			rimSegs.add(new float[]{ax, ay, az, bx, by, bz});
 		}
 
+		public int recordedSegmentCount() {
+			int total = rimSegs.size();
+			for (List<float[]> list : planeSegs) total += list.size();
+			return total;
+		}
+
 		/** Dibuja todas las tapas, paredes CSG y bordes luminosos sobre {@code modelPxToRender}. */
 		public void flush(Matrix4f modelPxToRender, VertexConsumerProvider vcp, int light, int overlay,
 						  float time, boolean locked, boolean frozen, boolean sliceSide) {

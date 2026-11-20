@@ -1,6 +1,7 @@
 package dev.opeope.client.render;
 
 import dev.opeope.client.ClientState;
+import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -71,6 +72,11 @@ public final class CutRendering {
 		private final float[] buf = new float[4 * 8];
 		private final int[] ibuf = new int[4 * 3];
 		private int count;
+		private float curX, curY, curZ, curU, curV;
+		private int curColor = -1;
+		private int curOverlay = OverlayTexture.DEFAULT_UV;
+		private int curLight;
+		private boolean hasPending;
 
 		CutConsumer(VertexConsumer delegate, Matrix4f m, Matrix4f inv, float[] planes, float time) {
 			this.d = delegate;
@@ -246,37 +252,55 @@ public final class CutRendering {
 
 		@Override
 		public VertexConsumer vertex(float x, float y, float z) {
-			d.vertex(x, y, z);
+			if (hasPending) {
+				hasPending = false;
+				vertex(curX, curY, curZ, curColor, curU, curV, curOverlay, curLight, 0f, 1f, 0f);
+			}
+			curX = x;
+			curY = y;
+			curZ = z;
+			curU = 0f;
+			curV = 0f;
+			curColor = -1;
+			curOverlay = OverlayTexture.DEFAULT_UV;
+			curLight = 0;
+			hasPending = true;
 			return this;
 		}
 
 		@Override
 		public VertexConsumer color(int r, int g, int b, int a) {
-			d.color(r, g, b, a);
+			curColor = ((a & 255) << 24) | ((r & 255) << 16) | ((g & 255) << 8) | (b & 255);
 			return this;
 		}
 
 		@Override
 		public VertexConsumer texture(float u, float v) {
-			d.texture(u, v);
+			curU = u;
+			curV = v;
 			return this;
 		}
 
 		@Override
 		public VertexConsumer overlay(int u, int v) {
-			d.overlay(u, v);
+			curOverlay = (u & 0xFFFF) | ((v & 0xFFFF) << 16);
 			return this;
 		}
 
 		@Override
 		public VertexConsumer light(int u, int v) {
-			d.light(u, v);
+			curLight = (u & 0xFFFF) | ((v & 0xFFFF) << 16);
 			return this;
 		}
 
 		@Override
 		public VertexConsumer normal(float x, float y, float z) {
-			d.normal(x, y, z);
+			if (hasPending) {
+				hasPending = false;
+				vertex(curX, curY, curZ, curColor, curU, curV, curOverlay, curLight, x, y, z);
+			} else {
+				d.normal(x, y, z);
+			}
 			return this;
 		}
 	}
