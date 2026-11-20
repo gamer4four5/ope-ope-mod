@@ -85,6 +85,10 @@ public class BodyPartEntity extends Entity {
 	private int turnTicks, impactCd, soundCd = 80;
 	private boolean auto;
 
+	private enum GaitMode { NONE, BALANCED_WALK, HALF_QUAD_LIMP, SIDE_OR_ONE_LEG_HOP, ARM_CRAWL }
+	private GaitMode gait = GaitMode.NONE;
+	private int gaitFrontLegs, gaitHindLegs, gaitLeftLegs, gaitRightLegs;
+
 	// Bisturí diferido + Takt clavado
 	private Vec3d frozenOffset;
 	private Vec3d frozenKick;
@@ -354,26 +358,54 @@ public class BodyPartEntity extends Entity {
 		return false;
 	}
 
-	/** Patas sueltas que andan solas (la mitad de abajo, o dos patas de un cuadrúpedo): sin cabeza y con al menos dos patas. */
+	/** Patas o extremidades con autonomía propia (mitad de abajo, mitad delantera/trasera, mitad lateral, pata suelta o torso con brazos). */
 	public boolean autonomous() {
 		return auto && OpeConfig.LOWER_HALF_WANDERS && !mounted() && !pinned() && !frozen();
 	}
 
 	private boolean computeAuto() {
+		gait = GaitMode.NONE;
+		gaitFrontLegs = 0;
+		gaitHindLegs = 0;
+		gaitLeftLegs = 0;
+		gaitRightLegs = 0;
 		Anatomy a = anatomy();
 		if (a == null) return false;
 		CutVolume vol = cutVolume();
+		Anatomy.Segment core = a.get(a.core);
+		Vec3d coreC = core != null ? core.center() : Vec3d.ZERO;
 		int legs = 0;
+		boolean hasCore = false, hasArms = false;
 		for (String sg : segments) {
 			Anatomy.Segment x = a.get(sg);
 			if (x == null) continue;
 			double frac = vol.isWhole() ? 1.0 : VolumeBounds.remainingFraction(x.box(), vol);
 			if (frac < 0.30) continue;
-			if (x.has("vision")) return false;
-			if (sg.equals(a.core) && vol.isWhole() && !isSlice()) return false;
-			if (x.has("locomotion")) legs++;
+			if (sg.equals(a.core) && (!vol.isWhole() || isSlice() || segments.size() > 1)) hasCore = true;
+			if (x.has("main_hand") || x.has("off_hand")) hasArms = true;
+			if (x.has("locomotion")) {
+				legs++;
+				if (x.id().contains("left") || x.center().x > coreC.x + 0.5) gaitLeftLegs++;
+				else if (x.id().contains("right") || x.center().x < coreC.x - 0.5) gaitRightLegs++;
+				if (x.id().contains("front") || x.center().z < coreC.z - 0.5) gaitFrontLegs++;
+				else if (x.id().contains("hind") || x.center().z > coreC.z + 0.5) gaitHindLegs++;
+			}
 		}
-		return legs >= 2;
+		if (legs >= 2) {
+			if (a.legs >= 4 && (gaitLeftLegs == 0 || gaitRightLegs == 0)) gait = GaitMode.SIDE_OR_ONE_LEG_HOP;
+			else if (a.legs >= 4 && legs < a.legs) gait = GaitMode.HALF_QUAD_LIMP;
+			else gait = GaitMode.BALANCED_WALK;
+			return true;
+		}
+		if (legs == 1) {
+			gait = GaitMode.SIDE_OR_ONE_LEG_HOP;
+			return true;
+		}
+		if (hasCore && hasArms) {
+			gait = GaitMode.ARM_CRAWL;
+			return true;
+		}
+		return false;
 	}
 
 	// ------------------------------------------------------------------ quimera: puesta en otro ser
@@ -680,8 +712,20 @@ public class BodyPartEntity extends Entity {
 		}
 		// Takt la deja sin gravedad al cogerla; al soltarla (o lanzarla) vuelve a caer
 		if (!held && hasNoGravity()) setNoGravity(false);
-		if (!held && autonomous()) walk(sw);
-		else if (!held && hasVision()) headLife(sw, v);
+		boolean reclaimingTouch = OpeConfig.MOBS_RECLAIM_PARTS
+			&& v instanceof net.minecraft.entity.mob.MobEntity mb
+			&& !mb.isAiDisabled()
+			&& mb.getBoundingBox().expand(0.8).intersects(getBoundingBox());
+		if (!held && autonomous()) {
+			if (life >= 12 && returning <= 0 && !reclaimingTouch) walk(sw);
+			if (hasVision() && --soundCd <= 0 && v instanceof net.minecraft.entity.mob.MobEntity mob) {
+				soundCd = 140 + random.nextInt(220);
+				net.minecraft.sound.SoundEvent snd = ((dev.opeope.mixin.MobEntityInvoker) mob).opeope$ambientSound();
+				if (snd != null) sw.playSound(null, getX(), getY(), getZ(), snd, mob.getSoundCategory(), 0.7f, 1.35f + random.nextFloat() * 0.2f);
+			}
+		} else if (!held && hasVision()) {
+			headLife(sw, v);
+		}
 		physics();
 		if (!held) impact(sw, v);
 		if (impactCd > 0) impactCd--;
@@ -760,12 +804,11 @@ public class BodyPartEntity extends Entity {
 		fallDistance = 0;
 	}
 
-	/** Las piernas sueltas andan solas: dan vueltas, saltan lo que les corta el paso y huyen de quien las cortó. */
+	/** Cada parte cortada se mueve según sus extremidades: marcha recta, cojera de medio cuerpo, salto lateral o arrastre con brazos. */
 	private void walk(ServerWorld sw) {
 		if (!isOnGround()) return;
 		spinYaw = spinPitch = spinRoll = 0;
-		setPitch(0);
-		dataTracker.set(ROLL, 0f);
+		if (gait == GaitMode.NONE) return;
 		if (--turnTicks <= 0) {
 			walkYaw += (random.nextFloat() - 0.5f) * 140f;
 			turnTicks = 30 + random.nextInt(50);
@@ -780,13 +823,52 @@ public class BodyPartEntity extends Entity {
 			if (random.nextInt(3) > 0) vel = new Vec3d(vel.x, 0.42, vel.z);
 			else walkYaw += 150f;
 		}
-		double sp = 0.12 * Math.max(0.5, victimScale());
+		float scale = Math.max(0.5f, victimScale());
 		double r = walkYaw * (Math.PI / 180);
-		setVelocity(-Math.sin(r) * sp, vel.y, Math.cos(r) * sp);
+		double dirX = -Math.sin(r), dirZ = Math.cos(r);
 		setYaw(walkYaw);
+
+		switch (gait) {
+			case BALANCED_WALK -> {
+				setPitch(0f);
+				dataTracker.set(ROLL, 0f);
+				double sp = 0.12 * scale;
+				setVelocity(dirX * sp, vel.y, dirZ * sp);
+			}
+			case HALF_QUAD_LIMP -> {
+				float basePitch = gaitFrontLegs > gaitHindLegs ? 16f : -16f;
+				setPitch(basePitch + 12f * MathHelper.sin(age * 0.55f));
+				dataTracker.set(ROLL, 9f * MathHelper.cos(age * 0.55f));
+				double sp = 0.095 * scale;
+				double vy = (age % 10 == 0) ? Math.max(vel.y, 0.12) : vel.y;
+				setVelocity(dirX * sp, vy, dirZ * sp);
+			}
+			case SIDE_OR_ONE_LEG_HOP -> {
+				float sideSign = (gaitRightLegs > gaitLeftLegs) ? 1f : -1f;
+				setPitch(6f * MathHelper.sin(age * 0.45f));
+				dataTracker.set(ROLL, sideSign * (68f + 14f * MathHelper.sin(age * 0.4f)));
+				if (age % 13 == 0) {
+					double sp = 0.135 * scale;
+					setVelocity(dirX * sp, Math.max(vel.y, 0.22), dirZ * sp);
+				} else {
+					setVelocity(vel.x * 0.8, vel.y, vel.z * 0.8);
+				}
+			}
+			case ARM_CRAWL -> {
+				setPitch(55f + 8f * MathHelper.sin(age * 0.35f));
+				dataTracker.set(ROLL, 6f * MathHelper.cos(age * 0.35f));
+				if (age % 14 == 0) {
+					double sp = 0.055 * scale;
+					setVelocity(dirX * sp, Math.max(vel.y, 0.08), dirZ * sp);
+				} else {
+					setVelocity(vel.x * 0.75, vel.y, vel.z * 0.75);
+				}
+			}
+			default -> {}
+		}
 	}
 
-	/** Una cabeza suelta sigue viva: en el suelo se pone derecha, mira (al jugador más cercano, o a donde mira su dueño si es un jugador) y a veces habla. */
+	/** Una cabeza suelta sigue viva: en el suelo se pone derecha, mira (al jugador más cercano, o a donde mira su dueño si es un jugador) y a veces habla o da un saltito. */
 	private void headLife(ServerWorld sw, LivingEntity v) {
 		if (!isOnGround() && !pinned()) return;
 		spinYaw = spinPitch = spinRoll = 0;
@@ -802,6 +884,11 @@ public class BodyPartEntity extends Entity {
 			Vec3d d = near.getEyePos().subtract(getPos());
 			float want = (float) (MathHelper.atan2(d.z, d.x) * (180 / Math.PI)) - 90f;
 			setYaw(getYaw() + MathHelper.clamp(MathHelper.wrapDegrees(want - getYaw()), -12f, 12f));
+			if (isOnGround() && !pinned() && near.squaredDistanceTo(this) < 16.0 && age % 50 == 0) {
+				Vec3d vel = getVelocity();
+				setVelocity(vel.x, Math.max(vel.y, 0.13), vel.z);
+				velocityModified = true;
+			}
 		} else if (age % 40 == 0) {
 			setYaw(getYaw() + (random.nextFloat() - 0.5f) * 60f);
 		}

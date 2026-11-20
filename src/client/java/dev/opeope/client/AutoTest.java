@@ -3754,6 +3754,7 @@ public final class AutoTest {
 						bp.setPosition(p1.getX(), p1.getY(), p1.getZ());
 						bp.setVelocity(Vec3d.ZERO);
 					}
+					p1.setVelocity(Vec3d.ZERO);
 					eReclaimId = p1.getId();
 				}
 			});
@@ -3874,6 +3875,103 @@ public final class AutoTest {
 			}
 			check(resolvedEmf && stayedHidden, "E9b FreshAnimations/CEM EMF_head2 resuelto y re-ocultado por rotate()",
 				"resolved=" + resolvedEmf + " hidden=" + stayedHidden);
+		});
+		final int[] e10Ids = {-1, -1};
+		final java.util.concurrent.atomic.AtomicBoolean e10SrvDone = new java.util.concurrent.atomic.AtomicBoolean(false);
+		step(2, "E10 servidor", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0 + DZ;
+			if (pw.room == null || pw.room.dim != w.getRegistryKey()) {
+				pw.room = new Room(w.getRegistryKey(), new Vec3d(ax0 + 0.5, ay0 + 2, az0 - 3.0), 14);
+				pw.room.state = Room.State.FIXED;
+				PowerManager.broadcastRoom(sp, 0, pw.room);
+			}
+
+			// E10a: corte rasante transversal auto-centrado produce verdadera bisección autónoma en oveja
+			net.minecraft.entity.passive.SheepEntity s1 = EntityType.SHEEP.create(w);
+			if (s1 != null) {
+				s1.refreshPositionAndAngles(ax0 - 4.0, ay0 + 1, az0 - 8.0, 0f, 0f);
+				s1.setBodyYaw(0f);
+				s1.setAiDisabled(true);
+				s1.setPersistent();
+				w.spawnEntity(s1);
+				e10Ids[0] = s1.getId();
+				dev.opeope.anatomy.Anatomy shAnat = dev.opeope.anatomy.AnatomyRegistry.getOrSynthetic(s1);
+				double totalVol = dev.opeope.anatomy.VolumeBounds.estimateVolumePx3(
+					shAnat, shAnat.segments.keySet(), dev.opeope.anatomy.CutVolume.WHOLE);
+				dev.opeope.power.Dismember.sweep(sp, s1, List.of(
+					new CutEngine.Plane(new Vec3d(0, 0, 1), s1.getPos().add(0, 0.7, -0.45))), false);
+				List<dev.opeope.entity.BodyPartEntity> pts1 = partsOf(w, s1);
+				dev.opeope.entity.BodyPartEntity bp1 = pts1.size() == 1 ? pts1.get(0) : null;
+				double pieceVol = bp1 == null ? 0.0
+					: dev.opeope.anatomy.VolumeBounds.estimateVolumePx3(shAnat, bp1.segments(), bp1.cutVolume());
+				dev.opeope.power.Dismember.Caps c1 = dev.opeope.power.Dismember.caps(s1);
+				boolean ok10a = bp1 != null && bp1.autonomous() && totalVol > 0
+					&& pieceVol > 0.22 * totalVol && c1 != null
+					&& c1.legsMissing() == 2 && c1.speedMul() < 0.65 && c1.drop() > 0.05f;
+				dres("E10a corte rasante auto-centrado en oveja con parte autónoma", ok10a ? null
+					: "parts=" + pts1.size() + " auto=" + (bp1 != null && bp1.autonomous())
+					+ " volRatio=" + (totalVol > 0 ? pieceVol / totalVol : 0)
+					+ " legsMiss=" + (c1 == null ? -1 : c1.legsMissing())
+					+ " speed=" + (c1 == null ? -1 : c1.speedMul())
+					+ " drop=" + (c1 == null ? -1 : c1.drop()));
+			} else {
+				dres("E10a corte rasante auto-centrado en oveja con parte autónoma", "sheep create null");
+			}
+
+			// E10b: bisección longitudinal en oveja da caída lateral y parte autónoma
+			net.minecraft.entity.passive.SheepEntity s2 = EntityType.SHEEP.create(w);
+			if (s2 != null) {
+				s2.refreshPositionAndAngles(ax0 + 4.0, ay0 + 1, az0 - 8.0, 0f, 0f);
+				s2.setBodyYaw(0f);
+				s2.setAiDisabled(true);
+				s2.setPersistent();
+				w.spawnEntity(s2);
+				e10Ids[1] = s2.getId();
+				dev.opeope.power.Dismember.sweep(sp, s2, List.of(
+					new CutEngine.Plane(new Vec3d(1, 0, 0), s2.getBoundingBox().getCenter())), false);
+				List<dev.opeope.entity.BodyPartEntity> pts2 = partsOf(w, s2);
+				dev.opeope.entity.BodyPartEntity bp2 = pts2.size() == 1 ? pts2.get(0) : null;
+				dev.opeope.power.Dismember.Caps c2 = dev.opeope.power.Dismember.caps(s2);
+				boolean ok10b = bp2 != null && bp2.autonomous() && c2 != null
+					&& c2.legsMissing() == 2 && c2.drop() > 0.15f;
+				dres("E10b bisección longitudinal en oveja caída + parte autónoma", ok10b ? null
+					: "parts=" + pts2.size() + " auto=" + (bp2 != null && bp2.autonomous())
+					+ " legsMiss=" + (c2 == null ? -1 : c2.legsMissing())
+					+ " drop=" + (c2 == null ? -1 : c2.drop()));
+			} else {
+				dres("E10b bisección longitudinal en oveja caída + parte autónoma", "sheep create null");
+			}
+
+			// E10c: Shambles apuntando más allá del borde del ROOM recorta el destino dentro del ROOM
+			Vec3d prevPos = sp.getPos();
+			float prevYaw = sp.getYaw(), prevPitch = sp.getPitch();
+			Vec3d rc = pw.room.center;
+			sp.setPosition(rc.x, ay0 + 1.0, rc.z);
+			sp.setYaw(0f);
+			sp.setPitch(0f);
+			Vec3d dest = Shambles.emptyPoint(sp);
+			boolean ok10c = dest != null && PowerManager.inRoom(sp, dest.add(0, 0.5, 0));
+			sp.setPosition(prevPos.x, prevPos.y, prevPos.z);
+			sp.setYaw(prevYaw);
+			sp.setPitch(prevPitch);
+			dres("E10c Shambles al vacío recorta destino dentro del ROOM", ok10c ? null
+				: "dest=" + dest);
+
+			e10SrvDone.set(true);
+		}));
+		waitFor("E10 servidor listo", 40, "E10 servidor no terminó", e10SrvDone::get, AutoTest::drain);
+		step(4, "E10b postura cliente", () -> {
+			drain();
+			Entity ce = mc.world == null ? null : mc.world.getEntityById(e10Ids[1]);
+			dev.opeope.client.dismember.ClientDismember.Info ci = ce instanceof LivingEntity le
+				? dev.opeope.client.dismember.ClientDismember.info(le) : null;
+			float roll = ce instanceof LivingEntity le && ci != null
+				? Math.abs(dev.opeope.client.dismember.ClientDismember.computePosture(
+					le, ci, dev.opeope.anatomy.AnatomyRegistry.getOrSynthetic(le), 0f).rollDeg())
+				: 0f;
+			check(roll > 55f, "E10b postura caída lateral (>55°) en oveja partida",
+				"entity=" + ce + " roll=" + roll);
 		});
 		step(2, "E fin", () -> server(srv, id, (sp, pw) -> {
 			ServerWorld w = sp.getServerWorld();

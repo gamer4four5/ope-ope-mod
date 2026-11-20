@@ -74,6 +74,12 @@ public final class RoomSounds {
 		}
 	}
 
+	/** Respuesta inmediata en cliente al usar Shambles. */
+	public static void shamblesSnap() {
+		own("shambles.warp", 1.45f, 0.48f, 0);
+		own("shambles.snap", 1.80f, 0.42f, 1);
+	}
+
 	static void own(String id, float pitch, float volume) {
 		own(id, pitch, volume, 0);
 	}

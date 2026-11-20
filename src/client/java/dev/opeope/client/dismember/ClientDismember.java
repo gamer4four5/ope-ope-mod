@@ -74,7 +74,7 @@ public final class ClientDismember {
 		PASSES.clear();
 		HIDDEN.clear();
 		NAMES.clear();
-		DROPS.clear();
+		PUSHED_TRANSFORM.clear();
 		VolumeSliceConsumer.clearGlobalSlice();
 		CapBuilder.clearCache();
 		aimEntity = -1;
@@ -124,7 +124,7 @@ public final class ClientDismember {
 	public record HiddenEntry(ModelPart part, boolean wasVisible) {}
 
 	private static final Deque<List<HiddenEntry>> HIDDEN = new ArrayDeque<>();
-	private static final Deque<float[]> DROPS = new ArrayDeque<>();
+	private static final Deque<Boolean> PUSHED_TRANSFORM = new ArrayDeque<>();
 	private record RenderPass(int entityId, Matrix4f modelPxToRender, VertexConsumerProvider rawVcp, CapBuilder.Session session, boolean globalPushed) {}
 	private static final Deque<RenderPass> PASSES = new ArrayDeque<>();
 	/** Los nombres ocultos del ser que se está dibujando (para las capas que copian su postura). */
@@ -132,6 +132,123 @@ public final class ClientDismember {
 	private static final Set<Object> CAP_WARNED = new HashSet<>();
 
 	private static int begun = Integer.MIN_VALUE;
+
+	/** Postura biomecánica (caída de costado, cojera o inclinación) al perder extremidades. */
+	public record Posture(float pitchDeg, float rollDeg, float extraDrop) {
+		public static final Posture NONE = new Posture(0f, 0f, 0f);
+		public boolean isFlat() { return Math.abs(pitchDeg) < 0.05f && Math.abs(rollDeg) < 0.05f && Math.abs(extraDrop) < 1e-4f; }
+	}
+
+	public static Posture computePosture(LivingEntity e, Info i, Anatomy a, float tickDelta) {
+		if (e == null || i == null || a == null || a.legs <= 0) return Posture.NONE;
+		CutVolume vol = i.volume != null ? i.volume : (i.plane != null ? CutVolume.ofSinglePlane(i.plane) : CutVolume.WHOLE);
+		Anatomy.Segment core = a.get(a.core);
+		Vec3d coreC = core != null ? core.center() : Vec3d.ZERO;
+		int missing = 0, keptLegs = 0;
+		int leftKept = 0, rightKept = 0, frontKept = 0, hindKept = 0;
+		int leftMiss = 0, rightMiss = 0, frontMiss = 0, hindMiss = 0;
+		for (Anatomy.Segment s : a.segments.values()) {
+			if (!s.has("locomotion")) continue;
+			boolean isForeign = i.foreign.contains(s.id());
+			boolean intact = isForeign || (!i.detached.contains(s.id()) && (vol.isWhole() || dev.opeope.anatomy.VolumeBounds.remainingFraction(s.box(), vol) >= 0.45));
+			boolean isL = s.id().contains("left") || s.center().x > coreC.x + 0.5;
+			boolean isR = s.id().contains("right") || s.center().x < coreC.x - 0.5;
+			boolean isF = s.id().contains("front") || s.center().z < coreC.z - 0.5;
+			boolean isH = s.id().contains("hind") || s.center().z > coreC.z + 0.5;
+			if (intact) {
+				keptLegs++;
+				if (isL) leftKept++; else if (isR) rightKept++;
+				if (isF) frontKept++; else if (isH) hindKept++;
+			} else {
+				missing++;
+				if (isL) leftMiss++; else if (isR) rightMiss++;
+				if (isF) frontMiss++; else if (isH) hindMiss++;
+			}
+		}
+		if (missing == 0) return Posture.NONE;
+		float limbPos = e.limbAnimator.getPos(tickDelta);
+		float limbSpd = Math.min(1f, e.limbAnimator.getSpeed(tickDelta));
+		float idle = e.age + tickDelta;
+		float bob = MathHelper.sin(limbPos * 0.75f);
+		float bob2 = MathHelper.cos(limbPos * 0.75f);
+
+		if (a.legs >= 4) {
+			if (keptLegs == 0) {
+				// Sin ninguna pata: tumbado levemente de costado sobre el vientre
+				return new Posture(4f * MathHelper.sin(idle * 0.14f), 14f, 0f);
+			}
+			if (keptLegs == 1 || (leftKept == 0 && rightKept > 0) || (rightKept == 0 && leftKept > 0)) {
+				// Partido longitudinalmente o con 1 pata: cae de costado sobre el lado sin apoyo
+				float sideSign = (leftKept == 0 && rightKept > 0) || (leftMiss > rightMiss) ? -1f : 1f;
+				float roll = sideSign * (76f + 5f * MathHelper.sin(idle * 0.25f) + 12f * limbSpd * bob);
+				float pitch = 6f * limbSpd * bob2;
+				return new Posture(pitch, roll, 0f);
+			}
+			if (hindKept == 0 && frontKept > 0) {
+				// Partido por la mitad sin patas traseras: la parte trasera cae hacia atrás (-Z baja => pitch < 0)
+				float pitch = -24f + 15f * limbSpd * bob;
+				float roll = 10f * limbSpd * bob2;
+				return new Posture(pitch, roll, 0f);
+			}
+			if (frontKept == 0 && hindKept > 0) {
+				// Sin patas delanteras: cae de pecho hacia delante (+Z baja => pitch > 0)
+				float pitch = 28f + 15f * limbSpd * bob;
+				float roll = 10f * limbSpd * bob2;
+				return new Posture(pitch, roll, 0f);
+			}
+			// Falta 1 pata o 2 diagonales: cojera asimétrica pronunciada al caminar
+			float pBias = frontMiss > hindMiss ? 11f : -9f;
+			float rBias = leftMiss > rightMiss ? -13f : 13f;
+			return new Posture(pBias + 12f * limbSpd * bob, rBias + 11f * limbSpd * bob2, 0f);
+		}
+		if (a.legs == 2) {
+			if (keptLegs == 0) {
+				return new Posture(6f * MathHelper.sin(idle * 0.14f), 0f, 0f);
+			}
+			// Bípedo con 1 pierna: salta y se inclina al lado cojo
+			float sideSign = leftMiss > rightMiss ? -1f : 1f;
+			return new Posture(8f * limbSpd * Math.abs(bob2), sideSign * (15f + 13f * limbSpd * bob), 0f);
+		}
+		return Posture.NONE;
+	}
+
+	private static float posturePivotY(LivingEntity e, Anatomy a) {
+		double s = e.getScale() * (e.isBaby() ? 0.5 : 1);
+		double px = a.legHeight > 0 ? a.legHeight * 0.65 : a.height * 0.35;
+		return (float) (px * s / 16.0);
+	}
+
+	private static void applyPostureToMatrix(MatrixStack ms, LivingEntity e, Info i, Anatomy a, float tickDelta) {
+		float drop = i != null ? i.drop : 0f;
+		if (drop > 0) ms.translate(0, -drop, 0);
+		Posture pos = computePosture(e, i, a, tickDelta);
+		if (!pos.isFlat()) {
+			float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
+			float py = posturePivotY(e, a);
+			ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180f - yaw));
+			ms.translate(0f, py - pos.extraDrop, 0f);
+			if (Math.abs(pos.rollDeg) > 0.05f) ms.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(pos.rollDeg));
+			if (Math.abs(pos.pitchDeg) > 0.05f) ms.multiply(RotationAxis.POSITIVE_X.rotationDegrees(pos.pitchDeg));
+			ms.translate(0f, -py, 0f);
+			ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(-(180f - yaw)));
+		}
+	}
+
+	private static void applyPostureToMatrix4f(Matrix4f m, LivingEntity e, Info i, Anatomy a, float tickDelta) {
+		float drop = i != null ? i.drop : 0f;
+		if (drop > 0) m.translate(0f, -drop, 0f);
+		Posture pos = computePosture(e, i, a, tickDelta);
+		if (!pos.isFlat()) {
+			float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
+			float py = posturePivotY(e, a);
+			m.rotateY((float) Math.toRadians(180f - yaw));
+			m.translate(0f, py - pos.extraDrop, 0f);
+			if (Math.abs(pos.rollDeg) > 0.05f) m.rotateZ((float) Math.toRadians(pos.rollDeg));
+			if (Math.abs(pos.pitchDeg) > 0.05f) m.rotateX((float) Math.toRadians(pos.pitchDeg));
+			m.translate(0f, -py, 0f);
+			m.rotateY((float) Math.toRadians(-(180f - yaw)));
+		}
+	}
 
 	/**
 	 * Re-oculta todas las partes desmembradas del render actual (se llama en {@code ModelPart.rotate} para que
@@ -198,7 +315,7 @@ public final class ClientDismember {
 		float yaw = MathHelper.lerpAngleDegrees(tickDelta, e.prevBodyYaw, e.bodyYaw);
 		double s = e.getScale() * (e.isBaby() ? 0.5 : 1);
 		Matrix4f modelPxToRender = new Matrix4f(ms.peek().getPositionMatrix());
-		if (begun != e.getId() && i.drop > 0) modelPxToRender.translate(0f, -i.drop, 0f);
+		if (begun != e.getId()) applyPostureToMatrix4f(modelPxToRender, e, i, a, tickDelta);
 		modelPxToRender.rotateY((float) Math.toRadians(180f - yaw)).scale((float) (-s / 16.0), (float) (s / 16.0), (float) (s / 16.0));
 		Matrix4f renderToModelPx = new Matrix4f(modelPxToRender).invert();
 
@@ -215,10 +332,9 @@ public final class ClientDismember {
 		return VolumeSliceConsumer.wrapProvider(base, renderToModelPx, vol, session);
 	}
 
-	/** Antes de dibujar un ser: oculta sus partes cortadas y, sin piernas, lo baja. Siempre emparejado con end(). */
+	/** Antes de dibujar un ser: oculta sus partes cortadas y aplica caída/cojera realista. Siempre emparejado con end(). */
 	public static void begin(LivingEntity e, EntityModel<?> model, MatrixStack ms) {
 		List<HiddenEntry> hid = new ArrayList<>();
-		float drop = 0;
 		Info i = STATE.get(e.getId());
 		if (i != null && model != null) {
 			Set<ModelPart> seen = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -231,13 +347,20 @@ public final class ClientDismember {
 					p.visible = false;
 				}
 			}
-			drop = i.drop;
 		}
 		begun = e.getId();
 		HIDDEN.push(hid);
 		NAMES.push(i == null ? Set.of() : hiddenParts(e));
-		DROPS.push(new float[]{drop});
-		if (drop > 0) ms.translate(0, -drop, 0);
+		boolean pushed = false;
+		if (i != null) {
+			Anatomy a = AnatomyRegistry.getOrSynthetic(e);
+			MinecraftClient mc = MinecraftClient.getInstance();
+			float td = mc.getRenderTickCounter().getTickDelta(false);
+			ms.push();
+			pushed = true;
+			applyPostureToMatrix(ms, e, i, a, td);
+		}
+		PUSHED_TRANSFORM.push(pushed);
 	}
 
 	/** Una capa (lana, ropa, capa exterior) acaba de copiar la postura del ser: oculta en ella las mismas partes. */
@@ -269,7 +392,7 @@ public final class ClientDismember {
 		for (HiddenEntry he : HIDDEN.pop()) he.part.visible = he.wasVisible;
 		begun = Integer.MIN_VALUE;
 		if (!NAMES.isEmpty()) NAMES.pop();
-		float drop = DROPS.isEmpty() ? 0 : DROPS.pop()[0];
+		boolean pushed = !PUSHED_TRANSFORM.isEmpty() && PUSHED_TRANSFORM.pop();
 		RenderPass pass = !PASSES.isEmpty() && PASSES.peek().entityId == e.getId() ? PASSES.pop() : null;
 		if (pass != null && pass.globalPushed) VolumeSliceConsumer.popGlobalSlice();
 		VertexConsumerProvider outVcp = pass != null ? pass.rawVcp : vcp;
@@ -306,7 +429,7 @@ public final class ClientDismember {
 				}
 			}
 		} finally {
-			if (drop > 0) ms.translate(0, drop, 0);
+			if (pushed) ms.pop();
 		}
 	}
 
@@ -397,17 +520,29 @@ public final class ClientDismember {
 			if (t < 0) continue;
 			String name = sg.id();
 			if (name.equals(a.core)) {
-				// el núcleo: si se apunta a su mitad de abajo, la mitad de abajo entera (si el ser tiene ese grupo)
 				Vec3d hp = o.add(d.multiply(t));
 				List<String> low = a.cutGroups.get("lower_half");
-				if (low == null || hp.y > sg.center().y || low.stream().noneMatch(x -> a.attached(x, gone))) continue;
-				name = "lower_half";
+				boolean hasLow = low != null && low.stream().anyMatch(x -> a.attached(x, gone));
+				if (a.legs >= 4) {
+					name = hp.z >= sg.center().z ? "back_half" : "front_half";
+				} else if (hasLow && hp.y <= sg.center().y) {
+					name = "lower_half";
+				} else {
+					name = "waist_half";
+				}
 			}
 			if (names.contains(name)) continue;
 			int k = 0;
 			while (k < hits.size() && hits.get(k)[0] <= t) k++;
 			hits.add(k, new double[]{t});
 			names.add(k, name);
+			if (("back_half".equals(name) || "front_half".equals(name)) && !names.contains("lower_half")) {
+				List<String> low = a.cutGroups.get("lower_half");
+				if (low != null && low.stream().anyMatch(x -> a.attached(x, gone))) {
+					hits.add(new double[]{t + 1.0});
+					names.add("lower_half");
+				}
+			}
 		}
 		return names;
 	}
@@ -441,15 +576,14 @@ public final class ClientDismember {
 		if (sel == null || mc.world == null || !(mc.world.getEntityById(aimEntity) instanceof LivingEntity le)) return;
 		Anatomy a = AnatomyRegistry.get(le.getType());
 		if (a == null || ctx.consumers() == null) return;
-		List<String> segs = a.cutGroups.containsKey(sel) ? a.cutGroups.get(sel) : List.of(sel);
 		float td = ctx.tickCounter().getTickDelta(false);
 		Vec3d cam = ctx.camera().getPos();
 		Vec3d pos = le.getLerpedPos(td);
 		Info i = STATE.get(le.getId());
-		if (i != null && i.drop > 0) pos = pos.add(0, -i.drop, 0);
 		MatrixStack ms = ctx.matrixStack();
 		ms.push();
 		ms.translate(pos.x - cam.x, pos.y - cam.y, pos.z - cam.z);
+		applyPostureToMatrix(ms, le, i, a, td);
 		ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180f - MathHelper.lerpAngleDegrees(td, le.prevBodyYaw, le.bodyYaw)));
 		float s = le.getScale();
 		ms.scale(s, s, s);
@@ -457,15 +591,38 @@ public final class ClientDismember {
 		VertexConsumer vc = ctx.consumers().getBuffer(RenderLayer.getDebugQuads());
 		float pulse = 0.5f + 0.5f * MathHelper.sin((le.age + td) * 0.4f);
 		int al = (int) (60 + 50 * pulse);
-		for (String sg : segs) {
-			Anatomy.Segment seg = a.get(sg);
-			if (seg == null) continue;
-			double[] b = seg.box().clone();
-			for (int k = 0; k < 3; k++) {
-				b[k] -= 0.3;
-				b[k + 3] += 0.3;
+		Anatomy.Segment core = a.get(a.core);
+		if ("back_half".equals(sel) || "front_half".equals(sel) || "waist_half".equals(sel)) {
+			if (core != null) {
+				double[] cb = core.box().clone();
+				if ("back_half".equals(sel)) cb[2] = core.center().z;
+				else if ("front_half".equals(sel)) cb[5] = core.center().z;
+				else cb[4] = cb[1] + (cb[4] - cb[1]) * 0.38;
+				for (int k = 0; k < 3; k++) { cb[k] -= 0.3; cb[k + 3] += 0.3; }
+				box(vc, m, cb, 143, 216, 255, al);
+				for (Anatomy.Segment seg : a.segments.values()) {
+					if (seg == core) continue;
+					boolean match = "back_half".equals(sel) ? seg.center().z >= core.center().z
+						: "front_half".equals(sel) ? seg.center().z < core.center().z
+						: seg.has("locomotion");
+					if (!match) continue;
+					double[] sb = seg.box().clone();
+					for (int k = 0; k < 3; k++) { sb[k] -= 0.3; sb[k + 3] += 0.3; }
+					box(vc, m, sb, 143, 216, 255, al);
+				}
 			}
-			box(vc, m, b, 143, 216, 255, al);
+		} else {
+			List<String> segs = a.cutGroups.containsKey(sel) ? a.cutGroups.get(sel) : List.of(sel);
+			for (String sg : segs) {
+				Anatomy.Segment seg = a.get(sg);
+				if (seg == null) continue;
+				double[] b = seg.box().clone();
+				for (int k = 0; k < 3; k++) {
+					b[k] -= 0.3;
+					b[k + 3] += 0.3;
+				}
+				box(vc, m, b, 143, 216, 255, al);
+			}
 		}
 		ms.pop();
 	}
@@ -605,6 +762,9 @@ public final class ClientDismember {
 			case "left_leg" -> "pierna izquierda";
 			case "lower_half" -> "mitad de abajo";
 			case "upper_half" -> "mitad de arriba";
+			case "back_half" -> "mitad trasera";
+			case "front_half" -> "mitad delantera";
+			case "waist_half" -> "partir por la cintura";
 			case "right_hind_leg" -> "pata trasera derecha";
 			case "left_hind_leg" -> "pata trasera izquierda";
 			case "right_front_leg" -> "pata delantera derecha";

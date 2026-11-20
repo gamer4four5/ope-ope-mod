@@ -101,7 +101,7 @@ public class BodyPartRenderer extends EntityRenderer<BodyPartEntity> {
 				boolean locked = e.locked();
 				boolean frozen = e.frozen();
 				boolean still = host != null || frozen || e.pinned();
-				boolean walking = e.autonomous() && e.getVelocity().horizontalLengthSquared() > 1e-4;
+				boolean walking = e.autonomous() && (e.getVelocity().horizontalLengthSquared() > 2e-5 || !e.isOnGround());
 
 				float limbPos = walking ? time * 0.6662f : 0f;
 				float limbSpeed = walking ? 0.65f : 0f;

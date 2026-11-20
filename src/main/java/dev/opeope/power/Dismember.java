@@ -43,6 +43,7 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -270,6 +271,29 @@ public final class Dismember {
 			return;
 		}
 		Anatomy a = anatomy(le);
+		if ("back_half".equals(segment) || "front_half".equals(segment) || "waist_half".equals(segment)) {
+			Anatomy.Segment core = a.get(a.core);
+			if (core != null) {
+				float yaw = le.getBodyYaw();
+				double scale = Math.max(0.05, le.getScale() * (le.isBaby() ? 0.5 : 1));
+				Vec3d feet = le.getPos().add(0, -caps(le).drop, 0);
+				Vec3d worldCenter = feet.add(Anatomy.toWorld(core.center(), yaw, scale));
+				Vec3d fwd = Anatomy.toWorld(new Vec3d(0, 0, -1), yaw, 16);
+				if (fwd.lengthSquared() < 1e-6) fwd = Vec3d.fromPolar(0, yaw);
+				fwd = fwd.normalize();
+				Vec3d n = "waist_half".equals(segment)
+					? new Vec3d(0, 1, 0)
+					: ("front_half".equals(segment) ? fwd.multiply(-1) : fwd);
+				Vec3d pt = "waist_half".equals(segment)
+					? new Vec3d(worldCenter.x, feet.y + (core.box()[1] + (core.box()[4] - core.box()[1]) * 0.38) * scale / 16.0, worldCenter.z)
+					: worldCenter;
+				if (planeCut(p, le, new CutEngine.Plane(n, pt), false, false, true) != null) {
+					LAST_CUT.put(p.getUuid(), now);
+					PowerManager.get(p).roomUsedDuringHold = true;
+				}
+			}
+			return;
+		}
 		List<String> segs = resolve(a, state(le), segment);
 		if (segs.isEmpty()) return;
 		if (cut(le, segs, p) != null) {
@@ -454,12 +478,44 @@ public final class Dismember {
 		CutOp.HalfSpace posH = rawH;               // lado n·P <= d
 		CutOp.HalfSpace negH = rawH.negated();     // lado n·P >= d
 
-		// Si !anyPart (llamada directa clásica), exigir atravesar el torso o al menos cruzar las cajas unidas
-		if (!anyPart && Anatomy.classify(a.get(a.core).box(), posH.toFloatArray()) != 0) {
-			// Aún así permite cortar cualquier zona si divide significativamente el volumen restante
+		// Anti-corte de "1 píxel": si un plano rápido roza solo el borde de la hitbox (<20% de masa y sin partir ninguna extremidad),
+		// se centra hacia el cuerpo para dividir la entidad de verdad a lo largo del plano trazado.
+		if (!delayed) {
+			CutVolume vPos = baseVol.intersect(posH), vNeg = baseVol.intersect(negH);
+			double estPos = VolumeBounds.estimateVolumePx3(a, attached, vPos);
+			double estNeg = VolumeBounds.estimateVolumePx3(a, attached, vNeg);
+			double totVol = estPos + estNeg;
+			double minFrac = totVol > 1e-4 ? Math.min(estPos, estNeg) / totVol : 0.0;
+			double maxSegMinFrac = 0.0;
+			for (String sid : attached) {
+				if (sid.equals(a.core)) continue;
+				Anatomy.Segment sg = a.get(sid);
+				if (sg == null) continue;
+				double fp = VolumeBounds.remainingFraction(sg.box(), vPos);
+				double fn = VolumeBounds.remainingFraction(sg.box(), vNeg);
+				maxSegMinFrac = Math.max(maxSegMinFrac, Math.min(fp, fn));
+			}
+			Anatomy.Segment coreSeg = a.get(a.core);
+			boolean grazesCore = false;
+			if (coreSeg != null) {
+				double coreMinFrac = Math.min(
+					VolumeBounds.remainingFraction(coreSeg.box(), vPos),
+					VolumeBounds.remainingFraction(coreSeg.box(), vNeg));
+				grazesCore = Anatomy.classify(coreSeg.box(), rawH.toFloatArray()) == 0
+					&& coreMinFrac < 0.20 && minFrac < 0.25;
+			}
+			if ((minFrac < 0.20 && maxSegMinFrac < 0.28) || grazesCore) {
+				Vec3d centerPx = VolumeBounds.estimateCenterPx(a, attached, baseVol);
+				float centerD = (float) (rawH.nx() * centerPx.x + rawH.ny() * centerPx.y + rawH.nz() * centerPx.z);
+				float shiftedD = centerD + MathHelper.clamp(rawH.d() - centerD, -2.2f, 2.2f);
+				rawH = new CutOp.HalfSpace(rawH.nx(), rawH.ny(), rawH.nz(), shiftedD);
+				posH = rawH;
+				negH = rawH.negated();
+			}
 		}
 
-		// ¿Qué lado conserva la víctima? Prioridad: 1) donde queda más visión; 2) más núcleo; 3) más volumen total.
+		// ¿Qué lado conserva la víctima? Si un lado tiene >25% más núcleo (decapitaciones/extremidades), conserva el torso;
+		// en bisecciones reales del cuerpo prioriza visión, luego núcleo y finalmente volumen total.
 		boolean keepNeg = chooseVictimSide(a, attached, baseVol, posH, negH);
 		CutOp.HalfSpace keepPlane = keepNeg ? negH : posH;
 		CutOp.HalfSpace piecePlane = keepPlane.negated();
@@ -469,6 +525,11 @@ public final class Dismember {
 
 	private static boolean chooseVictimSide(Anatomy a, List<String> attached, CutVolume baseVol, CutOp.HalfSpace hPos, CutOp.HalfSpace hNeg) {
 		CutVolume vPos = baseVol.intersect(hPos), vNeg = baseVol.intersect(hNeg);
+		Anatomy.Segment core = a.get(a.core);
+		double cPos = core != null ? VolumeBounds.remainingFraction(core.box(), vPos) : 0;
+		double cNeg = core != null ? VolumeBounds.remainingFraction(core.box(), vNeg) : 0;
+		if (Math.abs(cPos - cNeg) > 0.25) return cNeg > cPos;
+
 		double visPos = 0, visNeg = 0;
 		for (String id : attached) {
 			Anatomy.Segment sg = a.get(id);
@@ -477,13 +538,8 @@ public final class Dismember {
 			visNeg += sg.volume() * VolumeBounds.remainingFraction(sg.box(), vNeg);
 		}
 		if (Math.abs(visPos - visNeg) > 0.5) return visNeg > visPos;
+		if (Math.abs(cPos - cNeg) > 0.03) return cNeg > cPos;
 
-		Anatomy.Segment core = a.get(a.core);
-		if (core != null) {
-			double cPos = VolumeBounds.remainingFraction(core.box(), vPos);
-			double cNeg = VolumeBounds.remainingFraction(core.box(), vNeg);
-			if (Math.abs(cPos - cNeg) > 0.03) return cNeg > cPos;
-		}
 		double tPos = VolumeBounds.estimateVolumePx3(a, attached, vPos);
 		double tNeg = VolumeBounds.estimateVolumePx3(a, attached, vNeg);
 		return tNeg > tPos;
@@ -544,15 +600,16 @@ public final class Dismember {
 		Vec3d spawnPos = new Vec3d(center.x, Math.max(le.getY(), center.y - part.getHeight() / 2), center.z);
 		part.setPosition(spawnPos.x, spawnPos.y, spawnPos.z);
 
+		Vec3d outDir;
 		Vec3d kickDir;
 		if (pieceOp instanceof CutOp.HalfSpace hs) {
 			Vec3d out = Anatomy.toWorld(new Vec3d(-hs.nx(), -hs.ny(), -hs.nz()), yaw, 16);
-			out = out.lengthSquared() > 1e-6 ? out.normalize() : new Vec3d(0, 1, 0);
-			kickDir = new Vec3d(out.x * 0.18, 0.12 + Math.max(0, out.y) * 0.15, out.z * 0.18);
+			outDir = out.lengthSquared() > 1e-6 ? out.normalize() : new Vec3d(0, 1, 0);
+			kickDir = new Vec3d(outDir.x * 0.26, 0.16 + Math.max(0, outDir.y) * 0.16, outDir.z * 0.26);
 		} else {
 			Vec3d out = center.subtract(le.getBoundingBox().getCenter());
-			out = out.lengthSquared() > 1e-4 ? out.normalize() : Vec3d.fromPolar(0, yaw);
-			kickDir = new Vec3d(out.x * 0.18, 0.18, out.z * 0.18);
+			outDir = out.lengthSquared() > 1e-4 ? out.normalize() : Vec3d.fromPolar(0, yaw);
+			kickDir = new Vec3d(outDir.x * 0.24, 0.18, outDir.z * 0.24);
 		}
 
 		if (delayed && cutter != null) {
@@ -560,6 +617,8 @@ public final class Dismember {
 			PowerManager.get(cutter).bisturiHeldParts.add(part.getId());
 		} else {
 			part.kick(kickDir);
+			le.addVelocity(-outDir.x * 0.14, 0.08, -outDir.z * 0.14);
+			le.velocityModified = true;
 		}
 
 		w.spawnEntity(part);
@@ -1128,11 +1187,24 @@ public final class Dismember {
 				}
 			}
 		}
-		int legs = a.legs, missing = 0;
+		Anatomy.Segment coreSeg = a.get(a.core);
+		Vec3d coreC = coreSeg != null ? coreSeg.center() : Vec3d.ZERO;
+		int legs = a.legs, missing = 0, keptLegs = 0;
+		int leftKept = 0, rightKept = 0, frontKept = 0, hindKept = 0;
 		boolean main = true, off = true, vision = false, visionLeft = false, arms = false;
 		for (Anatomy.Segment s : a.segments.values()) {
 			boolean on = a.attached(s.id(), gone);
-			if (s.has("locomotion") && !on) missing++;
+			if (s.has("locomotion")) {
+				if (!on) {
+					missing++;
+				} else {
+					keptLegs++;
+					if (s.id().contains("left") || s.center().x > coreC.x + 0.5) leftKept++;
+					else if (s.id().contains("right") || s.center().x < coreC.x - 0.5) rightKept++;
+					if (s.id().contains("front") || s.center().z < coreC.z - 0.5) frontKept++;
+					else if (s.id().contains("hind") || s.center().z > coreC.z + 0.5) hindKept++;
+				}
+			}
 			if (s.has("main_hand") && !on) main = false;
 			if (s.has("off_hand") && !on) off = false;
 			if (s.has("vision")) {
@@ -1142,13 +1214,44 @@ public final class Dismember {
 			if ((s.has("main_hand") || s.has("off_hand")) && on) arms = true;
 		}
 		double speed = 1, jump = 1;
+		float legH = (float) (a.legHeight / 16.0 * le.getScale());
+		float drop = 0, hs = 1;
 		if (legs > 0 && missing > 0) {
-			if (legs == 2) {
-				speed = missing == 1 ? 0.35 : arms ? 0.03 : 0;
-				jump = missing == 1 ? 0.5 : 0;
-			} else if (missing >= legs) {
+			if (missing >= legs) {
 				speed = 0;
 				jump = 0;
+				drop = legH;
+				hs = (float) Math.max(0.2, (a.height - a.legHeight) / a.height);
+			} else if (legs == 2) {
+				speed = missing == 1 ? 0.35 : (arms ? 0.03 : 0);
+				jump = missing == 1 ? 0.5 : 0;
+				if (missing >= 2) {
+					drop = legH;
+					hs = (float) Math.max(0.2, (a.height - a.legHeight) / a.height);
+				} else {
+					drop = 0.12f * legH;
+					hs = (float) Math.max(0.70, (a.height - 0.12 * a.legHeight) / a.height);
+				}
+			} else if (legs >= 4) {
+				if (keptLegs == 1 || (leftKept == 0 && rightKept > 0) || (rightKept == 0 && leftKept > 0)) {
+					// Caído de costado: sin apoyo en un lado o con 1 sola pata
+					speed = 0.22;
+					jump = 0;
+					drop = 0.58f * legH;
+					hs = (float) Math.max(0.35, (a.height - 0.58 * a.legHeight) / a.height);
+				} else if (frontKept == 0 || hindKept == 0) {
+					// Partido por la mitad: solo patas delanteras o solo traseras
+					speed = 0.42;
+					jump = 0.35;
+					drop = 0.28f * legH;
+					hs = (float) Math.max(0.45, (a.height - 0.28 * a.legHeight) / a.height);
+				} else {
+					// Cojea con 3 patas o 2 diagonales
+					speed = 0.62;
+					jump = 0.55;
+					drop = 0.12f * legH;
+					hs = (float) Math.max(0.65, (a.height - 0.12 * a.legHeight) / a.height);
+				}
 			} else {
 				speed = Math.max(0, 1 - 0.22 * missing * (4.0 / legs));
 				jump = Math.max(0, 1 - 0.25 * missing * (4.0 / legs));
@@ -1157,11 +1260,6 @@ public final class Dismember {
 			// Para mobs sin anatomía JSON: pérdida de >40% del cuerpo ralentiza proporcionalmente
 			double frac = VolumeBounds.remainingFraction(a.get(a.core).box(), rem);
 			if (frac < 0.6) speed = Math.max(0.25, frac);
-		}
-		float drop = 0, hs = 1;
-		if (legs > 0 && missing >= legs) {
-			drop = (float) (a.legHeight / 16.0 * le.getScale());
-			hs = (float) Math.max(0.2, (a.height - a.legHeight) / a.height);
 		}
 		Caps c = new Caps(legs, missing, main, off, vision && !visionLeft, speed, jump, drop, hs);
 		CAPS.put(le.getUuid(), c);
@@ -1243,6 +1341,14 @@ public final class Dismember {
 			if (c.blind && le instanceof MobEntity mob) {
 				mob.setTarget(null);
 				if (le.age % 15 == 0) mob.setHeadYaw(mob.getHeadYaw() + (w.random.nextFloat() - 0.5f) * 120f);
+			}
+			// Cojera física al caminar sin todas las patas
+			if (le instanceof MobEntity mob && !mob.isAiDisabled() && c.legs > 0 && c.legsMissing > 0 && c.legsMissing < c.legs
+				&& mob.isOnGround() && mob.getVelocity().horizontalLengthSquared() > 4e-4 && le.age % 11 == 0) {
+				Vec3d mv = mob.getVelocity();
+				double hop = (c.legs - c.legsMissing <= 1) ? 0.14 : 0.09;
+				mob.setVelocity(mv.x * 0.85, Math.max(mv.y, hop), mv.z * 0.85);
+				mob.velocityModified = true;
 			}
 		}
 		for (LivingEntity le : resync) {

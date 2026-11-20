@@ -8,12 +8,14 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.TntEntity;
 import net.minecraft.entity.boss.WitherEntity;
 import net.minecraft.entity.boss.dragon.EnderDragonEntity;
 import net.minecraft.entity.boss.dragon.EnderDragonPart;
 import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ArrowEntity;
 import net.minecraft.entity.projectile.ProjectileEntity;
@@ -79,8 +81,20 @@ public final class Shambles {
 			return;
 		}
 
-		Entity target = PowerManager.raycastEntityLoose(p, 220, 2.0, e -> e != p && !e.isSpectator()
+		Entity target = PowerManager.raycastEntity(p, 220, 0.18, e -> e != p && !e.isSpectator()
 			&& !(e instanceof PieceEntity pe && pe.weapon != null));
+		if (target == null) {
+			target = PowerManager.raycastEntityLoose(p, 220, 0.9, e -> e != p && !e.isSpectator()
+				&& !(e instanceof PieceEntity pe && pe.weapon != null));
+			if (target != null) {
+				BlockHitResult blockAhead = PowerManager.raycastBlock(p, 220);
+				if (blockAhead.getType() == HitResult.Type.BLOCK) {
+					double bDist2 = p.getEyePos().squaredDistanceTo(blockAhead.getPos());
+					double eDist2 = p.getEyePos().squaredDistanceTo(target.getBoundingBox().getCenter());
+					if (bDist2 + 0.6 < eDist2) target = null;
+				}
+			}
+		}
 		if (target != null && !PowerManager.inRoom(p, target.getBoundingBox().getCenter())) target = null;
 
 		// Con Scan, Shambles roba lo que lleva en la mano.
@@ -95,7 +109,7 @@ public final class Shambles {
 		}
 
 		if (marked == null) {
-			if (target instanceof MarkerStoneEntity) {
+			if (target instanceof MarkerStoneEntity || target instanceof ItemEntity) {
 				swap(p, p, target);
 			} else if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
 				if (!swapPiece(p, pw, p, pe)) return;
@@ -111,13 +125,29 @@ public final class Shambles {
 				if (fallback != null) {
 					if (!swapPiece(p, pw, p, fallback)) return;
 				} else {
-					Vec3d dest = emptyPoint(p);
+					Vec3d dest = emptyPoint(p, p);
 					if (dest == null) {
 						PowerManager.noRoom(p);
 						return;
 					}
 					Vec3d from = p.getPos();
+					Vec3d prevVel = p.getVelocity();
+					Vec3d glide = Vec3d.ZERO;
+					if (prevVel.horizontalLengthSquared() > 0.008) {
+						Vec3d lookFlat = new Vec3d(p.getRotationVector().x, 0, p.getRotationVector().z);
+						if (lookFlat.lengthSquared() > 1e-4) lookFlat = lookFlat.normalize();
+						glide = new Vec3d(
+							prevVel.x * 0.4 + lookFlat.x * 0.16,
+							Math.max(prevVel.y * 0.4, 0.04),
+							prevVel.z * 0.4 + lookFlat.z * 0.16
+						);
+					}
 					teleport(p, dest);
+					if (glide.lengthSquared() > 1e-5) {
+						p.setVelocity(glide);
+						p.velocityModified = true;
+						if (p.networkHandler != null) p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), glide));
+					}
 					fx(p, from, dest);
 				}
 			}
@@ -140,7 +170,7 @@ public final class Shambles {
 				if (piece != null) {
 					if (!swapPiece(p, pw, marked, piece)) return;
 				} else {
-					Vec3d dest = emptyPoint(p);
+					Vec3d dest = emptyPoint(p, marked);
 					if (dest == null) {
 						PowerManager.noRoom(p);
 						return;
@@ -405,36 +435,82 @@ public final class Shambles {
 		p.sendMessage(Text.literal("§bShambles: ¡Ráfaga de Proyectiles Teletransportados!"), true);
 	}
 
-	/** El punto vacío del ROOM al que apuntas: encima de lo que miras, o el aire antes del borde. */
+	/** El punto vacío del ROOM al que apuntas: encima/al lado de bloques, auto-trepado en bordes o limitado al borde del ROOM. */
 	public static Vec3d emptyPoint(ServerPlayerEntity p) {
-		BlockHitResult hit = PowerManager.raycastBlock(p, 220);
+		return emptyPoint(p, p);
+	}
+
+	@Nullable
+	public static Vec3d emptyPoint(ServerPlayerEntity p, Entity moving) {
+		PlayerPower pw = PowerManager.get(p);
+		ServerWorld w = p.getServerWorld();
+		Room room = (pw.room != null && pw.room.dim == w.getRegistryKey()) ? pw.room : pw.rroom;
+		if (room == null || room.dim != w.getRegistryKey()) return null;
+
 		Vec3d eye = p.getEyePos();
 		Vec3d look = p.getRotationVector();
+		double safeR = Math.max(0.5, room.radius - 0.65);
+		Vec3d oc = eye.subtract(room.center);
+		double b = oc.dotProduct(look);
+		double c = oc.lengthSquared() - safeR * safeR;
+		double disc = b * b - c;
+		if (disc < 0) return null;
+		double tExit = -b + Math.sqrt(disc);
+		if (tExit <= 0.5) return null;
+		double maxT = Math.min(220.0, tExit);
+
+		BlockHitResult hit = PowerManager.raycastBlock(p, 220);
+		double entH = Math.max(0.4, moving.getHeight());
+		double entW = Math.max(0.4, moving.getWidth());
 		Vec3d dest;
-		if (hit.getType() == HitResult.Type.BLOCK) {
+
+		if (hit.getType() == HitResult.Type.BLOCK && eye.distanceTo(hit.getPos()) <= maxT + 0.1) {
 			Direction side = hit.getSide();
 			if (side == Direction.UP) {
-				dest = new Vec3d(hit.getPos().x, hit.getPos().y + 0.01, hit.getPos().z);
+				dest = new Vec3d(hit.getPos().x, hit.getPos().y + 0.02, hit.getPos().z);
 			} else if (side == Direction.DOWN) {
-				dest = hit.getPos().subtract(0, p.getHeight() + 0.1, 0);
+				dest = new Vec3d(hit.getPos().x, hit.getPos().y - entH - 0.08, hit.getPos().z);
+				dest = snapFloorIfClose(w, moving, dest, 1.4);
 			} else {
-				dest = hit.getPos().add(Vec3d.of(side.getVector()).multiply(0.45)).subtract(0, p.getHeight() / 2, 0);
+				// Borde superior de un bloque lateral: intenta subir directamente encima si hay espacio
+				Vec3d topLanding = null;
+				if (hit.getPos().y - hit.getBlockPos().getY() > 0.55) {
+					Vec3d top = new Vec3d(hit.getBlockPos().getX() + 0.5, hit.getBlockPos().getY() + 1.02, hit.getBlockPos().getZ() + 0.5);
+					if (room.contains(top.add(0, 0.3, 0)) && w.isSpaceEmpty(moving, moving.getBoundingBox().offset(top.subtract(moving.getPos())))) {
+						topLanding = top;
+					}
+				}
+				if (topLanding != null) {
+					dest = topLanding;
+				} else {
+					double out = Math.max(0.45, entW * 0.5 + 0.15);
+					Vec3d pushed = hit.getPos().add(Vec3d.of(side.getVector()).multiply(out));
+					Vec3d floored = snapFloorIfClose(w, moving, pushed, 1.6);
+					dest = floored != pushed ? floored : pushed.subtract(0, entH * 0.5, 0);
+				}
 			}
 		} else {
-			Room room = PowerManager.get(p).room;
-			if (room == null) return null;
-			// Donde el rayo sale del ROOM, un poco antes.
-			Vec3d oc = eye.subtract(room.center);
-			double b = oc.dotProduct(look);
-			double c = oc.lengthSquared() - room.radius * room.radius;
-			double disc = b * b - c;
-			if (disc < 0) return null;
-			double t = -b + Math.sqrt(disc) - 1.5;
-			if (t <= 1) return null;
-			dest = eye.add(look.multiply(Math.min(t, 220)));
+			dest = eye.add(look.multiply(maxT)).subtract(0, entH * 0.5, 0);
+			dest = snapFloorIfClose(w, moving, dest, 1.2);
 		}
-		if (!PowerManager.inRoom(p, dest.add(0, 0.5, 0))) return null;
-		return dest;
+
+		Vec3d safe = findSafeEntityPos(w, moving, dest, 2.5);
+		if (safe != null && PowerManager.inRoom(p, safe.add(0, Math.min(0.5, entH * 0.5), 0))) return safe;
+		if (PowerManager.inRoom(p, dest.add(0, 0.5, 0)) && w.isSpaceEmpty(moving, moving.getBoundingBox().offset(dest.subtract(moving.getPos())))) {
+			return dest;
+		}
+		return safe != null && PowerManager.inRoom(p, safe) ? safe : null;
+	}
+
+	private static Vec3d snapFloorIfClose(ServerWorld w, Entity e, Vec3d basePos, double maxDrop) {
+		for (double dy = 0.0; dy <= maxDrop; dy += 0.25) {
+			Vec3d cand = basePos.subtract(0, dy, 0);
+			Box candBox = e.getBoundingBox().offset(cand.subtract(e.getPos()));
+			if (w.isSpaceEmpty(e, candBox) && !w.isSpaceEmpty(e, candBox.offset(0, -0.26, 0))) {
+				return cand;
+			}
+		}
+		return basePos;
 	}
 
 	public static void teleport(Entity e, Vec3d pos) {
@@ -462,9 +538,17 @@ public final class Shambles {
 	}
 
 	public static void swap(ServerPlayerEntity p, Entity a, Entity b) {
+		ServerWorld w = p.getServerWorld();
 		Vec3d pa = a.getPos(), pb = b.getPos();
-		teleport(a, pb);
-		teleport(b, pa);
+		Vec3d safeA = findSafeEntityPos(w, a, pb, 2.0);
+		Vec3d safeB = findSafeEntityPos(w, b, pa, 2.0);
+		teleport(a, safeA != null ? safeA : pb);
+		teleport(b, safeB != null ? safeB : pa);
+		if (b instanceof MobEntity mb) {
+			mb.getNavigation().stop();
+			mb.setAttacking(false);
+		}
+		if (a instanceof MobEntity ma) ma.getNavigation().stop();
 		fx(p, pa, pb);
 	}
 
@@ -663,10 +747,15 @@ public final class Shambles {
 				double ang = u * Math.PI * 6.0;
 				double rad = Math.sin(u * Math.PI) * 0.45;
 				Vec3d pt = pa.add(diff.multiply(u)).add(side.multiply(Math.cos(ang) * rad)).add(up.multiply(Math.sin(ang) * rad));
+				Vec3d pt2 = pa.add(diff.multiply(u)).add(side.multiply(-Math.cos(ang) * rad)).add(up.multiply(-Math.sin(ang) * rad));
 				w.spawnParticles(CutEngine.ROOM_DUST, pt.x, pt.y, pt.z, 1, 0, 0, 0, 0);
+				w.spawnParticles(CutEngine.ROOM_DUST, pt2.x, pt2.y, pt2.z, 1, 0, 0, 0, 0);
 				if (i % 3 == 0) w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, pt.x, pt.y, pt.z, 1, 0.02, 0.02, 0.02, 0.02);
 			}
 		}
+		w.spawnParticles(ParticleTypes.FLASH, a.x, a.y + 1.0, a.z, 1, 0, 0, 0, 0);
+		w.spawnParticles(ParticleTypes.FLASH, b.x, b.y + 1.0, b.z, 1, 0, 0, 0, 0);
+		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, b.x, b.y + 1.0, b.z, 16, 0.35, 0.5, 0.35, 0.12);
 		w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0f, 1.95f);
 		w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, SoundCategory.PLAYERS, 0.85f, 1.55f);
 		w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(), SoundCategory.PLAYERS, 0.7f, 1.88f);

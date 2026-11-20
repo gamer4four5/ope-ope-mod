@@ -1,5 +1,7 @@
 package dev.opeope.anatomy;
 
+import net.minecraft.util.math.Vec3d;
+
 import java.util.Collection;
 
 /**
@@ -131,5 +133,28 @@ public final class VolumeBounds {
 			if (v > 0) total += v * remainingFraction(sg.box(), vol);
 		}
 		return total;
+	}
+
+	/** Centroide ponderado por volumen (en píxeles de modelo) de los segmentos que quedan bajo {@code vol}. */
+	public static Vec3d estimateCenterPx(Anatomy a, Collection<String> segs, CutVolume vol) {
+		if (a == null) return Vec3d.ZERO;
+		double sx = 0, sy = 0, sz = 0, wSum = 0;
+		if (segs != null) {
+			for (String id : segs) {
+				Anatomy.Segment sg = a.get(id);
+				if (sg == null) continue;
+				double[] cb = clippedBox(sg.box(), vol);
+				if (cb == null) continue;
+				double w = (cb[3] - cb[0]) * (cb[4] - cb[1]) * (cb[5] - cb[2]);
+				if (w <= 1e-4) continue;
+				sx += 0.5 * (cb[0] + cb[3]) * w;
+				sy += 0.5 * (cb[1] + cb[4]) * w;
+				sz += 0.5 * (cb[2] + cb[5]) * w;
+				wSum += w;
+			}
+		}
+		if (wSum > 1e-4) return new Vec3d(sx / wSum, sy / wSum, sz / wSum);
+		Anatomy.Segment core = a.get(a.core);
+		return core != null ? core.center() : Vec3d.ZERO;
 	}
 }

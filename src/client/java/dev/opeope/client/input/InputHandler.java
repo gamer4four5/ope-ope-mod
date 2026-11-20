@@ -9,7 +9,10 @@ import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.hud.Toasts;
 import dev.opeope.client.render.CutFx;
 import dev.opeope.client.render.TerrainFx;
+import dev.opeope.client.room.CameraFx;
 import dev.opeope.client.room.RoomFxClient;
+import dev.opeope.client.room.RoomSounds;
+import dev.opeope.client.room.ScreenFx;
 import dev.opeope.client.room.TaktSounds;
 import dev.opeope.client.screen.GuideScreen;
 import dev.opeope.client.screen.IslandScreen;
@@ -34,6 +37,8 @@ import net.minecraft.client.option.GameOptions;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.scoreboard.ScoreboardDisplaySlot;
 import net.minecraft.sound.SoundEvent;
@@ -41,6 +46,7 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
@@ -48,6 +54,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -495,6 +502,12 @@ public final class InputHandler {
 			}
 			case SHAMBLES -> {
 				deny(Tech.SHAMBLES);
+				if (ClientState.ownRoom() != null && ClientState.cooldowns.length > Tech.SHAMBLES.ordinal()
+					&& ClientState.cooldowns[Tech.SHAMBLES.ordinal()] <= 2) {
+					RoomSounds.shamblesSnap();
+					CameraFx.fov(-1.8f, 0.04f, 0.20f);
+					ScreenFx.edgePulse(0.20f, 0.22f);
+				}
 				Send.action(Actions.SHAMBLES, p.isSneaking() ? 1 : 0);
 				Onboarding.mark(Onboarding.STEP_SHAMBLES);
 				return NOTHING;
@@ -1051,14 +1064,48 @@ public final class InputHandler {
 		return new double[]{dragDX / len, -dragDY / len};
 	}
 
-	/** El plano del tajo que se está trazando: {nx, ny, nz, px, py, pz} (pasa por los ojos). */
+	private static Vec3d slashAnchorLook() {
+		Vec3d[] ax = screenAxes(dragLook);
+		double yawOff = MathHelper.clamp(dragDX * 0.0012, -0.32, 0.32);
+		double pitchOff = MathHelper.clamp(-dragDY * 0.0012, -0.32, 0.32);
+		return dragLook.add(ax[0].multiply(yawOff)).add(ax[1].multiply(pitchOff)).normalize();
+	}
+
+	private static Vec3d slashAnchorPoint(ClientPlayerEntity p, Vec3d lookDir, Vec3d eye) {
+		MinecraftClient mc = mc();
+		if (mc.world == null) return eye;
+		ClientState.RoomInfo room = ClientState.ownRoom();
+		double maxR = room == null ? OpeConfig.CUT_RANGE : Math.min(OpeConfig.CUT_RANGE, room.center().distanceTo(eye) + room.radius());
+		Vec3d end = eye.add(lookDir.multiply(maxR));
+		Box sweep = p.getBoundingBox().stretch(lookDir.multiply(maxR)).expand(1.0);
+		Entity best = null;
+		double bestD2 = maxR * maxR;
+		for (Entity en : mc.world.getOtherEntities(p, sweep, e -> e.isAlive() && !e.isSpectator()
+			&& (e instanceof LivingEntity || e instanceof dev.opeope.entity.BodyPartEntity))) {
+			if (room != null && en.getBoundingBox().getCenter().squaredDistanceTo(room.center()) > room.radius() * room.radius()) continue;
+			Box eb = en.getBoundingBox().expand(0.35);
+			Optional<Vec3d> hit = eb.contains(eye) ? Optional.of(en.getBoundingBox().getCenter()) : eb.raycast(eye, end);
+			if (hit.isPresent()) {
+				double d2 = eye.squaredDistanceTo(hit.get());
+				if (d2 < bestD2) {
+					bestD2 = d2;
+					best = en;
+				}
+			}
+		}
+		return best != null ? best.getBoundingBox().getCenter() : eye;
+	}
+
+	/** El plano del tajo que se está trazando: {nx, ny, nz, px, py, pz} (pasa por la mitad del trazo y entidad apuntada). */
 	public static double[] dragPlane() {
 		ClientPlayerEntity p = mc().player;
 		if (p == null || !dragging) return null;
 		double[] s = swipeScreen();
-		Vec3d n = slashNormal(dragLook, s[0], s[1]);
+		Vec3d midLook = slashAnchorLook();
+		Vec3d n = slashNormal(midLook, s[0], s[1]);
 		Vec3d eye = p.getEyePos();
-		return new double[]{n.x, n.y, n.z, eye.x, eye.y, eye.z};
+		Vec3d pt = slashAnchorPoint(p, midLook, eye);
+		return new double[]{n.x, n.y, n.z, pt.x, pt.y, pt.z};
 	}
 
 	private static Vec3d[] screenAxes(Vec3d look) {
@@ -1081,6 +1128,7 @@ public final class InputHandler {
 		ClientPlayerEntity p = mc().player;
 		double[] s = swipeScreen();
 		boolean tap = Math.sqrt(dragDX * dragDX + dragDY * dragDY) < DRAG_MIN;
+		Vec3d midLook = slashAnchorLook();
 		dragging = false;
 		dragDX = dragDY = 0;
 		if (p == null) return;
@@ -1095,10 +1143,11 @@ public final class InputHandler {
 		ClientDismember.cancelAim();
 		lastSX = s[0];
 		lastSY = s[1];
-		Vec3d n = slashNormal(dragLook, s[0], s[1]);
+		Vec3d n = slashNormal(midLook, s[0], s[1]);
 		Vec3d eye = p.getEyePos();
+		Vec3d pt = slashAnchorPoint(p, midLook, eye);
 		deny(Tech.AMPUTATE);
-		Send.cut(0, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) eye.x, (float) eye.y, (float) eye.z});
+		Send.cut(0, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) pt.x, (float) pt.y, (float) pt.z});
 		CutFx.slashFlash(s[0], s[1]);
 		p.swingHand(Hand.MAIN_HAND);
 		Onboarding.mark(Onboarding.STEP_CUT);
