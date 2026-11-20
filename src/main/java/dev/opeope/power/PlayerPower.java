@@ -49,6 +49,7 @@ public class PlayerPower {
 	public int orbitalShotIndex = 0;       // índice de disparo para dispersión en espiral cerrada
 
 	// Shambles y almas
+	public int shamblesMode = 0;   // 0 = Tú → Destino, 1 = Tú ↔ Entidad, 2 = Entidad A ↔ B
 	public int shamblesMark = -1;
 	public int shamblesMarkTicks;
 	public BlockPos shamblesBlock;

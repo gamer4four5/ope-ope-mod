@@ -39,6 +39,7 @@ public final class ClientState {
 	public static float aerialGravMult = OpeConfig.SHAMBLES_AERIAL_GRAV_MULT;
 	public static boolean aerialPerfect;
 	public static int[] tacticalPieceIds = new int[0];
+	public static long shamblesModeToastUntil = 0;
 	/** El ancho, grosor (0 = auto) y modo de lo que va encima (0..3) del trozo de Takt. Solo esta sesión. */
 	public static double chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;
 	public static int chunkDepth = 0;
@@ -86,8 +87,17 @@ public final class ClientState {
 		return has(Payloads.State.ZERO_G);
 	}
 
+	public static int shamblesMode() {
+		if (has(Payloads.State.SHAMBLES_MODE_ENTITIES)) return 2;
+		if (has(Payloads.State.SHAMBLES_MODE_SWAP)) return 1;
+		return 0;
+	}
+
 	public static void apply(Payloads.State s) {
+		int oldMode = shamblesMode();
 		flags = s.flags();
+		int newMode = shamblesMode();
+		if (newMode != oldMode && hasFruit()) shamblesModeToastUntil = System.currentTimeMillis() + 3500L;
 		pattern = s.pattern();
 		taktCount = s.taktCount();
 		taktMode = s.taktMode();
@@ -281,6 +291,7 @@ public final class ClientState {
 		chunkSize = OpeConfig.TAKT_CHUNK_DEFAULT;
 		chunkDepth = 0;
 		chunkRiderMode = 0;
+		shamblesModeToastUntil = 0;
 		ROOMS.clear();
 		CUTS.clear();
 		GROUND_CUTS.clear();

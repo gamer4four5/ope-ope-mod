@@ -47,6 +47,8 @@ final class PlayerTick {
 			Entity e = p.getWorld().getEntityById(pw.shamblesMark);
 			if (e != null) e.setGlowing(false);
 			pw.shamblesMark = -1;
+			pw.dirty = true;
+			Shambles.sendClearMark(p);
 		}
 		if (pw.soulMarkTicks > 0 && --pw.soulMarkTicks == 0) pw.soulMark = -1;
 		if (pw.scanTicks > 0 && --pw.scanTicks == 0) pw.dirty = true;

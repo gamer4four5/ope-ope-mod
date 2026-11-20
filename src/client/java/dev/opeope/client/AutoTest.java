@@ -2163,11 +2163,8 @@ public final class AutoTest {
 				w.setBlockState(new BlockPos(ax0 + 11, ay0 - 2, az0 - 8), Blocks.BEDROCK.getDefaultState(), 2 | 16);
 				w.setBlockState(new BlockPos(ax0 + 13, ay0 + 1, az0 - 8), Blocks.CHEST.getDefaultState(), 2 | 16);
 
-				// Sólidos iniciales en la arena derecha ([ax0-6..ax0+26, ay0-14..ay0+22, az0-26..az0+12]) + 27 bloques de obsidiana.
-				// Empieza en ax0-6 y no en ax0+1: los terrones del cráter de la obsidiana (radio ~4) caen hasta a ~11 bloques de
-				// x+9.5, o sea hasta x-2, y uno que cayera fuera de la cuenta parecería perdido. El cubo de piedra (x-16..x-14)
-				// no hace cráter y queda fuera
-				srvB = count(w, ax0 - 6, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false) + 27;
+				// Sólidos iniciales en la arena completa ([ax0-26..ax0+26, ay0-14..ay0+22, az0-26..az0+12]) + 54 bloques (27 piedra + 27 obsidiana).
+				srvB = count(w, ax0 - 26, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false) + 54;
 
 				PieceEntity pStone = PieceEntity.spawn(w, uniformCube(3, Blocks.STONE.getDefaultState()),
 					new Vec3d(ax0 - 14.5, ay0 + 10.0, az0 - 9.5), null, sp.getUuid());
@@ -2205,12 +2202,12 @@ public final class AutoTest {
 				boolean bedrockOk = w.getBlockState(new BlockPos(ax0 + 11, ay0 - 2, az0 - 8)).isOf(Blocks.BEDROCK);
 				boolean chestOk = w.getBlockState(new BlockPos(ax0 + 13, ay0 + 1, az0 - 8)).isOf(Blocks.CHEST);
 
-				Box rightBox = new Box(ax0 - 6, ay0 - 14, az0 - 26, ax0 + 27, ay0 + 23, az0 + 13);
+				Box rightBox = new Box(ax0 - 26, ay0 - 14, az0 - 26, ax0 + 27, ay0 + 23, az0 + 13);
 				int pieceBlocks = 0;
 				for (PieceEntity pe : w.getEntitiesByClass(PieceEntity.class, rightBox, e -> true)) {
 					pieceBlocks += pe.blocks != null ? pe.blocks.size() : 0;
 				}
-				int solidAfter = count(w, ax0 - 6, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false);
+				int solidAfter = count(w, ax0 - 26, ay0 - 14, az0 - 26, ax0 + 26, ay0 + 22, az0 + 12, false);
 				int items = w.getEntitiesByClass(ItemEntity.class, new Box(ax0 - 28, ay0 - 16, az0 - 28, ax0 + 29, ay0 + 24, az0 + 14), e -> true).size();
 
 				int expectedStone = 11 * 11 * 3;
@@ -3958,10 +3955,63 @@ public final class AutoTest {
 			dres("E10c Shambles al vacío recorta destino dentro del ROOM", ok10c ? null
 				: "dest=" + dest);
 
+			// E10d: selector de modo Shambles (0=Tú->Destino, 1=Tú<->Entidad, 2=Entidad A<->B)
+			int prevShMode = pw.shamblesMode;
+			pw.shamblesMode = 0;
+			pw.shamblesMark = -1;
+			pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+			Actions.handle(sp, Actions.SHAMBLES_MODE, 1);
+			int m1 = pw.shamblesMode;
+			Actions.handle(sp, Actions.SHAMBLES_MODE, 1);
+			int m2 = pw.shamblesMode;
+			Actions.handle(sp, Actions.SHAMBLES_MODE, 1);
+			int m3 = pw.shamblesMode;
+			boolean cycleOk = m1 == 1 && m2 == 2 && m3 == 0;
+
+			net.minecraft.entity.passive.SheepEntity sTp = EntityType.SHEEP.create(w);
+			boolean mode0TpOk = false, mode1SwapOk = false;
+			if (sTp != null) {
+				sTp.refreshPositionAndAngles(ax0 + 0.5, ay0 + 1.0, az0 - 1.0, 0f, 0f);
+				sTp.setAiDisabled(true);
+				sTp.setPersistent();
+				w.spawnEntity(sTp);
+				// Modo 0 (Tú -> Destino): mirando directo a la oveja dentro del ROOM, teletransporta sin marcarla
+				sp.setPosition(ax0 + 0.5, ay0 + 1.0, az0 - 5.0);
+				sp.setYaw(0f);
+				sp.setPitch(13.6f);
+				pw.shamblesMode = Shambles.MODE_SELF_TP;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				pw.shamblesMark = -1;
+				Shambles.use(sp, pw, false);
+				mode0TpOk = sp.getZ() > az0 - 4.0 && pw.shamblesMark == -1;
+
+				// Modo 1 (Tú <-> Entidad): mirando a la oveja intercambia en 1 toque
+				sp.setPosition(ax0 + 0.5, ay0 + 1.0, az0 - 5.0);
+				sp.setYaw(0f);
+				sp.setPitch(13.6f);
+				sTp.setPosition(ax0 + 0.5, ay0 + 1.0, az0 - 1.0);
+				pw.shamblesMode = Shambles.MODE_SELF_SWAP;
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				pw.shamblesMark = -1;
+				Shambles.use(sp, pw, false);
+				mode1SwapOk = sp.getZ() > az0 - 2.2 && sTp.getZ() < az0 - 3.8 && pw.shamblesMark == -1;
+				sTp.discard();
+			}
+			pw.shamblesMode = prevShMode;
+			pw.shamblesMark = -1;
+			pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+			sp.setPosition(prevPos.x, prevPos.y, prevPos.z);
+			sp.setYaw(prevYaw);
+			sp.setPitch(prevPitch);
+			dres("E10d selector modos Shambles (Tú->Destino vs Tú<->Entidad)",
+				(cycleOk && mode0TpOk && mode1SwapOk) ? null
+					: "cycle=" + cycleOk + " m=" + m1 + "," + m2 + "," + m3
+					+ " tp0=" + mode0TpOk + " swap1=" + mode1SwapOk);
+
 			e10SrvDone.set(true);
 		}));
 		waitFor("E10 servidor listo", 40, "E10 servidor no terminó", e10SrvDone::get, AutoTest::drain);
-		step(4, "E10b postura cliente", () -> {
+		step(4, "E10b postura cliente y E10e", () -> {
 			drain();
 			Entity ce = mc.world == null ? null : mc.world.getEntityById(e10Ids[1]);
 			dev.opeope.client.dismember.ClientDismember.Info ci = ce instanceof LivingEntity le
@@ -3972,6 +4022,20 @@ public final class AutoTest {
 				: 0f;
 			check(roll > 55f, "E10b postura caída lateral (>55°) en oveja partida",
 				"entity=" + ce + " roll=" + roll);
+
+			// E10e: FX espacial ShamblesFxClient + métricas procedimentales de PlayerAnimClient
+			dev.opeope.client.render.ShamblesFxClient.clear();
+			int pid = mc.player == null ? 0 : mc.player.getId();
+			dev.opeope.client.render.ShamblesFxClient.receive(new Payloads.ShamblesFx(
+				Payloads.ShamblesFx.KIND_SELF_TP, pid, pid, -1,
+				0.0, 64.0, 0.0, 0.6f, 1.8f, 0f,
+				0.0, 64.0, 8.0, 0.6f, 1.8f, 0f));
+			int fxCount = dev.opeope.client.render.ShamblesFxClient.activeCount();
+			dev.opeope.client.render.ShamblesFxClient.clear();
+			float[] anim = dev.opeope.client.render.PlayerAnimClient.computeTestMetrics(0.28f, 0.12f, 95f, true, 0.85f);
+			boolean animOk = fxCount >= 1 && anim[0] > 10f && anim[1] > 3f && anim[2] > 0.5f;
+			check(animOk, "E10e animación Shambles 3D y cinemática de personaje",
+				"fx=" + fxCount + " lean=" + anim[0] + " bank=" + anim[1] + " gest=" + anim[2]);
 		});
 		step(2, "E fin", () -> server(srv, id, (sp, pw) -> {
 			ServerWorld w = sp.getServerWorld();

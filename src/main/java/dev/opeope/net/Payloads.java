@@ -223,7 +223,8 @@ public final class Payloads {
 		public static final int HAS_FRUIT = 1, AWAKEN_UNLOCKED = 2, AWAKENED = 4, REACH_TARGET = 8, SUSPEND = 16,
 			UNION = 32, BISTURI = 64, UNION_SELECTED = 128, CURTAIN = 256, SILENT = 512,
 			STYLE_SWORD = 1024, STYLE_FIGHT = 2048, FREE_MODE = 4096,
-			KROOM_BLADE = 8192, ETERNAL_YOUTH = 16384, ZERO_G = 32768;
+			KROOM_BLADE = 8192, ETERNAL_YOUTH = 16384, ZERO_G = 32768,
+			SHAMBLES_MODE_SWAP = 65536, SHAMBLES_MODE_ENTITIES = 131072, SHAMBLES_MARKED = 262144;
 		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);
@@ -611,6 +612,50 @@ public final class Payloads {
 			buf.writeVarInt(np);
 			for (int i = 0; i < np; i++) buf.writeFloat(plane[i]);
 			buf.writeString(volume == null ? "" : volume, 8192);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/** Servidor → cliente: teletransporte o trueque espacial de Shambles (orbe/silueta/relámpagos entre origen y destino). */
+	public record ShamblesFx(
+		int kind, int userId, int entityA, int entityB,
+		double ax, double ay, double az, float aw, float ah, float ayaw,
+		double bx, double by, double bz, float bw, float bh, float byaw
+	) implements CustomPayload {
+		public static final int KIND_SELF_TP = 0, KIND_SELF_SWAP = 1, KIND_ENTITY_SWAP = 2,
+			KIND_TACTICAL = 3, KIND_MARK = 4, KIND_CLEAR_MARK = 5;
+		public static final Id<ShamblesFx> ID = new Id<>(OpeOpeMod.id("shambles_fx"));
+		public static final PacketCodec<RegistryByteBuf, ShamblesFx> CODEC = PacketCodec.of(ShamblesFx::write, ShamblesFx::read);
+
+		static ShamblesFx read(RegistryByteBuf buf) {
+			return new ShamblesFx(
+				buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(), buf.readFloat(), buf.readFloat(), buf.readFloat(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(), buf.readFloat(), buf.readFloat(), buf.readFloat()
+			);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(kind);
+			buf.writeVarInt(userId);
+			buf.writeVarInt(entityA);
+			buf.writeVarInt(entityB);
+			buf.writeDouble(ax);
+			buf.writeDouble(ay);
+			buf.writeDouble(az);
+			buf.writeFloat(aw);
+			buf.writeFloat(ah);
+			buf.writeFloat(ayaw);
+			buf.writeDouble(bx);
+			buf.writeDouble(by);
+			buf.writeDouble(bz);
+			buf.writeFloat(bw);
+			buf.writeFloat(bh);
+			buf.writeFloat(byaw);
 		}
 
 		@Override

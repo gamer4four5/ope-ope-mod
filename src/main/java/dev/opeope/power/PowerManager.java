@@ -262,6 +262,9 @@ public final class PowerManager {
 		if (pw.kroomBladeTicks > 0 || pw.anesthesia) flags |= Payloads.State.KROOM_BLADE;
 		if (pw.eternalYouthTicks > 0) flags |= Payloads.State.ETERNAL_YOUTH;
 		if (pw.zeroGravityRoom) flags |= Payloads.State.ZERO_G;
+		if (pw.shamblesMode == 1) flags |= Payloads.State.SHAMBLES_MODE_SWAP;
+		else if (pw.shamblesMode == 2) flags |= Payloads.State.SHAMBLES_MODE_ENTITIES;
+		if (pw.shamblesMark >= 0 && pw.shamblesMarkTicks > 0) flags |= Payloads.State.SHAMBLES_MARKED;
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
 		int[] held = new int[Math.min(pw.takt.size(), 64)];   // lo que lleva en Takt, en orden (el cliente dibuja sus fantasmas)
 		for (int i = 0; i < held.length; i++) held[i] = pw.takt.get(i);

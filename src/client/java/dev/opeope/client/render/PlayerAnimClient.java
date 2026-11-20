@@ -1,0 +1,307 @@
+package dev.opeope.client.render;
+
+import dev.opeope.client.config.OpeSettings;
+import dev.opeope.registry.ModItems;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
+import net.minecraft.client.render.entity.model.BipedEntityModel;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.entity.EntityPose;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.SwordItem;
+import net.minecraft.util.Arm;
+import net.minecraft.util.Hand;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.RotationAxis;
+import net.minecraft.util.math.Vec3d;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Animaciones procedimentales de locomoción y combate en 3.ª y 1.ª persona para el personaje del jugador:
+ * inclinación realista al esprintar, balanceo lateral en giros, absorción de aterrizaje, pose aérea atlética,
+ * porte de Kikoku estilo espadachín al correr y chasquido de Shambles.
+ */
+public final class PlayerAnimClient {
+	private PlayerAnimClient() {}
+
+	private static final class State {
+		double lastNanos;
+		float fwdSpeed;
+		float latSpeed;
+		float turnRate;
+		float sprintBlend;
+		float airBlend;
+		float fallSpeed;
+		float landSquash;
+		float shamblesGesture;
+		float prevYaw;
+		boolean wasInAir;
+		double prevVy;
+		float lastLeanDeg;
+		float lastBankDeg;
+		float stridePhase;
+	}
+
+	private static final Map<Integer, State> STATES = new HashMap<>();
+
+	public static void clear() {
+		STATES.clear();
+	}
+
+	public static void triggerShamblesGesture() {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player == null) return;
+		State st = STATES.computeIfAbsent(mc.player.getId(), k -> new State());
+		st.shamblesGesture = 1.0f;
+	}
+
+	private static boolean skipPlayerPose(AbstractClientPlayerEntity p) {
+		return p.isSleeping() || p.isSwimming() || p.isFallFlying() || p.hasVehicle()
+			|| p.isClimbing() || p.isInSneakingPose() || p.getPose() == EntityPose.DYING;
+	}
+
+	private static State update(AbstractClientPlayerEntity p, float tickDelta) {
+		State st = STATES.computeIfAbsent(p.getId(), k -> {
+			State s = new State();
+			s.prevYaw = p.getYaw();
+			return s;
+		});
+		long nowNanos = System.nanoTime();
+		double dt = st.lastNanos <= 0 ? 0.016 : Math.min(0.05, Math.max(0.0005, (nowNanos - st.lastNanos) / 1e9));
+		st.lastNanos = nowNanos;
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc != null && mc.isPaused()) return st;
+
+		double yawRad = Math.toRadians(p.getBodyYaw());
+		double fx = -Math.sin(yawRad), fz = Math.cos(yawRad);
+		double rx = -fz, rz = fx;
+		Vec3d v = p.getVelocity();
+		float rawFwd = (float) (v.x * fx + v.z * fz);
+		float rawLat = (float) (v.x * rx + v.z * rz);
+		float horiz = (float) Math.sqrt(v.x * v.x + v.z * v.z);
+
+		float yawNow = p.getYaw();
+		float dyaw = MathHelper.wrapDegrees(yawNow - st.prevYaw);
+		st.prevYaw = yawNow;
+		float instTurnRate = MathHelper.clamp((float) (dyaw / Math.max(0.016, dt)), -220f, 220f);
+
+		float kMove = (float) (1.0 - Math.exp(-dt * 12.0));
+		float kTurn = (float) (1.0 - Math.exp(-dt * 9.0));
+		float kSprint = (float) (1.0 - Math.exp(-dt * 8.0));
+
+		st.fwdSpeed += (rawFwd - st.fwdSpeed) * kMove;
+		st.latSpeed += (rawLat - st.latSpeed) * kMove;
+		st.turnRate += (instTurnRate - st.turnRate) * kTurn;
+
+		boolean sprintCond = p.isSprinting() && rawFwd > 0.05f;
+		st.sprintBlend += ((sprintCond ? 1f : 0f) - st.sprintBlend) * kSprint;
+
+		boolean inAir = !p.isOnGround() && !p.getAbilities().flying;
+		st.airBlend += ((inAir ? 1f : 0f) - st.airBlend) * (float) (1.0 - Math.exp(-dt * 10.0));
+		if (inAir) {
+			st.fallSpeed += ((float) MathHelper.clamp(-v.y, -1f, 1.4f) - st.fallSpeed) * 0.25f;
+		} else {
+			if (st.wasInAir && st.prevVy < -0.18) {
+				st.landSquash = Math.min(1.0f, (float) (-st.prevVy * 1.35));
+			}
+			st.fallSpeed *= (float) Math.exp(-dt * 10.0);
+		}
+		st.wasInAir = inAir;
+		st.prevVy = v.y;
+		st.landSquash *= (float) Math.exp(-dt * 9.0);
+		if (st.shamblesGesture > 0f) {
+			st.shamblesGesture = Math.max(0f, st.shamblesGesture - (float) (dt / 0.36));
+		}
+
+		float runFrac = MathHelper.clamp(horiz / 0.26f, 0f, 1.35f);
+		if (p.isOnGround() && horiz > 0.02f) {
+			st.stridePhase += (float) (dt * (7.5 + 8.5 * runFrac));
+		}
+		float targetLean = MathHelper.clamp(
+			17.0f * st.sprintBlend + 5.5f * runFrac + 9.5f * st.landSquash - 4.0f * Math.max(0f, -st.fwdSpeed / 0.20f),
+			-6f, 24f);
+		float targetBank = MathHelper.clamp(
+			st.turnRate * 0.055f + (st.latSpeed / 0.22f) * 10.5f,
+			-14f, 14f);
+		st.lastLeanDeg = targetLean;
+		st.lastBankDeg = targetBank;
+		return st;
+	}
+
+	/** Transformaciones de cuerpo entero en 3.ª persona (inclinación de carrera, giro lateral, rebote y aterrizaje). */
+	public static void applyBodyTransforms(AbstractClientPlayerEntity p, MatrixStack matrices, float tickDelta) {
+		if (skipPlayerPose(p) || p.deathTime > 0) return;
+		State st = update(p, tickDelta);
+		float bounce = p.isOnGround() && Math.abs(st.fwdSpeed) + Math.abs(st.latSpeed) > 0.03f
+			? (float) Math.abs(Math.sin(st.stridePhase)) * (0.045f * st.sprintBlend + 0.015f)
+			: 0f;
+		float yOff = bounce - st.landSquash * 0.14f;
+		if (Math.abs(yOff) > 1e-4f) matrices.translate(0f, yOff, 0f);
+		if (Math.abs(st.lastLeanDeg) > 0.05f) {
+			matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-st.lastLeanDeg));
+		}
+		if (Math.abs(st.lastBankDeg) > 0.05f) {
+			// En setupTransforms antes de scale(-1,-1,1), ángulo negativo inclina hacia la derecha del jugador (+X)
+			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-st.lastBankDeg));
+		}
+	}
+
+	/** Cinemática articulada sobre BipedEntityModel: estabilización de cabeza, torso, porte de Kikoku, salto y chasquido. */
+	public static void applyBipedAngles(LivingEntity entity, BipedEntityModel<?> model, float limbAngle, float limbDistance,
+										float animationProgress, float headYaw, float headPitch) {
+		if (!(entity instanceof AbstractClientPlayerEntity p) || skipPlayerPose(p) || p.deathTime > 0) return;
+		State st = STATES.get(p.getId());
+		if (st == null) st = update(p, 0f);
+
+		float runBlend = MathHelper.clamp(limbDistance * 1.45f, 0f, 1f);
+		float sprint = st.sprintBlend;
+		float squash = st.landSquash;
+		float air = st.airBlend;
+		boolean swinging = model.handSwingProgress > 0f;
+
+		// 1) Respiración viva + torsión atlética de columna al correr
+		float breath = MathHelper.sin(animationProgress * 0.067f) * 0.025f;
+		model.body.yaw += MathHelper.sin(limbAngle * 0.6662f) * (0.14f * runBlend + 0.10f * sprint);
+		model.body.pitch += 0.06f * sprint + 0.18f * squash + breath * 0.5f;
+		model.body.roll += MathHelper.clamp(st.lastBankDeg * 0.008f, -0.14f, 0.14f);
+
+		// 2) Estabilización del horizonte en cabeza al inclinarse corriendo o aterrizando
+		model.head.pitch -= (float) Math.toRadians(st.lastLeanDeg * 0.65f);
+
+		// 3) Porte de Kikoku / espada estilo Law al esprintar + drive atlético sin arma
+		ItemStack main = p.getMainHandStack();
+		boolean hasSword = main.isOf(ModItems.KIKOKU) || main.getItem() instanceof SwordItem;
+		Arm mainArm = p.getMainArm();
+		if (!swinging && sprint > 0.05f) {
+			if (hasSword) {
+				var swordArm = mainArm == Arm.RIGHT ? model.rightArm : model.leftArm;
+				var freeArm = mainArm == Arm.RIGHT ? model.leftArm : model.rightArm;
+				float sideSign = mainArm == Arm.RIGHT ? 1f : -1f;
+				float carryPitch = 0.88f + 0.14f * MathHelper.sin(limbAngle * 0.6662f);
+				swordArm.pitch = MathHelper.lerp(sprint, swordArm.pitch, carryPitch);
+				swordArm.yaw = MathHelper.lerp(sprint, swordArm.yaw, -0.28f * sideSign);
+				swordArm.roll = MathHelper.lerp(sprint, swordArm.roll, 0.34f * sideSign);
+				freeArm.pitch = MathHelper.lerp(sprint, freeArm.pitch, -0.82f + MathHelper.sin(limbAngle * 0.6662f) * 0.55f);
+				freeArm.yaw = MathHelper.lerp(sprint, freeArm.yaw, 0.25f * sideSign);
+				freeArm.roll = MathHelper.lerp(sprint, freeArm.roll, -0.22f * sideSign);
+			} else {
+				model.rightArm.pitch = model.rightArm.pitch * (1f + 0.25f * sprint) - 0.18f * sprint;
+				model.leftArm.pitch = model.leftArm.pitch * (1f + 0.25f * sprint) - 0.18f * sprint;
+				model.rightArm.yaw -= 0.22f * sprint;
+				model.leftArm.yaw += 0.22f * sprint;
+				model.rightArm.roll += 0.16f * sprint;
+				model.leftArm.roll -= 0.16f * sprint;
+			}
+		}
+
+		// 4) Zancada más expresiva al esprintar + absorción de rodillas en el aire / aterrizaje
+		if (sprint > 0.05f && air < 0.35f) {
+			model.rightLeg.pitch *= (1f + 0.18f * sprint);
+			model.leftLeg.pitch *= (1f + 0.18f * sprint);
+		}
+		if (air > 0.05f) {
+			float armFlare = 0.38f * air + Math.max(0f, st.fallSpeed) * 0.24f;
+			model.rightArm.roll += armFlare;
+			model.leftArm.roll -= armFlare;
+			if (!swinging) {
+				model.rightArm.pitch = MathHelper.lerp(air, model.rightArm.pitch, -0.22f - Math.max(0f, st.fallSpeed) * 0.32f);
+				model.leftArm.pitch = MathHelper.lerp(air, model.leftArm.pitch, -0.15f - Math.max(0f, st.fallSpeed) * 0.32f);
+			}
+			model.rightLeg.pitch = MathHelper.lerp(air * 0.65f, model.rightLeg.pitch, -0.45f);
+			model.leftLeg.pitch = MathHelper.lerp(air * 0.65f, model.leftLeg.pitch, 0.32f);
+		}
+		if (squash > 0.02f) {
+			model.rightLeg.pitch -= 0.36f * squash;
+			model.leftLeg.pitch -= 0.18f * squash;
+			model.rightArm.roll += 0.26f * squash;
+			model.leftArm.roll -= 0.26f * squash;
+		}
+
+		// 5) Chasquido de dedos para Shambles con la mano libre (o la principal si está vacía)
+		if (st.shamblesGesture > 0.01f) {
+			float g = st.shamblesGesture;
+			float snap = MathHelper.sin(g * (float) Math.PI);
+			boolean useMain = main.isEmpty();
+			Arm gArm = useMain ? mainArm : mainArm.getOpposite();
+			var snapArm = gArm == Arm.RIGHT ? model.rightArm : model.leftArm;
+			float sgn = gArm == Arm.RIGHT ? 1f : -1f;
+			snapArm.pitch = MathHelper.lerp(snap, snapArm.pitch, -1.42f);
+			snapArm.yaw = MathHelper.lerp(snap, snapArm.yaw, -0.26f * sgn);
+			snapArm.roll = MathHelper.lerp(snap, snapArm.roll, 0.42f * sgn * (1f - g));
+		}
+
+		model.hat.copyTransform(model.head);
+	}
+
+	/** Dinámica táctil en 1.ª persona: balanceo de carrera, inercia al girar la mira, amortiguación y gesto Shambles. */
+	public static void applyFirstPersonHand(AbstractClientPlayerEntity p, float tickDelta, Hand hand, float swingProgress,
+											  ItemStack item, MatrixStack matrices) {
+		State st = STATES.get(p.getId());
+		if (st == null) st = update(p, tickDelta);
+		boolean main = hand == Hand.MAIN_HAND;
+		float side = (main ? (p.getMainArm() == Arm.RIGHT ? 1f : -1f) : (p.getMainArm() == Arm.RIGHT ? -1f : 1f));
+
+		float damp = 1.0f - MathHelper.clamp(swingProgress * 1.4f, 0f, 1f);
+		float sprint = st.sprintBlend * damp;
+		if (sprint > 0.01f && !OpeSettings.reducedMotion()) {
+			float ph = st.stridePhase;
+			float dx = (float) Math.cos(ph) * 0.032f * sprint * side - 0.045f * sprint * side;
+			float dy = (float) Math.abs(Math.sin(ph)) * 0.028f * sprint - 0.055f * sprint;
+			matrices.translate(dx, dy, -0.025f * sprint);
+			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(14f * sprint * side));
+			matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(18f * sprint * side));
+			matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-12f * sprint));
+		}
+
+		// Inercia por giro rápido de cámara + salto / aterrizaje
+		float lagX = MathHelper.clamp(-st.turnRate * 0.00028f, -0.045f, 0.045f);
+		float lagY = MathHelper.clamp(st.fallSpeed * 0.022f - st.landSquash * 0.055f, -0.06f, 0.04f);
+		if (Math.abs(lagX) > 1e-4f || Math.abs(lagY) > 1e-4f) {
+			matrices.translate(lagX, lagY, 0f);
+			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(MathHelper.clamp(-st.turnRate * 0.035f, -5.5f, 5.5f)));
+		}
+
+		// Gesto de Shambles en 1.ª persona
+		if (st.shamblesGesture > 0.01f) {
+			float snap = MathHelper.sin(st.shamblesGesture * (float) Math.PI);
+			float w = !main || p.getOffHandStack().isEmpty() ? (main && !item.isEmpty() ? 0.38f : 1.0f) : 0f;
+			if (w > 0.01f) {
+				matrices.translate(0.08f * snap * side * w, 0.11f * snap * w, -0.10f * snap * w);
+				matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-28f * snap * side * w));
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(22f * snap * w));
+			}
+		}
+	}
+
+	/** Cabeceo e inclinación sutiles de cámara en 1.ª persona durante carrera, giros rápidos y aterrizajes. */
+	public static float firstPersonCameraRoll(float tickDelta) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player == null || OpeSettings.reducedMotion()) return 0f;
+		State st = STATES.get(mc.player.getId());
+		if (st == null) return 0f;
+		return MathHelper.clamp(st.turnRate * 0.010f + (st.latSpeed / 0.22f) * 1.15f, -2.4f, 2.4f);
+	}
+
+	public static float firstPersonCameraPitch(float tickDelta) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player == null || OpeSettings.reducedMotion()) return 0f;
+		State st = STATES.get(mc.player.getId());
+		if (st == null) return 0f;
+		float strideBob = mc.player.isOnGround() && st.sprintBlend > 0.1f
+			? MathHelper.sin(st.stridePhase * 2f) * 0.28f * st.sprintBlend : 0f;
+		return st.landSquash * 1.65f + strideBob;
+	}
+
+	/** Métricas deterministas para pruebas automatizadas (AutoTest E10e). */
+	public static float[] computeTestMetrics(float fwdSpeed, float latSpeed, float yawRate, boolean sprinting, float shamblesGesture) {
+		float runFrac = MathHelper.clamp((float) Math.sqrt(fwdSpeed * fwdSpeed + latSpeed * latSpeed) / 0.26f, 0f, 1.35f);
+		float sprint = sprinting && fwdSpeed > 0.05f ? 1f : 0f;
+		float lean = MathHelper.clamp(17.0f * sprint + 5.5f * runFrac, -6f, 24f);
+		float bank = MathHelper.clamp(yawRate * 0.055f + (latSpeed / 0.22f) * 10.5f, -14f, 14f);
+		float gest = MathHelper.clamp(shamblesGesture, 0f, 1f);
+		return new float[]{lean, bank, gest};
+	}
+}

@@ -80,6 +80,17 @@ public final class StatusChips {
 		if (ClientState.kroomBlade()) out.add(new Chip("hoja", Theme.AWAKE, "K-ROOM: Kikoku 26m", Theme.AWAKE, -1f));
 		if (ClientState.eternalYouth()) out.add(new Chip("despertar", Theme.FORGE, "Juventud Eterna", Theme.FORGE, -1f));
 		if (ClientState.zeroGravity()) out.add(new Chip("suspender", Theme.HI, "Gravedad Cero ROOM", Theme.HI, -1f));
+		int shMode = ClientState.shamblesMode();
+		boolean shMarked = ClientState.has(Payloads.State.SHAMBLES_MARKED);
+		if (shMarked || shMode != 0 || now < ClientState.shamblesModeToastUntil) {
+			String sTxt = shMarked ? "Shambles: Objetivo marcado" : switch (shMode) {
+				case 1 -> "Shambles: Tú ↔ Entidad";
+				case 2 -> "Shambles: Entidad A ↔ B";
+				default -> "Shambles: Tú → Destino";
+			};
+			int sCol = shMarked ? Theme.FORGE : (shMode == 1 ? Theme.AWAKE : Theme.HI);
+			out.add(new Chip("shambles", sCol, sTxt, sCol, -1f));
+		}
 		if (ClientState.awakened()) out.add(new Chip("despertar", Theme.AWAKE, "Despertar", Theme.AWAKE, -1f));
 		if (ClientState.scanTicks > 0) {
 			float f = Anim.clamp01(ClientState.scanTicks / (float) OpeConfig.SCAN_TICKS);

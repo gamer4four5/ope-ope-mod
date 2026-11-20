@@ -145,9 +145,9 @@ public final class CameraFx {
 			yaw += 2.5 * tt * (0.6 * Math.sin(tau * 6.1 * t + 0.7) + 0.4 * Math.sin(tau * 11.7 * t));
 			roll += 4.0 * tt * (0.6 * Math.sin(tau * 4.7 * t + 2.1) + 0.4 * Math.sin(tau * 9.9 * t));
 		}
-		pitch *= scale;
+		pitch = pitch * scale + dev.opeope.client.render.PlayerAnimClient.firstPersonCameraPitch(tickDelta);
 		yaw *= scale;
-		roll *= scale;
+		roll = roll * scale + dev.opeope.client.render.PlayerAnimClient.firstPersonCameraRoll(tickDelta);
 		if (Math.abs(pitch) > 1e-4) matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees((float) pitch));
 		if (Math.abs(yaw) > 1e-4) matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees((float) yaw));
 		if (Math.abs(roll) > 1e-4) matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees((float) roll));

@@ -2,6 +2,8 @@ package dev.opeope.client.mixin;
 
 import dev.opeope.client.dismember.ClientDismember;
 import dev.opeope.client.render.CutRendering;
+import dev.opeope.client.render.PlayerAnimClient;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.entity.model.EntityModel;
 import org.spongepowered.asm.mixin.Shadow;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -46,5 +48,14 @@ public class LivingEntityRendererMixin {
 		at = @At("RETURN"))
 	private void opeope$seams(LivingEntity entity, float yaw, float tickDelta, MatrixStack matrices, VertexConsumerProvider provider, int light, CallbackInfo ci) {
 		CutRendering.flush();
+	}
+
+	@Inject(
+		method = "setupTransforms(Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/client/util/math/MatrixStack;FFFF)V",
+		at = @At("TAIL"))
+	private void opeope$playerBodyAnim(LivingEntity entity, MatrixStack matrices, float animationProgress, float bodyYaw, float tickDelta, float scale, CallbackInfo ci) {
+		if (entity instanceof AbstractClientPlayerEntity acp) {
+			PlayerAnimClient.applyBodyTransforms(acp, matrices, tickDelta);
+		}
 	}
 }

@@ -49,6 +49,75 @@ import java.util.Set;
 public final class Shambles {
 	private Shambles() {}
 
+	public static final int MODE_SELF_TP = 0, MODE_SELF_SWAP = 1, MODE_ENTITY_SWAP = 2;
+
+	public static void cycleMode(ServerPlayerEntity p, PlayerPower pw, int dir) {
+		if (pw.shamblesMark >= 0) {
+			Entity old = p.getWorld().getEntityById(pw.shamblesMark);
+			if (old != null) old.setGlowing(false);
+			pw.shamblesMark = -1;
+			pw.shamblesMarkTicks = 0;
+			sendClearMark(p);
+		}
+		pw.shamblesMode = Math.floorMod(pw.shamblesMode + (dir >= 0 ? 1 : -1), 3);
+		pw.dirty = true;
+		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 0.85f, 1.55f + pw.shamblesMode * 0.2f);
+		p.sendMessage(Text.translatable("opeope.msg.shambles_mode_" + pw.shamblesMode), true);
+	}
+
+	public static void sendClearMark(ServerPlayerEntity p) {
+		sendShamblesFx(p, Payloads.ShamblesFx.KIND_CLEAR_MARK, null, null, p.getPos(), p.getPos());
+	}
+
+	private static void sendShamblesFx(ServerPlayerEntity p, int kind, @Nullable Entity a, @Nullable Entity b, Vec3d posA, Vec3d posB) {
+		if (!(p.getWorld() instanceof ServerWorld w)) return;
+		float aw = a != null ? a.getWidth() : p.getWidth();
+		float ah = a != null ? a.getHeight() : p.getHeight();
+		float ayaw = a != null ? a.getYaw() : p.getYaw();
+		float bw = b != null ? b.getWidth() : aw;
+		float bh = b != null ? b.getHeight() : ah;
+		float byaw = b != null ? b.getYaw() : p.getYaw();
+		Payloads.ShamblesFx payload = new Payloads.ShamblesFx(
+			kind, p.getId(), a != null ? a.getId() : -1, b != null ? b.getId() : -1,
+			posA.x, posA.y, posA.z, aw, ah, ayaw,
+			posB.x, posB.y, posB.z, bw, bh, byaw
+		);
+		for (ServerPlayerEntity sp : w.getPlayers()) {
+			if (sp == p || sp.squaredDistanceTo(posA) <= 160 * 160 || sp.squaredDistanceTo(posB) <= 160 * 160) {
+				ServerPlayNetworking.send(sp, payload);
+			}
+		}
+	}
+
+	private static boolean selfTeleportToEmpty(ServerPlayerEntity p) {
+		Vec3d dest = emptyPoint(p, p);
+		if (dest == null) {
+			PowerManager.noRoom(p);
+			return false;
+		}
+		Vec3d from = p.getPos();
+		Vec3d prevVel = p.getVelocity();
+		Vec3d glide = Vec3d.ZERO;
+		if (prevVel.horizontalLengthSquared() > 0.008) {
+			Vec3d lookFlat = new Vec3d(p.getRotationVector().x, 0, p.getRotationVector().z);
+			if (lookFlat.lengthSquared() > 1e-4) lookFlat = lookFlat.normalize();
+			glide = new Vec3d(
+				prevVel.x * 0.4 + lookFlat.x * 0.16,
+				Math.max(prevVel.y * 0.4, 0.04),
+				prevVel.z * 0.4 + lookFlat.z * 0.16
+			);
+		}
+		teleport(p, dest);
+		if (glide.lengthSquared() > 1e-5) {
+			p.setVelocity(glide);
+			p.velocityModified = true;
+			if (p.networkHandler != null) p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), glide));
+		}
+		fx(p, from, dest);
+		sendShamblesFx(p, Payloads.ShamblesFx.KIND_SELF_TP, p, null, from, dest);
+		return true;
+	}
+
 	public static void use(ServerPlayerEntity p, PlayerPower pw, boolean sneaking) {
 		if (pw.onCooldown(Tech.SHAMBLES)) return;
 		if (pw.room == null && pw.rroom == null) {
@@ -63,7 +132,11 @@ public final class Shambles {
 		cleanTacticalQueue(p, pw);
 		Entity marked = pw.shamblesMark >= 0 ? p.getWorld().getEntityById(pw.shamblesMark) : null;
 		if (marked != null && (marked.isRemoved() || !marked.isAlive() || pw.shamblesMarkTicks <= 0)) marked = null;
-		if (marked == null) pw.shamblesMark = -1;
+		if (marked == null && pw.shamblesMark >= 0) {
+			pw.shamblesMark = -1;
+			pw.dirty = true;
+			sendClearMark(p);
+		}
 
 		PieceEntity conePiece = findTacticalConePiece(p, pw);
 
@@ -75,8 +148,8 @@ public final class Shambles {
 			return;
 		}
 
-		// Si hay proyectiles o TNT en vuelo dentro del ROOM y no tienes marca previa, redirígelos todos al objetivo en la mira
-		if (marked == null && redirectAirborneProjectiles(p, pw)) {
+		// En modo Entidad A <-> B sin marca previa: redirigir proyectiles en vuelo hacia la mira
+		if (marked == null && pw.shamblesMode == MODE_ENTITY_SWAP && redirectAirborneProjectiles(p, pw)) {
 			pw.cooldown(Tech.SHAMBLES);
 			return;
 		}
@@ -102,60 +175,68 @@ public final class Shambles {
 			ItemStack stolen = le.getMainHandStack().copy();
 			le.setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
 			p.getInventory().offerOrDrop(stolen);
-			fx(p, le.getPos(), p.getPos());
+			Vec3d from = le.getPos(), to = p.getPos();
+			fx(p, from, to);
+			sendShamblesFx(p, Payloads.ShamblesFx.KIND_ENTITY_SWAP, le, p, from, to);
 			p.sendMessage(Text.translatable("opeope.msg.stolen", stolen.getName()), true);
 			pw.cooldown(Tech.SHAMBLES);
 			return;
 		}
 
 		if (marked == null) {
-			if (target instanceof MarkerStoneEntity || target instanceof ItemEntity) {
-				swap(p, p, target);
-			} else if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
-				if (!swapPiece(p, pw, p, pe)) return;
-			} else if (target != null) {
-				pw.shamblesMark = target.getId();
-				pw.shamblesMarkTicks = OpeConfig.SHAMBLES_MARK_TICKS;
-				target.setGlowing(true);
-				p.sendMessage(Text.translatable("opeope.msg.marked", target.getDisplayName()), true);
-				p.getWorld().playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 1.8f);
-				return;
-			} else {
-				PieceEntity fallback = findFallbackPiece(p, pw);
-				if (fallback != null) {
-					if (!swapPiece(p, pw, p, fallback)) return;
+			if (pw.shamblesMode == MODE_SELF_TP) {
+				if (target instanceof MarkerStoneEntity) {
+					swap(p, p, target);
+				} else if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
+					if (!swapPiece(p, pw, p, pe)) return;
 				} else {
-					Vec3d dest = emptyPoint(p, p);
-					if (dest == null) {
-						PowerManager.noRoom(p);
-						return;
+					if (!selfTeleportToEmpty(p)) return;
+				}
+			} else if (pw.shamblesMode == MODE_SELF_SWAP) {
+				if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
+					if (!swapPiece(p, pw, p, pe)) return;
+				} else if (target != null) {
+					swap(p, p, target);
+				} else {
+					PieceEntity fallback = findFallbackPiece(p, pw);
+					if (fallback != null) {
+						if (!swapPiece(p, pw, p, fallback)) return;
+					} else {
+						if (!selfTeleportToEmpty(p)) return;
 					}
-					Vec3d from = p.getPos();
-					Vec3d prevVel = p.getVelocity();
-					Vec3d glide = Vec3d.ZERO;
-					if (prevVel.horizontalLengthSquared() > 0.008) {
-						Vec3d lookFlat = new Vec3d(p.getRotationVector().x, 0, p.getRotationVector().z);
-						if (lookFlat.lengthSquared() > 1e-4) lookFlat = lookFlat.normalize();
-						glide = new Vec3d(
-							prevVel.x * 0.4 + lookFlat.x * 0.16,
-							Math.max(prevVel.y * 0.4, 0.04),
-							prevVel.z * 0.4 + lookFlat.z * 0.16
-						);
+				}
+			} else {
+				if (target instanceof MarkerStoneEntity || target instanceof ItemEntity) {
+					swap(p, p, target);
+				} else if (target instanceof PieceEntity pe && isTacticalPiece(p, pe)) {
+					if (!swapPiece(p, pw, p, pe)) return;
+				} else if (target != null) {
+					pw.shamblesMark = target.getId();
+					pw.shamblesMarkTicks = OpeConfig.SHAMBLES_MARK_TICKS;
+					pw.dirty = true;
+					target.setGlowing(true);
+					sendShamblesFx(p, Payloads.ShamblesFx.KIND_MARK, target, null, target.getPos(), target.getPos());
+					p.sendMessage(Text.translatable("opeope.msg.marked", target.getDisplayName()), true);
+					p.getWorld().playSound(null, target.getX(), target.getY(), target.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 1.8f);
+					return;
+				} else {
+					PieceEntity fallback = findFallbackPiece(p, pw);
+					if (fallback != null) {
+						if (!swapPiece(p, pw, p, fallback)) return;
+					} else {
+						if (!selfTeleportToEmpty(p)) return;
 					}
-					teleport(p, dest);
-					if (glide.lengthSquared() > 1e-5) {
-						p.setVelocity(glide);
-						p.velocityModified = true;
-						if (p.networkHandler != null) p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), glide));
-					}
-					fx(p, from, dest);
 				}
 			}
 		} else {
 			marked.setGlowing(false);
 			pw.shamblesMark = -1;
+			pw.shamblesMarkTicks = 0;
+			pw.dirty = true;
+			sendClearMark(p);
 			// una parte cortada y su dueño (en cualquier orden): la parte vuelve a su sitio
 			if (Dismember.shamblesPair(p, marked, target)) {
+				sendShamblesFx(p, Payloads.ShamblesFx.KIND_ENTITY_SWAP, marked, target, marked.getPos(), target != null ? target.getPos() : marked.getPos());
 				pw.cooldown(Tech.SHAMBLES);
 				return;
 			}
@@ -178,6 +259,7 @@ public final class Shambles {
 					Vec3d from = marked.getPos();
 					teleport(marked, dest);
 					fx(p, from, dest);
+					sendShamblesFx(p, Payloads.ShamblesFx.KIND_ENTITY_SWAP, marked, null, from, dest);
 				}
 			}
 		}
@@ -550,6 +632,8 @@ public final class Shambles {
 		}
 		if (a instanceof MobEntity ma) ma.getNavigation().stop();
 		fx(p, pa, pb);
+		int kind = (a == p || b == p) ? Payloads.ShamblesFx.KIND_SELF_SWAP : Payloads.ShamblesFx.KIND_ENTITY_SWAP;
+		sendShamblesFx(p, kind, a, b, pa, pb);
 	}
 
 	/** Intercambio táctico centrado entre jugador/enemigo y un PieceEntity en vuelo, conservando impulso y abriendo ventana aérea. */
@@ -646,6 +730,7 @@ public final class Shambles {
 		}
 
 		tacticalFx(p, cOther, cPiece, perfect);
+		sendShamblesFx(p, Payloads.ShamblesFx.KIND_TACTICAL, other, pe, cOther.subtract(0, other.getHeight() * 0.5, 0), safeOtherPos);
 		return true;
 	}
 

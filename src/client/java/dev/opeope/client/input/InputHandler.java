@@ -82,6 +82,11 @@ public final class InputHandler {
 	public static boolean row2Down;
 	public static boolean rDown;
 	public static long rDownAt;
+	private static boolean shamblesDown;
+
+	public static boolean isShamblesDown() {
+		return shamblesDown;
+	}
 	private static boolean rUsed;
 	private static long lastRTapAt, rDownTick, lastRTapTick;
 	public static boolean roomDown;
@@ -268,6 +273,12 @@ public final class InputHandler {
 		if (!active() || vertical == 0) return false;
 		int dir = vertical > 0 ? 1 : -1;
 		long now = System.currentTimeMillis();
+		if (shamblesDown) {
+			Send.action(Actions.SHAMBLES_MODE, dir);
+			RoomSounds.shamblesSnap();
+			lastFruitInputAt = now;
+			return true;
+		}
 		if (roomMode()) {
 			roomUse();
 			Send.action(Actions.ROOM_SCROLL, dir);
@@ -501,16 +512,27 @@ public final class InputHandler {
 				return roomPress(p);
 			}
 			case SHAMBLES -> {
+				long h = mc().getWindow().getHandle();
+				boolean mod = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_ALT)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_ALT)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_CONTROL)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_CONTROL);
+				if (mod) {
+					Send.action(Actions.SHAMBLES_MODE, 1);
+					RoomSounds.shamblesSnap();
+					dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();
+					return NOTHING;
+				}
 				deny(Tech.SHAMBLES);
+				shamblesDown = true;
+				dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();
 				if (ClientState.ownRoom() != null && ClientState.cooldowns.length > Tech.SHAMBLES.ordinal()
 					&& ClientState.cooldowns[Tech.SHAMBLES.ordinal()] <= 2) {
 					RoomSounds.shamblesSnap();
-					CameraFx.fov(-1.8f, 0.04f, 0.20f);
-					ScreenFx.edgePulse(0.20f, 0.22f);
 				}
 				Send.action(Actions.SHAMBLES, p.isSneaking() ? 1 : 0);
 				Onboarding.mark(Onboarding.STEP_SHAMBLES);
-				return NOTHING;
+				return () -> shamblesDown = false;
 			}
 			case MARKER -> {
 				deny(Tech.MARKER);
@@ -1203,7 +1225,7 @@ public final class InputHandler {
 		if (mc.player == null || !ClientState.hasFruit() || mc.player.isSpectator()) {
 			clearLatches(mc.player != null);
 			hidePlayerList();
-			row2Down = rDown = roomDown = leftHeld = dragging = false;
+			row2Down = rDown = roomDown = leftHeld = dragging = shamblesDown = false;
 			sizeToastAt = 0;
 			if (Bisturi.active) Bisturi.cancel();
 			return;
@@ -1258,7 +1280,7 @@ public final class InputHandler {
 	public static void onDisconnect() {
 		clearLatches(false);
 		hidePlayerList();
-		row2Down = rDown = roomDown = leftHeld = false;
+		row2Down = rDown = roomDown = leftHeld = shamblesDown = false;
 		rUsed = roomUsed = row2Used = false;
 		unionCHeld = surgeryOn = false;
 		lastRTapAt = lastRoomTapAt = 0;

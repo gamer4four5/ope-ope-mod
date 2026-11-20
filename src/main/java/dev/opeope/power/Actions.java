@@ -10,7 +10,7 @@ public final class Actions {
 	private Actions() {}
 
 	public static final int ROOM_PRESS = 1, ROOM_RELEASE = 2, ROOM_SCROLL = 3, ROOM_LAUNCH = 4, ROOM_BRING = 5;
-	public static final int SHAMBLES = 10, MARKER = 11;
+	public static final int SHAMBLES = 10, MARKER = 11, SHAMBLES_MODE = 12;
 	public static final int TAKT_TAP = 20, TAKT_DOUBLE = 21, TAKT_ORDER = 22, TAKT_THROW_ONE = 23, TAKT_THROW_ALL = 24, TAKT_SCROLL = 25;
 	public static final int SCAN = 30, RADIO_KNIFE = 31, INJECTION = 32, GAMMA = 33, AWAKEN = 34, CURTAIN = 35;
 	public static final int STERBEN = 40, SOULS = 41, UNION = 42, SURGERY = 43, RAIN = 44;
@@ -46,6 +46,7 @@ public final class Actions {
 			case ROOM_LAUNCH -> RoomOps.launch(p, pw);
 			case ROOM_BRING -> RoomOps.bring(p, pw);
 			case SHAMBLES -> Shambles.use(p, pw, arg == 1);
+			case SHAMBLES_MODE -> Shambles.cycleMode(p, pw, arg);
 			case MARKER -> Techniques.marker(p, pw);
 			case TAKT_TAP -> Takt.tap(p, pw);                    // el cliente ya manda TaktTap; esto queda por si acaso
 			case TAKT_DOUBLE -> Takt.doubleTap(p, pw, null);

@@ -20,7 +20,8 @@
     "EntityModelAccessorMixin",
     "FirstPersonArmMixin",
     "ModelPartRotateMixin",
-    "VertexConsumerProviderImmediateMixin"
+    "VertexConsumerProviderImmediateMixin",
+    "BipedEntityModelMixin"
   ],
   "injectors": {
     "defaultRequire": 1
