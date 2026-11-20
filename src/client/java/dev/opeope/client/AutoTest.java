@@ -3539,7 +3539,7 @@ public final class AutoTest {
 		planCorteLibre(mc, srv, id);
 	}
 
-	private static volatile int eDone = 0, ePinId = -1;
+	private static volatile int eDone = 0, ePinId = -1, eReclaimId = -1;
 	private static volatile double ePinY = 0;
 
 	/**
@@ -3725,13 +3725,47 @@ public final class AutoTest {
 				}
 			});
 		});
-		step(8, "E7b comprobar clavado y preparar escena E8", () -> {
+		step(8, "E7b comprobar clavado y preparar E7c", () -> {
 			drain();
 			server(srv, id, (sp, pw) -> {
 				ServerWorld w = sp.getServerWorld();
 				Entity pe = w.getEntityById(ePinId);
 				boolean pinOk = pe instanceof dev.opeope.entity.BodyPartEntity bp && bp.pinned() && Math.abs(bp.getY() - ePinY) < 0.05;
 				dres("E7b pieza clavada con Takt no cae por gravedad", pinOk ? null : "pe=" + pe);
+				Box arena = new Box(gx0 + DX - 20, gfy - 4, gz0 + DZ - 20, gx0 + DX + 21, gfy + 20, gz0 + DZ + 21);
+				for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity)) e.discard();
+
+				// E7c: Regresión ConcurrentModificationException: >= 2 mobs cortados en ACTIVE mientras uno recoge su mitad
+				OpeConfig.MOBS_RECLAIM_PARTS = true;
+				eReclaimId = -1;
+				PigEntity p1 = EntityType.PIG.create(w);
+				PigEntity p2 = EntityType.PIG.create(w);
+				if (p1 != null && p2 != null) {
+					p1.refreshPositionAndAngles(gx0 + DX - 2.0, gfy + 1, gz0 + DZ - 5.0, 0f, 0f);
+					p2.refreshPositionAndAngles(gx0 + DX + 4.0, gfy + 1, gz0 + DZ - 5.0, 0f, 0f);
+					for (PigEntity pig : new PigEntity[]{p1, p2}) {
+						pig.setAiDisabled(false);
+						pig.setPersistent();
+						w.spawnEntity(pig);
+						dev.opeope.power.Dismember.planeCut(sp, pig,
+							new CutEngine.Plane(new Vec3d(1, 0, 0), pig.getBoundingBox().getCenter()), false, false);
+					}
+					for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, p1)) {
+						bp.setPosition(p1.getX(), p1.getY(), p1.getZ());
+						bp.setVelocity(Vec3d.ZERO);
+					}
+					eReclaimId = p1.getId();
+				}
+			});
+		});
+		step(65, "E7c verificar reclaim sin CME y preparar escena E8", () -> {
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Entity pe = w.getEntityById(eReclaimId);
+				boolean okReclaim = pe instanceof PigEntity p1 && p1.isAlive()
+					&& partsOf(w, p1).isEmpty() && dev.opeope.power.Dismember.state(p1) == null;
+				dres("E7c cerdo partido por la mitad recoge su parte sin CME", okReclaim ? null : "pe=" + pe);
+				OpeConfig.MOBS_RECLAIM_PARTS = false;
 				Box arena = new Box(gx0 + DX - 20, gfy - 4, gz0 + DZ - 20, gx0 + DX + 21, gfy + 20, gz0 + DZ + 21);
 				for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity)) e.discard();
 

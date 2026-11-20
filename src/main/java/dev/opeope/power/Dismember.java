@@ -51,7 +51,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -1182,18 +1181,18 @@ public final class Dismember {
 	// ------------------------------------------------------------------ cada tick
 
 	private static void tick(MinecraftServer server) {
-		Iterator<Map.Entry<UUID, LivingEntity>> it = ACTIVE.entrySet().iterator();
 		List<LivingEntity> resync = new ArrayList<>();
-		while (it.hasNext()) {
-			LivingEntity le = it.next().getValue();
+		for (Map.Entry<UUID, LivingEntity> entry : new ArrayList<>(ACTIVE.entrySet())) {
+			UUID key = entry.getKey();
+			LivingEntity le = entry.getValue();
 			if (le.isRemoved() || !(le.getWorld() instanceof ServerWorld w)) {
-				it.remove();
+				ACTIVE.remove(key);
 				CAPS.remove(le.getUuid());
 				continue;
 			}
 			DismemberState st = state(le);
 			if (st == null || st.isEmpty()) {
-				it.remove();
+				ACTIVE.remove(key);
 				continue;
 			}
 			boolean changed = false;
@@ -1235,7 +1234,11 @@ public final class Dismember {
 				resync.add(le);
 			}
 			Caps c = caps(le);
-			if (le instanceof MobEntity mob && (!st.detached.isEmpty() || !st.sliceVolumes.isEmpty())) reclaim(w, mob, st, c);
+			if (le instanceof MobEntity mob && (!st.detached.isEmpty() || !st.sliceVolumes.isEmpty() || !st.splitParts.isEmpty())) {
+				reclaim(w, mob, st, c);
+				if (state(le) == null) continue;
+				c = caps(le);
+			}
 			if (OpeConfig.HEAD_CONTROLS_AI && le instanceof MobEntity mob && le.age % 10 == 0) headControl(w, mob, st);
 			if (c.blind && le instanceof MobEntity mob) {
 				mob.setTarget(null);
@@ -1265,14 +1268,16 @@ public final class Dismember {
 				best = part;
 			}
 		}
-		for (UUID id : st.sliceVolumes.keySet()) {
-			Long until = st.lockedUntil.get("#vol:" + id);
-			if (until != null && until > now) continue;
-			if (!(w.getEntity(id) instanceof BodyPartEntity part) || part.mounted() || part.frozen() || part.pinned() || Takt.held(part.getId())) continue;
-			double d = part.squaredDistanceTo(mob);
-			if (d < bd) {
-				bd = d;
-				best = part;
+		for (Set<UUID> volKeys : List.of(st.sliceVolumes.keySet(), st.splitParts.keySet())) {
+			for (UUID id : volKeys) {
+				Long until = st.lockedUntil.get("#vol:" + id);
+				if (until != null && until > now) continue;
+				if (!(w.getEntity(id) instanceof BodyPartEntity part) || part.mounted() || part.frozen() || part.pinned() || Takt.held(part.getId())) continue;
+				double d = part.squaredDistanceTo(mob);
+				if (d < bd) {
+					bd = d;
+					best = part;
+				}
 			}
 		}
 		UUID id = mob.getUuid();
