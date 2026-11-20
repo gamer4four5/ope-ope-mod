@@ -523,11 +523,53 @@ public final class Payloads {
 	}
 
 	/**
+	 * Cliente → servidor: corte libre de forma o lazo a mano alzada sobre entidades / BodyPartEntity en Bisturí.
+	 * mode: 0=PLANE, 1=WEDGE, 2=BOX, 3=CYLINDER, 4=SPHERE, 5=SLICES_3, 6=CROSS_4, 7=FREEHAND.
+	 */
+	public record CutShape(int targetId, int mode, boolean delayed, boolean thru, float[] params) implements CustomPayload {
+		public static final int MODE_PLANE = 0, MODE_WEDGE = 1, MODE_BOX = 2, MODE_CYLINDER = 3,
+			MODE_SPHERE = 4, MODE_SLICES_3 = 5, MODE_CROSS_4 = 6, MODE_FREEHAND = 7;
+		private static final int PARAM_CAP = 96;
+		public static final Id<CutShape> ID = new Id<>(OpeOpeMod.id("cut_shape"));
+		public static final PacketCodec<RegistryByteBuf, CutShape> CODEC = PacketCodec.of(CutShape::write, CutShape::read);
+
+		static CutShape read(RegistryByteBuf buf) {
+			int target = buf.readVarInt(), mode = buf.readVarInt();
+			boolean delayed = buf.readBoolean(), thru = buf.readBoolean();
+			int n = len(buf.readVarInt(), PARAM_CAP);
+			float[] p = new float[n];
+			for (int i = 0; i < n; i++) p[i] = buf.readFloat();
+			return new CutShape(target, mode, delayed, thru, p);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(targetId);
+			buf.writeVarInt(mode);
+			buf.writeBoolean(delayed);
+			buf.writeBoolean(thru);
+			int n = params == null ? 0 : Math.min(params.length, PARAM_CAP);
+			buf.writeVarInt(n);
+			for (int i = 0; i < n; i++) buf.writeFloat(params[i]);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/**
 	 * Servidor → cliente: lo que le falta a un ser vivo (vacío = entero). locked: partes que no se pueden reunir aún.
-	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal).
+	 * drop: cuánto baja el cuerpo al dibujarlo (bloques; sin piernas); heightScale: la altura de su caja (1 = normal);
+	 * volume: codificación CSG completa {@link dev.opeope.anatomy.CutVolume}.
 	 */
 	public record DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
-								float heightScale, java.util.List<String> foreign, float[] plane) implements CustomPayload {
+								float heightScale, java.util.List<String> foreign, float[] plane, String volume) implements CustomPayload {
+		public DismemberSync(int entityId, java.util.List<String> detached, java.util.List<String> locked, float drop,
+							 float heightScale, java.util.List<String> foreign, float[] plane) {
+			this(entityId, detached, locked, drop, heightScale, foreign, plane, "");
+		}
+
 		public static final Id<DismemberSync> ID = new Id<>(OpeOpeMod.id("dismember_sync"));
 		public static final PacketCodec<RegistryByteBuf, DismemberSync> CODEC = PacketCodec.of(DismemberSync::write, DismemberSync::read);
 		private static final int CAP = 64;
@@ -541,7 +583,8 @@ public final class Payloads {
 			int np = Math.min(4, buf.readVarInt());
 			float[] pl = new float[np];
 			for (int i = 0; i < np; i++) pl[i] = buf.readFloat();
-			return new DismemberSync(id, d, l, drop, hs, f, pl);
+			String vol = buf.readString(8192);
+			return new DismemberSync(id, d, l, drop, hs, f, pl, vol);
 		}
 
 		private static java.util.List<String> strings(RegistryByteBuf buf) {
@@ -567,6 +610,7 @@ public final class Payloads {
 			int np = plane == null ? 0 : Math.min(4, plane.length);
 			buf.writeVarInt(np);
 			for (int i = 0; i < np; i++) buf.writeFloat(plane[i]);
+			buf.writeString(volume == null ? "" : volume, 8192);
 		}
 
 		@Override

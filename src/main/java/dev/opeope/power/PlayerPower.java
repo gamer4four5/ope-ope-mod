@@ -33,7 +33,8 @@ public class PlayerPower {
 	public final Map<Integer, Vec3d> taktOffsets = new HashMap<>();
 	public long lastTaktTap;
 	public final List<Integer> suspended = new ArrayList<>();
-	public final List<Integer> bisturiHeld = new ArrayList<>();   // lo cortado con el Bisturí, quieto hasta soltar
+	public final List<Integer> bisturiHeld = new ArrayList<>();   // piezas de bloques cortadas con Bisturí, quietas hasta soltar
+	public final List<Integer> bisturiHeldParts = new ArrayList<>(); // partes vivas cortadas con Bisturí, congeladas hasta soltar
 	public final List<Integer> weapons = new ArrayList<>();
 	public int weaponKind = -1;
 

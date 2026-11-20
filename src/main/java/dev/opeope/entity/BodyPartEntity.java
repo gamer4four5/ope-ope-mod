@@ -3,6 +3,9 @@ package dev.opeope.entity;
 import dev.opeope.OpeConfig;
 import dev.opeope.anatomy.Anatomy;
 import dev.opeope.anatomy.AnatomyRegistry;
+import dev.opeope.anatomy.CutOp;
+import dev.opeope.anatomy.CutVolume;
+import dev.opeope.anatomy.VolumeBounds;
 import dev.opeope.power.CutEngine;
 import dev.opeope.power.Dismember;
 import dev.opeope.power.Takt;
@@ -22,9 +25,14 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.listener.ClientPlayPacketListener;
 import net.minecraft.network.packet.Packet;
 import net.minecraft.network.packet.s2c.play.EntitySpawnS2CPacket;
+import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.EntityTrackerEntry;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
@@ -49,10 +57,14 @@ public class BodyPartEntity extends Entity {
 	private static final TrackedData<Byte> FLAGS = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.BYTE);
 	private static final TrackedData<Integer> HOST = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.INTEGER);
 	private static final TrackedData<String> HOST_SEG = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.STRING);
-	/** Corte libre: el plano (píxeles del JSON, «nx,ny,nz,d»); esta pieza es lo que queda del lado n·P &gt; d. */
+	/** Plano legado (píxeles del JSON, «nx,ny,nz,d»); sincronizado desde {@link #VOLUME} cuando hay un semiespacio. */
 	private static final TrackedData<String> PLANE = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.STRING);
+	/** Volumen CSG completo de esta pieza (vacío = parte entera por articulación). */
+	private static final TrackedData<String> VOLUME = DataTracker.registerData(BodyPartEntity.class, TrackedDataHandlerRegistry.STRING);
 
 	public static final int F_LOCKED = 1;   // Radio Knife: no se puede reunir aún (borde eléctrico)
+	public static final int F_FROZEN = 2;   // Bisturí: congelada hasta soltar el clic derecho
+	public static final int F_PINNED = 4;   // Takt: clavada viva en pared/bloque sólido
 
 	/** Cuántas hay vivas en el servidor (para el tope del mundo). */
 	public static int LIVE;
@@ -72,6 +84,16 @@ public class BodyPartEntity extends Entity {
 	private Vec3d returnTo;
 	private int turnTicks, impactCd, soundCd = 80;
 	private boolean auto;
+
+	// Bisturí diferido + Takt clavado
+	private Vec3d frozenOffset;
+	private Vec3d frozenKick;
+	private BlockPos pinSupport;
+	private boolean taktThrown;
+	private long taktThrownUntil;
+
+	private float[] planeCache;
+	private CutVolume volumeCache;
 
 	public BodyPartEntity(EntityType<? extends BodyPartEntity> type, World world) {
 		super(type, world);
@@ -93,28 +115,71 @@ public class BodyPartEntity extends Entity {
 		return e;
 	}
 
-	/** Una pieza de un corte libre: las partes del otro lado del plano y la otra mitad de las atravesadas. */
+	/** Una pieza de un corte libre por plano único (compatibilidad). */
 	public static BodyPartEntity createSlice(ServerWorld w, LivingEntity victim, List<String> segs, float[] plane, UUID cutter) {
+		CutVolume vol = plane == null || plane.length != 4 ? CutVolume.WHOLE
+			: new CutVolume(List.of(new CutOp.HalfSpace(-plane[0], -plane[1], -plane[2], -plane[3])), List.of());
+		return createVolumeSlice(w, victim, segs, vol, cutter);
+	}
+
+	/** Una pieza arbitraria definida por un {@link CutVolume} en píxeles de modelo. */
+	public static BodyPartEntity createVolumeSlice(ServerWorld w, LivingEntity victim, List<String> segs, CutVolume vol, UUID cutter) {
 		BodyPartEntity e = new BodyPartEntity(ModEntities.BODY_PART, w);
 		e.victimUuid = victim.getUuid();
 		e.cutter = cutter;
 		e.dataTracker.set(TYPE, EntityType.getId(victim.getType()).toString());
 		e.dataTracker.set(SCALE, victim.getScale() * (victim.isBaby() ? 0.5f : 1f));
 		e.dataTracker.set(VICTIM, victim.getId());
-		e.setPlane(plane);
+		e.setCutVolume(vol);
 		e.setSegments(segs);
 		e.spinYaw = (w.random.nextFloat() - 0.5f) * 10f;
 		e.setYaw(victim.getBodyYaw());
 		return e;
 	}
 
-	private float[] planeCache;
-
 	public boolean isSlice() {
-		return !dataTracker.get(PLANE).isEmpty();
+		return !cutVolume().isWhole() || !dataTracker.get(PLANE).isEmpty();
 	}
 
-	/** El plano del corte libre (o null). */
+	public CutVolume cutVolume() {
+		if (volumeCache != null) return volumeCache;
+		String raw = dataTracker.get(VOLUME);
+		if (!raw.isEmpty()) {
+			CutVolume dec = CutVolume.decodeString(raw);
+			if (dec != null) {
+				volumeCache = dec;
+				return dec;
+			}
+		}
+		float[] pl = plane();
+		if (pl != null) {
+			volumeCache = new CutVolume(List.of(new CutOp.HalfSpace(-pl[0], -pl[1], -pl[2], -pl[3])), List.of());
+			return volumeCache;
+		}
+		volumeCache = CutVolume.WHOLE;
+		return volumeCache;
+	}
+
+	public void setCutVolume(CutVolume vol) {
+		volumeCache = vol == null ? CutVolume.WHOLE : vol;
+		String enc = volumeCache.isWhole() ? "" : volumeCache.encodeString();
+		dataTracker.set(VOLUME, enc);
+		float[] fp = null;
+		if (!volumeCache.isWhole()) {
+			List<CutOp.HalfSpace> hs = volumeCache.halfSpaces();
+			if (!hs.isEmpty()) {
+				CutOp.HalfSpace first = hs.get(0);
+				// En el formato legado de BodyPartEntity.PLANE, n·P > d correspondía a HalfSpace(-n, -d)
+				fp = new float[]{-first.nx(), -first.ny(), -first.nz(), -first.d()};
+			} else {
+				fp = new float[]{0f, -1f, 0f, -12f};
+			}
+		}
+		setPlane(fp);
+		refreshDims();
+	}
+
+	/** El plano legado del corte libre (o null). */
 	public float[] plane() {
 		if (planeCache != null) return planeCache;
 		String s = dataTracker.get(PLANE);
@@ -147,6 +212,7 @@ public class BodyPartEntity extends Entity {
 		builder.add(HOST, -1);
 		builder.add(HOST_SEG, "");
 		builder.add(PLANE, "");
+		builder.add(VOLUME, "");
 	}
 
 	public void setSegments(List<String> segs) {
@@ -168,8 +234,10 @@ public class BodyPartEntity extends Entity {
 	}
 
 	public Anatomy anatomy() {
+		LivingEntity v = victim();
+		if (v != null) return AnatomyRegistry.getOrSynthetic(v);
 		Identifier t = victimType();
-		return t == null ? null : AnatomyRegistry.get(t);
+		return t == null ? null : AnatomyRegistry.getOrSynthetic(t);
 	}
 
 	public float victimScale() {
@@ -180,13 +248,80 @@ public class BodyPartEntity extends Entity {
 		return dataTracker.get(ROLL);
 	}
 
+	private boolean hasPartFlag(int bit) {
+		return (dataTracker.get(FLAGS) & bit) != 0;
+	}
+
+	private void setPartFlag(int bit, boolean on) {
+		byte f = dataTracker.get(FLAGS);
+		dataTracker.set(FLAGS, (byte) (on ? f | bit : f & ~bit));
+	}
+
 	public boolean locked() {
-		return (dataTracker.get(FLAGS) & F_LOCKED) != 0;
+		return hasPartFlag(F_LOCKED);
 	}
 
 	public void setLocked(boolean on) {
-		byte f = dataTracker.get(FLAGS);
-		dataTracker.set(FLAGS, (byte) (on ? f | F_LOCKED : f & ~F_LOCKED));
+		setPartFlag(F_LOCKED, on);
+	}
+
+	public boolean frozen() {
+		return hasPartFlag(F_FROZEN);
+	}
+
+	public boolean pinned() {
+		return hasPartFlag(F_PINNED);
+	}
+
+	public void setFrozen(boolean on, LivingEntity owner, Vec3d worldPos, Vec3d kickVel) {
+		setPartFlag(F_FROZEN, on);
+		if (on) {
+			this.frozenOffset = owner != null ? worldPos.subtract(owner.getPos()) : Vec3d.ZERO;
+			this.frozenKick = kickVel;
+			this.spinYaw = this.spinPitch = this.spinRoll = 0f;
+			setNoGravity(true);
+			setVelocity(Vec3d.ZERO);
+		} else {
+			this.frozenOffset = null;
+			this.frozenKick = null;
+			setNoGravity(false);
+		}
+	}
+
+	public void releaseFrozen() {
+		if (!frozen()) return;
+		Vec3d kickVel = this.frozenKick;
+		setFrozen(false, null, getPos(), null);
+		if (kickVel != null) kick(kickVel);
+		else kick(new Vec3d(0, 0.14, 0));
+	}
+
+	public void pin(BlockPos support) {
+		setPartFlag(F_PINNED, true);
+		this.pinSupport = support == null ? null : support.toImmutable();
+		this.spinYaw = this.spinPitch = this.spinRoll = 0f;
+		this.taktThrown = false;
+		setNoGravity(true);
+		setVelocity(Vec3d.ZERO);
+		velocityModified = true;
+	}
+
+	public void unpin() {
+		if (!pinned()) return;
+		setPartFlag(F_PINNED, false);
+		this.pinSupport = null;
+		setNoGravity(false);
+	}
+
+	public void markTaktThrown() {
+		this.taktThrown = true;
+		this.taktThrownUntil = (getWorld() != null ? getWorld().getTime() : 0L) + 60L;
+	}
+
+	public void stopSpin() {
+		this.spinYaw = 0f;
+		this.spinPitch = 0f;
+		this.spinRoll = 0f;
 	}
 
 	/** La parte de arriba del grupo (la que se corta de su padre): la cabeza, el brazo… null si hay varias. */
@@ -209,26 +344,33 @@ public class BodyPartEntity extends Entity {
 	public boolean hasVision() {
 		Anatomy a = anatomy();
 		if (a == null) return false;
+		CutVolume vol = cutVolume();
 		for (String sg : segments) {
 			Anatomy.Segment x = a.get(sg);
-			if (x != null && x.has("vision")) return true;
+			if (x != null && x.has("vision")) {
+				if (vol.isWhole() || VolumeBounds.remainingFraction(x.box(), vol) >= 0.35) return true;
+			}
 		}
 		return false;
 	}
 
 	/** Patas sueltas que andan solas (la mitad de abajo, o dos patas de un cuadrúpedo): sin cabeza y con al menos dos patas. */
 	public boolean autonomous() {
-		return auto && OpeConfig.LOWER_HALF_WANDERS && !mounted();
+		return auto && OpeConfig.LOWER_HALF_WANDERS && !mounted() && !pinned() && !frozen();
 	}
 
 	private boolean computeAuto() {
 		Anatomy a = anatomy();
 		if (a == null) return false;
+		CutVolume vol = cutVolume();
 		int legs = 0;
 		for (String sg : segments) {
 			Anatomy.Segment x = a.get(sg);
 			if (x == null) continue;
-			if (x.has("vision") || (sg.equals(a.core) && !isSlice())) return false;
+			double frac = vol.isWhole() ? 1.0 : VolumeBounds.remainingFraction(x.box(), vol);
+			if (frac < 0.30) continue;
+			if (x.has("vision")) return false;
+			if (sg.equals(a.core) && vol.isWhole() && !isSlice()) return false;
 			if (x.has("locomotion")) legs++;
 		}
 		return legs >= 2;
@@ -255,6 +397,7 @@ public class BodyPartEntity extends Entity {
 	}
 
 	public void mount(LivingEntity host, String seg) {
+		unpin();
 		hostUuid = host.getUuid();
 		dataTracker.set(HOST, host.getId());
 		dataTracker.set(HOST_SEG, seg);
@@ -284,10 +427,15 @@ public class BodyPartEntity extends Entity {
 		spinPitch = (random.nextFloat() - 0.5f) * 30f;
 	}
 
-	/** La caja de sus partes, en píxeles del modelo (en una pieza de corte libre, solo lo de su lado del plano). */
+	/** La caja de sus partes, en píxeles del modelo (recortada según {@link #cutVolume()}). */
 	public double[] modelBox() {
 		Anatomy a = anatomy();
 		if (a == null) return null;
+		CutVolume vol = cutVolume();
+		if (!vol.isWhole()) {
+			double[] out = VolumeBounds.unionClippedBox(a, segments, vol);
+			return out == null ? a.union(segments) : out;
+		}
 		float[] pl = plane();
 		if (pl == null) return a.union(segments);
 		double[] out = null;
@@ -344,6 +492,9 @@ public class BodyPartEntity extends Entity {
 		} else if (PLANE.equals(data)) {
 			planeCache = null;
 			refreshDims();
+		} else if (VOLUME.equals(data)) {
+			volumeCache = null;
+			refreshDims();
 		}
 	}
 
@@ -353,6 +504,10 @@ public class BodyPartEntity extends Entity {
 		if (nbt.containsUuid("cutter")) cutter = nbt.getUuid("cutter");
 		dataTracker.set(TYPE, nbt.getString("type"));
 		if (nbt.contains("plane")) setPlane(toPlane(nbt.getString("plane")));
+		if (nbt.contains("volume")) {
+			CutVolume v = CutVolume.decodeString(nbt.getString("volume"));
+			if (v != null && !v.isWhole()) setCutVolume(v);
+		}
 		if (nbt.contains("scale")) dataTracker.set(SCALE, nbt.getFloat("scale"));
 		String s = nbt.getString("segments");
 		setSegments(s.isEmpty() ? List.of() : new ArrayList<>(List.of(s.split(","))));
@@ -362,6 +517,9 @@ public class BodyPartEntity extends Entity {
 			dataTracker.set(HOST_SEG, nbt.getString("host_seg"));
 			setNoGravity(true);
 		}
+		if (nbt.getBoolean("pinned") && nbt.contains("pin_support")) {
+			pin(BlockPos.fromLong(nbt.getLong("pin_support")));
+		}
 	}
 
 	@Override
@@ -369,13 +527,18 @@ public class BodyPartEntity extends Entity {
 		if (victimUuid != null) nbt.putUuid("victim", victimUuid);
 		if (cutter != null) nbt.putUuid("cutter", cutter);
 		nbt.putString("type", dataTracker.get(TYPE));
-		if (isSlice()) nbt.putString("plane", dataTracker.get(PLANE));
+		if (!cutVolume().isWhole()) nbt.putString("volume", cutVolume().encodeString());
+		else if (!dataTracker.get(PLANE).isEmpty()) nbt.putString("plane", dataTracker.get(PLANE));
 		nbt.putFloat("scale", dataTracker.get(SCALE));
 		nbt.putString("segments", String.join(",", segments));
 		nbt.putInt("life", life);
 		if (hostUuid != null) {
 			nbt.putUuid("host", hostUuid);
 			nbt.putString("host_seg", hostSegment());
+		}
+		if (pinned() && pinSupport != null) {
+			nbt.putBoolean("pinned", true);
+			nbt.putLong("pin_support", pinSupport.asLong());
 		}
 	}
 
@@ -412,6 +575,7 @@ public class BodyPartEntity extends Entity {
 		if (source.getAttacker() == v) return false;   // un mob no se hace daño con su propia parte
 		boolean hit = v.damage(source, amount * OpeConfig.PART_DMG_SHARE);
 		if (hit) {
+			if (pinned()) unpin();
 			Vec3d push = source.getPosition() == null ? Vec3d.ZERO : getPos().subtract(source.getPosition()).normalize().multiply(0.25);
 			setVelocity(getVelocity().add(push.x, 0.15, push.z));
 			velocityModified = true;
@@ -485,6 +649,35 @@ public class BodyPartEntity extends Entity {
 			return;
 		}
 		boolean held = Takt.held(getId());
+		if (frozen()) {
+			if (held) {
+				setFrozen(false, null, getPos(), null);
+			} else {
+				if (frozenOffset != null) {
+					Vec3d targetPos = v.getPos().add(frozenOffset);
+					setPosition(targetPos.x, targetPos.y, targetPos.z);
+				}
+				setYaw(v.getBodyYaw());
+				setVelocity(Vec3d.ZERO);
+				fallDistance = 0;
+				if (age % 4 == 0) {
+					Vec3d cc = getBoundingBox().getCenter();
+					sw.spawnParticles(CutEngine.ROOM_DUST, cc.x, cc.y, cc.z, 2, 0.15, 0.15, 0.15, 0);
+				}
+				return;
+			}
+		}
+		if (pinned()) {
+			if (held || (pinSupport != null && sw.getBlockState(pinSupport).isAir())) {
+				unpin();
+			} else {
+				setVelocity(Vec3d.ZERO);
+				fallDistance = 0;
+				if (hasVision()) headLife(sw, v);
+				if (isOnFire() && age % 10 == 0) v.setOnFireFor(4f);
+				return;
+			}
+		}
 		// Takt la deja sin gravedad al cogerla; al soltarla (o lanzarla) vuelve a caer
 		if (!held && hasNoGravity()) setNoGravity(false);
 		if (!held && autonomous()) walk(sw);
@@ -501,6 +694,7 @@ public class BodyPartEntity extends Entity {
 
 	/** Durante unos ticks va derecha (flotando) hacia ese punto: su dueño la llama y no llega. */
 	public void pullTo(Vec3d to) {
+		if (pinned() || frozen()) return;
 		returnTo = to;
 		returning = 4;
 	}
@@ -550,7 +744,6 @@ public class BodyPartEntity extends Entity {
 	private void tickMounted() {
 		LivingEntity h = host();
 		if (h == null) {
-			// el anfitrión no está cargado: se queda quieta; si no vuelve, se suelta
 			if (++orphanTicks > OpeConfig.PART_ORPHAN_TICKS) unmountQuiet();
 			return;
 		}
@@ -595,11 +788,10 @@ public class BodyPartEntity extends Entity {
 
 	/** Una cabeza suelta sigue viva: en el suelo se pone derecha, mira (al jugador más cercano, o a donde mira su dueño si es un jugador) y a veces habla. */
 	private void headLife(ServerWorld sw, LivingEntity v) {
-		if (!isOnGround()) return;
+		if (!isOnGround() && !pinned()) return;
 		spinYaw = spinPitch = spinRoll = 0;
 		dataTracker.set(ROLL, MathHelper.lerp(0.3f, dataTracker.get(ROLL), 0f));
 		if (v instanceof PlayerEntity pl) {
-			// la cámara del jugador sin cabeza está aquí: mira a donde él mueve el ratón
 			setYaw(pl.getHeadYaw());
 			setPitch(pl.getPitch());
 			return;
@@ -620,9 +812,10 @@ public class BodyPartEntity extends Entity {
 		}
 	}
 
-	/** Lanzada (Takt) a toda velocidad: golpea a quien pilla, y a su dueño también le duele (la mitad). */
+	/** Lanzada (Takt) a toda velocidad: golpea a quien pilla, o se clava en la pared/bloque dentro del ROOM. */
 	private void impact(ServerWorld sw, LivingEntity v) {
-		double speed = getVelocity().length();
+		Vec3d vel = getVelocity();
+		double speed = vel.length();
 		if (speed < 0.6 || impactCd > 0) return;
 		Anatomy a = anatomy();
 		double mass = 0;
@@ -634,21 +827,52 @@ public class BodyPartEntity extends Entity {
 			e -> e != v && e != by && e.isAlive() && !e.isSpectator())) {
 			if (t.damage(sw.getDamageSources().thrown(this, by), dmg)) {
 				hitAny = true;
-				Vec3d push = getVelocity().normalize().multiply(0.5);
+				Vec3d push = vel.normalize().multiply(0.5);
 				t.addVelocity(push.x, 0.2, push.z);
 				t.velocityModified = true;
 			}
 		}
+		if (!hitAny && taktThrown && sw.getTime() <= taktThrownUntil && (horizontalCollision || verticalCollision) && speed >= 0.72) {
+			BlockPos support = findSupportBlock(sw, vel);
+			if (support != null) {
+				pin(support);
+				Vec3d c = getBoundingBox().getCenter();
+				sw.spawnParticles(ParticleTypes.END_ROD, c.x, c.y, c.z, 8, 0.15, 0.15, 0.15, 0.04);
+				sw.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 10, 0.2, 0.2, 0.2, 0);
+				sw.playSound(null, c.x, c.y, c.z, SoundEvents.BLOCK_AMETHYST_BLOCK_HIT, SoundCategory.PLAYERS, 1f, 1.35f);
+				return;
+			}
+		}
 		if (hitAny || horizontalCollision) {
 			v.damage(sw.getDamageSources().flyIntoWall(), dmg * OpeConfig.PART_DMG_SHARE * (hitAny ? 0.5f : 0.25f));
-			setVelocity(getVelocity().multiply(-0.3));
+			setVelocity(vel.multiply(-0.3));
 			velocityModified = true;
 			impactCd = 10;
 		}
 	}
 
+	private BlockPos findSupportBlock(ServerWorld sw, Vec3d dir) {
+		Box b = getBoundingBox().expand(0.28);
+		Vec3d c = b.getCenter();
+		if (dir.lengthSquared() > 1e-4) {
+			Vec3d probe = c.add(dir.normalize().multiply(Math.max(0.35, b.getAverageSideLength() * 0.55)));
+			BlockPos bp = BlockPos.ofFloored(probe);
+			if (!sw.getBlockState(bp).isAir()) return bp;
+		}
+		BlockPos.Mutable m = new BlockPos.Mutable();
+		for (int x = MathHelper.floor(b.minX); x <= MathHelper.floor(b.maxX); x++) {
+			for (int y = MathHelper.floor(b.minY); y <= MathHelper.floor(b.maxY); y++) {
+				for (int z = MathHelper.floor(b.minZ); z <= MathHelper.floor(b.maxZ); z++) {
+					m.set(x, y, z);
+					if (!sw.getBlockState(m).isAir()) return m.toImmutable();
+				}
+			}
+		}
+		return null;
+	}
+
 	private void clientTick() {
-		// la posición la interpola Entity; nada más que hacer: la «vida» (temblor, parpadeo) la pone el renderer
+		// la posición la interpola Entity; la «vida» y congelado/clavado los dibuja BodyPartRenderer
 	}
 
 	/** Bajo el mundo: vuelve a su dueño en vez de perderse. */

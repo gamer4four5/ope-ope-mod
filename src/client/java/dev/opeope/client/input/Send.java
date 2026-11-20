@@ -28,6 +28,12 @@ public final class Send {
 		if (ClientPlayNetworking.canSend(Payloads.Cut.ID)) ClientPlayNetworking.send(new Payloads.Cut(kind, planes));
 	}
 
+	public static void cutShape(int targetId, int mode, boolean delayed, boolean thru, float[] params) {
+		if (ClientPlayNetworking.canSend(Payloads.CutShape.ID)) {
+			ClientPlayNetworking.send(new Payloads.CutShape(targetId, mode, delayed, thru, params));
+		}
+	}
+
 	/**
 	 * Toque de Takt con lo que mira el cliente (el bloque y el punto exacto, o nada), el tamaño del trozo y cuántos ticks
 	 * debe esperar el arranque a un segundo toque (window).

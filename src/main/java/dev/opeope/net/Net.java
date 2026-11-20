@@ -15,6 +15,7 @@ public final class Net {
 		PayloadTypeRegistry.playC2S().register(Payloads.TaktTap.ID, Payloads.TaktTap.CODEC);
 		PayloadTypeRegistry.playC2S().register(Payloads.TaktPlace.ID, Payloads.TaktPlace.CODEC);
 		PayloadTypeRegistry.playC2S().register(Payloads.CutPart.ID, Payloads.CutPart.CODEC);
+		PayloadTypeRegistry.playC2S().register(Payloads.CutShape.ID, Payloads.CutShape.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.DismemberSync.ID, Payloads.DismemberSync.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.Room.ID, Payloads.Room.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.CutSync.ID, Payloads.CutSync.CODEC);
@@ -31,6 +32,8 @@ public final class Net {
 			ctx.server().execute(() -> PowerManager.handleCut(ctx.player(), payload.kind(), payload.planes())));
 		ServerPlayNetworking.registerGlobalReceiver(Payloads.CutPart.ID, (payload, ctx) ->
 			ctx.server().execute(() -> dev.opeope.power.Dismember.handleCutRequest(ctx.player(), payload.entityId(), payload.segment())));
+		ServerPlayNetworking.registerGlobalReceiver(Payloads.CutShape.ID, (payload, ctx) ->
+			ctx.server().execute(() -> dev.opeope.power.Dismember.handleShapeCut(ctx.player(), payload)));
 		ServerPlayNetworking.registerGlobalReceiver(Payloads.TaktTap.ID, (payload, ctx) ->
 			ctx.server().execute(() -> Takt.handleTap(ctx.player(), payload)));
 		ServerPlayNetworking.registerGlobalReceiver(Payloads.TaktPlace.ID, (payload, ctx) ->

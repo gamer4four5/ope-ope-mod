@@ -246,13 +246,19 @@ public final class CutEngine {
 		return cut(player, planes, region, suspend, noReattach, livingDamage, blocks, blocks && region.lc == null);
 	}
 
+	public static Result cut(ServerPlayerEntity player, List<Plane> planes, Region region, boolean suspend, int noReattach,
+			float livingDamage, boolean blocks, boolean remember) {
+		return cut(player, planes, region, suspend, noReattach, livingDamage, blocks, remember, false);
+	}
+
 	/**
 	 * Corta con varios planos a la vez.
 	 * @param remember los planos que cruzan suelo quedan recordados (GroundCuts, como mucho 9 por corte) para que Takt
 	 *                 arranque lo que encierran
+	 * @param delayed  true en Bisturí: las piezas vivas nacen congeladas hasta soltar clic derecho
 	 */
 	public static Result cut(ServerPlayerEntity player, List<Plane> planes, Region region, boolean suspend, int noReattach,
-			float livingDamage, boolean blocks, boolean remember) {
+			float livingDamage, boolean blocks, boolean remember, boolean delayed) {
 		ServerWorld w = player.getServerWorld();
 		UUID owner = player.getUuid();
 		SPAWNED.clear();
@@ -654,14 +660,21 @@ public final class CutEngine {
 					|| pe.mode == PieceEntity.Mode.SEWING || (pe.flags() & PieceEntity.F_LANDED) != 0) continue;
 				if (!region.contains(pe.center())) continue;
 				splitPiece(pe, planes, suspend, power);
+			} else if (e instanceof dev.opeope.entity.BodyPartEntity bp) {
+				if (bp.isRemoved() || bp.mounted() || bp.frozen()) continue;
+				Box b = bp.getBoundingBox();
+				if (!region.contains(b.getCenter())) continue;
+				List<Plane> crossing = new ArrayList<>();
+				for (Plane pl : planes) if (pl.crosses(b)) crossing.add(pl);
+				if (!crossing.isEmpty()) Dismember.splitBodyPart(player, bp, crossing, noReattach > 0, delayed);
 			} else if (e instanceof LivingEntity le && le.isAlive()) {
 				Box b = le.getBoundingBox();
 				if (!region.contains(b.getCenter())) continue;
 				List<Plane> crossing = new ArrayList<>();
 				for (Plane pl : planes) if (pl.crosses(b)) crossing.add(pl);
 				if (crossing.isEmpty()) continue;
-				// con anatomía y el plano por una articulación: lo del otro lado se separa en partes vivas (estilo Law)
-				if (!CutStates.isCut(le) && Dismember.sweep(player, le, crossing, noReattach > 0)) {
+				// Corte libre / articulaciones (estilo Law)
+				if (!CutStates.isCut(le) && Dismember.sweep(player, le, crossing, noReattach > 0, delayed)) {
 					if (livingDamage > 0) le.damage(w.getDamageSources().playerAttack(player), livingDamage);
 					living++;
 					continue;

@@ -232,7 +232,12 @@ public final class InputHandler {
 		if (Bisturi.active) {
 			// el Bisturí manda sobre los clics, también agachado
 			if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-				Bisturi.addPlane();
+				Bisturi.onLeftPress();
+				mark(code, Bisturi::onLeftRelease);
+				return true;
+			}
+			if (button == GLFW.GLFW_MOUSE_BUTTON_MIDDLE) {
+				Bisturi.cycleMode(1);
 				mark(code, NOTHING);
 				return true;
 			}
@@ -271,7 +276,8 @@ public final class InputHandler {
 			long h = mc().getWindow().getHandle();
 			boolean shift = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_SHIFT) || InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_SHIFT);
 			boolean ctrl = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_CONTROL) || InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_CONTROL);
-			Bisturi.scroll(dir, shift, ctrl);
+			boolean alt = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_ALT) || InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_ALT);
+			Bisturi.scroll(dir, shift, ctrl, alt);
 			lastFruitInputAt = now;
 			return true;
 		}
@@ -809,6 +815,8 @@ public final class InputHandler {
 			} else {
 				Bisturi.active = false;
 				Bisturi.COMMITTED.clear();
+				Bisturi.COMMITTED_SHAPES.clear();
+				FreehandSlicer.cancel();
 			}
 		}
 		if (surgeryLatched) {
@@ -1011,8 +1019,12 @@ public final class InputHandler {
 		ClientDismember.aimTick();   // Amputate dirigido: la parte del ser bajo la mira
 	}
 
-	/** El ratón mientras trazas: no gira la cámara, dibuja el tajo. */
+	/** El ratón mientras trazas (o dibujas lazo libre en Bisturí): no gira la cámara, dibuja el corte. */
 	public static boolean captureLook(double dx, double dy) {
+		if (FreehandSlicer.active()) {
+			FreehandSlicer.captureLook(dx, dy);
+			return true;
+		}
 		if (!dragging) return false;
 		dragDX += dx;
 		dragDY += dy;
@@ -1206,7 +1218,9 @@ public final class InputHandler {
 		if (Bisturi.active) {
 			Bisturi.active = false;
 			Bisturi.COMMITTED.clear();
+			Bisturi.COMMITTED_SHAPES.clear();
 		}
+		FreehandSlicer.cancel();
 		RELEASES.clear();
 		CANCELLED.clear();
 		OpeProgress.save();

@@ -1239,6 +1239,21 @@ public final class Techniques {
 				if (p.getServerWorld().getEntityById(id) instanceof PieceEntity pe && !pe.isRemoved()) pe.hold(6);
 			}
 			pw.bisturiHeld.clear();
+			ServerWorld sw = p.getServerWorld();
+			int released = 0;
+			for (int id : pw.bisturiHeldParts) {
+				if (sw.getEntityById(id) instanceof dev.opeope.entity.BodyPartEntity bp && !bp.isRemoved()) {
+					bp.releaseFrozen();
+					Vec3d bc = bp.getBoundingBox().getCenter();
+					sw.spawnParticles(ParticleTypes.END_ROD, bc.x, bc.y, bc.z, 8, 0.15, 0.15, 0.15, 0.04);
+					released++;
+				}
+			}
+			pw.bisturiHeldParts.clear();
+			if (released > 0) {
+				sound(p, p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.9f);
+				sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 0.9f, 1.8f);
+			}
 		}
 		pw.dirty = true;
 	}

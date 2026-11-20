@@ -31,7 +31,7 @@ public class LivingEntityRendererMixin {
 		method = "render(Lnet/minecraft/entity/LivingEntity;FFLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
 		at = @At("RETURN"))
 	private void opeope$showParts(LivingEntity entity, float yaw, float tickDelta, MatrixStack matrices, VertexConsumerProvider provider, int light, CallbackInfo ci) {
-		ClientDismember.end(entity, matrices, provider, tickDelta);
+		ClientDismember.end(entity, matrices, provider, tickDelta, light);
 	}
 	@ModifyVariable(
 		method = "render(Lnet/minecraft/entity/LivingEntity;FFLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/VertexConsumerProvider;I)V",

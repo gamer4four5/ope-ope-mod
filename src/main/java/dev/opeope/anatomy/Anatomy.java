@@ -351,6 +351,21 @@ public final class Anatomy {
 		return new Anatomy(entity, core, segs, groups, cap, excluded);
 	}
 
+	/** Anatomía sintética de respaldo cuando un mob no tiene JSON propio. */
+	public static Anatomy synthetic(Identifier entity, double widthPx, double heightPx, int capColor) {
+		double hw = Math.max(2.0, widthPx / 2.0);
+		double h = Math.max(4.0, heightPx);
+		Map<String, Segment> segs = new LinkedHashMap<>();
+		segs.put("body", new Segment("body", null, List.of(), new double[]{0, h * 0.5, 0},
+			new double[]{-hw, 0, -hw, hw, h, hw}, 1.0, Set.of(), false));
+		return new Anatomy(entity, "body", segs, Map.of(), capColor, false);
+	}
+
+	public boolean isSynthetic() {
+		Segment c = get(core);
+		return segments.size() == 1 && c != null && c.modelParts().isEmpty();
+	}
+
 	private static double[] nums(JsonArray a, int n) {
 		if (a == null || a.size() < n) return null;
 		double[] out = new double[n];

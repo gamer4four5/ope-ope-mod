@@ -119,6 +119,7 @@ public final class Takt {
 		if (e instanceof PlayerEntity pl && pl.isCreative()) return false;
 		if (e instanceof PieceEntity pe && pe.weapon != null
 			&& !(pe.owner != null && pe.owner.equals(p.getUuid()) && pe.weapon == PieceEntity.Weapon.LANCE)) return false;
+		if (e instanceof dev.opeope.entity.BodyPartEntity bp && (bp.mounted() || bp.frozen())) return false;
 		UUID h = HOLDERS.get(e.getId());
 		if (h != null && !h.equals(p.getUuid())) return false;   // lo lleva otro: no hay tira y afloja
 		return !(e instanceof PieceEntity pe && (pe.mode == PieceEntity.Mode.RETURNING || pe.mode == PieceEntity.Mode.SEWING
@@ -689,6 +690,10 @@ public final class Takt {
 			a = (float) r;
 			b = (float) (pe.massKg() / 1000.0);
 		} else {
+			if (e instanceof dev.opeope.entity.BodyPartEntity bp) {
+				bp.unpin();
+				bp.stopSpin();
+			}
 			Box bb = e.getBoundingBox();
 			double dx = bb.maxX - bb.minX, dy = bb.maxY - bb.minY, dz = bb.maxZ - bb.minZ;
 			a = (float) (0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
@@ -830,6 +835,11 @@ public final class Takt {
 			for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, box,
 				e -> e != p && CutStates.isCut(e) && room.contains(e.getBoundingBox().getCenter()) && !pw.takt.contains(e.getId()) && canGrab(p, e))) {
 				if (seen.add(le.getId())) cand.add(le);
+			}
+			for (dev.opeope.entity.BodyPartEntity bp : w.getEntitiesByClass(dev.opeope.entity.BodyPartEntity.class, box,
+				e -> !e.mounted() && !e.frozen() && !e.pinned() && room.contains(e.getBoundingBox().getCenter())
+					&& !pw.takt.contains(e.getId()) && canGrab(p, e))) {
+				if (seen.add(bp.getId())) cand.add(bp);
 			}
 		}
 		if (cand.isEmpty()) {
@@ -985,6 +995,17 @@ public final class Takt {
 			} else if (e instanceof PieceEntity pe) {
 				pe.release(Vec3d.ZERO, false);
 				pe.slowFall = true;
+			} else if (e instanceof dev.opeope.entity.BodyPartEntity bp) {
+				bp.setVelocity(Vec3d.ZERO);
+				bp.velocityModified = true;
+				BlockHitResult aimHit = PowerManager.raycastBlock(p, OpeConfig.TAKT_RANGE);
+				if (p.isSneaking() && aimHit.getType() == HitResult.Type.BLOCK && !w.getBlockState(aimHit.getBlockPos()).isAir()) {
+					Vec3d surf = aimHit.getPos().add(Vec3d.of(aimHit.getSide().getVector()).multiply(Math.max(0.15, bp.getWidth() * 0.45)));
+					bp.setPosition(surf.x, surf.y - bp.getHeight() * 0.5, surf.z);
+					bp.pin(aimHit.getBlockPos());
+				} else {
+					bp.setNoGravity(false);
+				}
 			} else {
 				e.setVelocity(Vec3d.ZERO);
 				e.velocityModified = true;
@@ -1221,7 +1242,10 @@ public final class Takt {
 			dir = dir.normalize().multiply(speed);
 			e.setVelocity(dir);
 			e.velocityModified = true;
-			if (e instanceof LivingEntity) {
+			if (e instanceof dev.opeope.entity.BodyPartEntity bp) {
+				bp.unpin();
+				bp.markTaktThrown();
+			} else if (e instanceof LivingEntity) {
 				THROWN.put(e.getId(), 40);
 				THROWN_SPEED.put(e.getId(), dir.length());
 			}

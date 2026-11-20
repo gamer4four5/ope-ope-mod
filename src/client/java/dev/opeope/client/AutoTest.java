@@ -2908,7 +2908,7 @@ public final class AutoTest {
 	}
 
 	private static List<dev.opeope.entity.BodyPartEntity> partsOf(ServerWorld w, Entity victim) {
-		return w.getEntitiesByClass(dev.opeope.entity.BodyPartEntity.class, victim.getBoundingBox().expand(24),
+		return w.getEntitiesByClass(dev.opeope.entity.BodyPartEntity.class, victim.getBoundingBox().expand(64),
 			p -> victim.getUuid().equals(p.victimUuid) && !p.isRemoved());
 	}
 
@@ -3536,6 +3536,256 @@ public final class AutoTest {
 			dDone = 2;
 		}));
 		waitFor("d: fin 2", 40, "el servidor no terminó las pruebas D de las fases 2–4", () -> dDone == 2, AutoTest::drain);
+		planCorteLibre(mc, srv, id);
+	}
+
+	private static volatile int eDone = 0, ePinId = -1;
+	private static volatile double ePinY = 0;
+
+	/**
+	 * (fase libre E1–E8): multi-plano (Cruz ×4), corte recursivo sobre BodyPartEntity, CSG (caja, cilindro, esfera,
+	 * prisma libre), anatomía sintética sin JSON, recomposición parcial/total, Bisturí diferido + clavado y capturas.
+	 */
+	private static void planCorteLibre(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int DX = 80, DZ = 50;
+
+		step(2, "E preparar y E1–E4 servidor", () -> {
+			eDone = 0;
+			DRES.clear();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0 + DZ;
+				OpeConfig.MOBS_RECLAIM_PARTS = false;
+				OpeConfig.FREE_PLANE_CUTS = true;
+				pw.zeroGravityRoom = false;
+				if (pw.room == null || pw.room.dim != w.getRegistryKey()) {
+					pw.room = new Room(w.getRegistryKey(), new Vec3d(ax0 + 0.5, ay0 + 2, az0 - 3.0), 14);
+					pw.room.state = Room.State.FIXED;
+					PowerManager.broadcastRoom(sp, 0, pw.room);
+				}
+				long drop0 = PieceEntity.DROPPED;
+
+				// E1: Cruz ×4 (dos planos perpendiculares) → >= 3 piezas vivas sueltas
+				ZombieEntity z1 = spawnZombie(w, ax0 - 4.0, ay0 + 1, az0 - 4.0, 0f, false);
+				if (z1 != null) {
+					Vec3d c1 = z1.getBoundingBox().getCenter();
+					boolean okCross = dev.opeope.power.Dismember.sweep(sp, z1, List.of(
+						new CutEngine.Plane(new Vec3d(1, 0, 0), c1),
+						new CutEngine.Plane(new Vec3d(0, 1, 0), c1)), false);
+					List<dev.opeope.entity.BodyPartEntity> ps1 = partsOf(w, z1);
+					dev.opeope.anatomy.DismemberState st1 = dev.opeope.power.Dismember.state(z1);
+					dres("E1 multi-plano cruz: >= 3 piezas vivas",
+						okCross && ps1.size() >= 3 && st1 != null && st1.sliceVolumes.size() >= 3 ? null
+							: "ok=" + okCross + " parts=" + ps1.size());
+
+					// E6a: Recomposición parcial y total de z1
+					dev.opeope.entity.BodyPartEntity first = ps1.isEmpty() ? null : ps1.get(0);
+					if (first != null) {
+						dev.opeope.power.Dismember.shamblesPair(sp, first, z1);
+						int afterOne = partsOf(w, z1).size();
+						for (dev.opeope.entity.BodyPartEntity rest : partsOf(w, z1)) dev.opeope.power.Dismember.shamblesPair(sp, rest, z1);
+						int afterAll = partsOf(w, z1).size();
+						dres("E6 recomposición parcial y total multi-corte",
+							afterOne >= 2 && afterAll == 0 && dev.opeope.power.Dismember.state(z1) == null ? null
+								: "tras1=" + afterOne + " trasTodo=" + afterAll);
+					}
+					z1.discard();
+				}
+
+				// E1b: corte en esquina superior/diagonal fuera del centro del torso
+				ZombieEntity zCorner = spawnZombie(w, ax0 - 6.0, ay0 + 1, az0 - 6.0, 0f, false);
+				if (zCorner != null) {
+					Vec3d cornerPt = zCorner.getPos().add(0, 1.78, 0);
+					boolean okCorner = dev.opeope.power.Dismember.sweep(sp, zCorner,
+						List.of(new CutEngine.Plane(new Vec3d(0.6, 1.0, 0.2).normalize(), cornerPt)), false);
+					dres("E1b corte diagonal en cabeza sin tocar centro del torso",
+						okCorner && partsOf(w, zCorner).size() == 1 ? null : "ok=" + okCorner + " parts=" + partsOf(w, zCorner).size());
+					for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, zCorner)) bp.discard();
+					zCorner.discard();
+				}
+
+				// E2: corte recursivo sobre BodyPartEntity + recomposición parcial
+				ZombieEntity zRec = spawnZombie(w, ax0 + 6.0, ay0 + 1, az0 - 4.0, 0f, false);
+				if (zRec != null) {
+					dev.opeope.entity.BodyPartEntity head = dev.opeope.power.Dismember.cut(zRec, List.of("head"), sp);
+					dev.opeope.entity.BodyPartEntity headHalf = head == null ? null
+						: dev.opeope.power.Dismember.splitBodyPart(sp, head,
+						new CutEngine.Plane(new Vec3d(1, 0.2, 0).normalize(), head.getBoundingBox().getCenter()), false, false);
+					List<dev.opeope.entity.BodyPartEntity> recParts = partsOf(w, zRec);
+					dres("E2 corte recursivo sobre BodyPartEntity",
+						headHalf != null && recParts.size() == 2 && dev.opeope.power.Dismember.owns(zRec, headHalf) ? null
+							: "headHalf=" + headHalf + " parts=" + recParts.size());
+					if (headHalf != null) {
+						dev.opeope.power.Dismember.shamblesPair(sp, headHalf, zRec);
+						int mid = partsOf(w, zRec).size();
+						for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, zRec)) dev.opeope.power.Dismember.shamblesPair(sp, bp, zRec);
+						dres("E6b recomposición parcial de cabeza partida recursivamente",
+							mid == 1 && partsOf(w, zRec).isEmpty() && dev.opeope.power.Dismember.state(zRec) == null ? null
+								: "mid=" + mid + " final=" + partsOf(w, zRec).size());
+					}
+					zRec.discard();
+				}
+
+				// E3: formas volumétricas CSG (Caja/Ventana, Cilindro/Túnel, Esfera)
+				net.minecraft.entity.mob.HuskEntity hBox = EntityType.HUSK.create(w);
+				net.minecraft.entity.passive.CowEntity cowCyl = EntityType.COW.create(w);
+				PigEntity pigSph = EntityType.PIG.create(w);
+				if (hBox != null && cowCyl != null && pigSph != null) {
+					hBox.refreshPositionAndAngles(ax0 - 2.2, ay0 + 1, az0 - 5.5, 0f, 0f);
+					cowCyl.refreshPositionAndAngles(ax0 + 0.5, ay0 + 1, az0 - 5.5, 0f, 0f);
+					pigSph.refreshPositionAndAngles(ax0 + 3.2, ay0 + 1, az0 - 5.5, 0f, 0f);
+					for (MobEntity m : new MobEntity[]{hBox, cowCyl, pigSph}) {
+						m.setBodyYaw(0f); m.setAiDisabled(true); m.setPersistent(); w.spawnEntity(m);
+					}
+					dev.opeope.entity.BodyPartEntity bpBox = dev.opeope.power.Dismember.extractShape(sp, hBox,
+						new dev.opeope.anatomy.CutOp.BoxVolume(0f, 18f, 0f, 2.2f, 2.2f, 48f, 1, 0, 0, 0, 1, 0, 0, 0, 1, false), false, false);
+					dev.opeope.entity.BodyPartEntity bpCyl = dev.opeope.power.Dismember.extractShape(sp, cowCyl,
+						new dev.opeope.anatomy.CutOp.CylinderVolume(0f, 14f, 0f, 0, 0, 1, 3.2f, 48f, false), false, false);
+					dev.opeope.entity.BodyPartEntity bpSph = dev.opeope.power.Dismember.extractShape(sp, pigSph,
+						new dev.opeope.anatomy.CutOp.SphereVolume(0f, 11f, 0f, 4.2f, false), false, false);
+					var stBox = dev.opeope.power.Dismember.state(hBox);
+					var stCyl = dev.opeope.power.Dismember.state(cowCyl);
+					var stSph = dev.opeope.power.Dismember.state(pigSph);
+					boolean okCsg = bpBox != null && bpCyl != null && bpSph != null
+						&& stBox != null && !stBox.remainingVolume().contains(0f, 18f, 0f)
+						&& stCyl != null && !stCyl.remainingVolume().contains(0f, 14f, 0f)
+						&& stSph != null && !stSph.remainingVolume().contains(0f, 11f, 0f);
+					dres("E3 CSG Box/Cylinder/Sphere dejan hueco real y pieza sólida", okCsg ? null
+						: "box=" + (bpBox != null) + " cyl=" + (bpCyl != null) + " sph=" + (bpSph != null));
+					for (MobEntity m : new MobEntity[]{hBox, cowCyl, pigSph}) {
+						for (dev.opeope.entity.BodyPartEntity bp : partsOf(w, m)) bp.discard();
+						m.discard();
+					}
+				}
+
+				// E4: Lazo Libre (PrismVolume hexagonal)
+				ZombieEntity zHex = spawnZombie(w, ax0 + 2.0, ay0 + 1, az0 - 7.0, 0f, false);
+				if (zHex != null) {
+					float[] hx = new float[6], hy = new float[6];
+					for (int k = 0; k < 6; k++) {
+						double a = Math.PI * 2 * k / 6.0;
+						hx[k] = (float) (Math.cos(a) * 2.6);
+						hy[k] = (float) (Math.sin(a) * 2.6);
+					}
+					var prism = new dev.opeope.anatomy.CutOp.PrismVolume(0f, 18f, 0f, 1, 0, 0, 0, 1, 0, 0, 0, 1, 48f, hx, hy, false);
+					dev.opeope.entity.BodyPartEntity bpHex = dev.opeope.power.Dismember.extractShape(sp, zHex, prism, false, false);
+					var stHex = dev.opeope.power.Dismember.state(zHex);
+					dres("E4 Lazo Libre (PrismVolume) extrae silueta poligonal",
+						bpHex != null && stHex != null && !stHex.remainingVolume().contains(0f, 18f, 0f) ? null : "no extrajo");
+					if (bpHex != null) bpHex.discard();
+					zHex.discard();
+				}
+
+				// E5: Mob sin JSON de anatomía (SyntheticAnatomy sobre BlazeEntity)
+				net.minecraft.entity.mob.BlazeEntity blaze = EntityType.BLAZE.create(w);
+				if (blaze != null) {
+					blaze.refreshPositionAndAngles(ax0 - 4.0, ay0 + 1, az0 - 7.0, 0f, 0f);
+					blaze.setAiDisabled(true); blaze.setPersistent();
+					w.spawnEntity(blaze);
+					boolean noJson = dev.opeope.anatomy.AnatomyRegistry.get(EntityType.BLAZE) == null;
+					boolean okSyn = dev.opeope.power.Dismember.sweep(sp, blaze,
+						List.of(new CutEngine.Plane(new Vec3d(0, 1, 0), blaze.getBoundingBox().getCenter())), false);
+					List<dev.opeope.entity.BodyPartEntity> bps = partsOf(w, blaze);
+					if (!bps.isEmpty()) dev.opeope.power.Dismember.shamblesPair(sp, bps.get(0), blaze);
+					dres("E5 SyntheticAnatomy corta y reúne mob sin JSON (Blaze)",
+						noJson && okSyn && bps.size() == 1 && partsOf(w, blaze).isEmpty() ? null
+							: "noJson=" + noJson + " okSyn=" + okSyn + " parts=" + bps.size());
+					blaze.discard();
+				}
+
+				dres("E sin piezas ni ítems soltados", PieceEntity.DROPPED == drop0 ? null : "dropped=" + (PieceEntity.DROPPED - drop0));
+			});
+		});
+
+		// E7: Bisturí diferido + clavado (F_PINNED) y escena visual E8
+		step(4, "E7 bisturi diferido y clavado", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0 + DZ;
+				Techniques.bisturi(sp, pw, true);
+				ZombieEntity zBis = spawnZombie(w, ax0 + 0.5, ay0 + 1, az0 - 8.5, 0f, false);
+				if (zBis != null) {
+					Vec3d c = zBis.getBoundingBox().getCenter();
+					dev.opeope.entity.BodyPartEntity p1 = dev.opeope.power.Dismember.planeCut(sp, zBis,
+						new CutEngine.Plane(new Vec3d(0, 1, 0), c), false, true);
+					dev.opeope.entity.BodyPartEntity p2 = dev.opeope.power.Dismember.extractShape(sp, zBis,
+						new dev.opeope.anatomy.CutOp.SphereVolume(0f, 27f, 0f, 2.5f, false), false, true);
+					boolean froze = p1 != null && p1.frozen() && p2 != null && p2.frozen() && pw.bisturiHeldParts.size() == 2;
+					Techniques.bisturi(sp, pw, false);
+					boolean released = froze && !p1.frozen() && !p2.frozen() && pw.bisturiHeldParts.isEmpty();
+					dres("E7a Bisturí congeló 2 piezas y las liberó juntas", released ? null
+						: "froze=" + froze + " held=" + pw.bisturiHeldParts.size());
+					if (p1 != null) {
+						p1.setPosition(ax0 + 0.5, ay0 + 2.0, az0 - 8.5);
+						p1.pin(new BlockPos(ax0, ay0, az0 - 8));
+						ePinId = p1.getId();
+						ePinY = p1.getY();
+					}
+				}
+			});
+		});
+		step(8, "E7b comprobar clavado y preparar escena E8", () -> {
+			drain();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				Entity pe = w.getEntityById(ePinId);
+				boolean pinOk = pe instanceof dev.opeope.entity.BodyPartEntity bp && bp.pinned() && Math.abs(bp.getY() - ePinY) < 0.05;
+				dres("E7b pieza clavada con Takt no cae por gravedad", pinOk ? null : "pe=" + pe);
+				Box arena = new Box(gx0 + DX - 20, gfy - 4, gz0 + DZ - 20, gx0 + DX + 21, gfy + 20, gz0 + DZ + 21);
+				for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity)) e.discard();
+
+				// E8: Escena de capturas visuales — túnel cilíndrico en husk, vaca en cruz ×4 y lazo hexagonal en zombi
+				double bx = gx0 + DX + 0.5, by = gfy + 1, bz = gz0 + DZ - 5.0;
+				net.minecraft.entity.mob.HuskEntity husk = EntityType.HUSK.create(w);
+				if (husk != null) {
+					husk.refreshPositionAndAngles(bx - 1.6, by, bz, 15f, 0f);
+					husk.setBodyYaw(15f); husk.setAiDisabled(true); husk.setPersistent(); w.spawnEntity(husk);
+					dev.opeope.power.Dismember.extractShape(sp, husk,
+						new dev.opeope.anatomy.CutOp.CylinderVolume(0f, 18f, 0f, 0, 0, 1, 2.7f, 48f, false), false, false);
+				}
+				net.minecraft.entity.passive.CowEntity cow = EntityType.COW.create(w);
+				if (cow != null) {
+					cow.refreshPositionAndAngles(bx + 0.6, by, bz - 0.5, -20f, 0f);
+					cow.setBodyYaw(-20f); cow.setAiDisabled(true); cow.setPersistent(); w.spawnEntity(cow);
+					Vec3d cc = cow.getBoundingBox().getCenter();
+					dev.opeope.power.Dismember.sweep(sp, cow, List.of(
+						new CutEngine.Plane(new Vec3d(1, 0.3, 0).normalize(), cc),
+						new CutEngine.Plane(new Vec3d(0, 1, 0.25).normalize(), cc)), false);
+				}
+				net.minecraft.entity.mob.HuskEntity zHexShot = EntityType.HUSK.create(w);
+				if (zHexShot != null) {
+					zHexShot.refreshPositionAndAngles(bx + 2.4, by, bz, -25f, 0f);
+					zHexShot.setBodyYaw(-25f); zHexShot.setAiDisabled(true); zHexShot.setPersistent(); w.spawnEntity(zHexShot);
+					float[] hx = new float[6], hy = new float[6];
+					for (int k = 0; k < 6; k++) {
+						double a = Math.PI * 2 * k / 6.0;
+						hx[k] = (float) (Math.cos(a) * 2.5);
+						hy[k] = (float) (Math.sin(a) * 2.5);
+					}
+					dev.opeope.power.Dismember.extractShape(sp, zHexShot,
+						new dev.opeope.anatomy.CutOp.PrismVolume(0f, 18f, 0f, 1, 0, 0, 0, 1, 0, 0, 0, 1, 48f, hx, hy, false), false, false);
+				}
+				sp.networkHandler.requestTeleport(bx + 0.4, by, bz + 4.2, 180f, 16f);
+			});
+		});
+		step(20, "E8 captura general", () -> {
+			drain();
+			shot(mc, "e-corte-volumetrico");
+		});
+		step(2, "E8 acercar cámara", () -> server(srv, id, (sp, pw) ->
+			sp.networkHandler.requestTeleport(gx0 + DX - 0.9, gfy + 1, gz0 + DZ - 3.2, 180f, 14f)));
+		step(10, "E8 captura cerca", () -> shot(mc, "e-corte-volumetrico-cerca"));
+		step(2, "E fin", () -> server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			Box arena = new Box(gx0 + DX - 30, gfy - 4, gz0 + DZ - 30, gx0 + DX + 31, gfy + 20, gz0 + DZ + 31);
+			for (Entity e : w.getEntitiesByClass(Entity.class, arena, en -> en instanceof MobEntity || en instanceof dev.opeope.entity.BodyPartEntity
+				|| en instanceof ItemEntity)) e.discard();
+			OpeConfig.MOBS_RECLAIM_PARTS = true;
+			sp.setHealth(sp.getMaxHealth());
+			eDone = 1;
+		}));
+		waitFor("E: fin", 40, "el servidor no terminó las pruebas E", () -> eDone == 1, AutoTest::drain);
 	}
 
 	/** En el hilo del servidor: el terreno de setup en x0..x1 × z0..z1 (piedra, tres de tierra, hierba en fy y aire encima). */

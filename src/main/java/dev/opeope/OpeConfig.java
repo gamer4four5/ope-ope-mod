@@ -172,7 +172,10 @@ public final class OpeConfig {
 	public static final boolean ALLOW_TRANSPLANT = true;     // Shambles parte de A → B pone la parte de A en el sitio de B (quimeras)
 	public static final int RADIO_LOCK_TICKS = 20 * 30;      // lo cortado con Radio Knife no se puede reunir en este tiempo
 	public static boolean FREE_PLANE_CUTS = true;            // un tajo que atraviesa el torso (no una articulación) parte el cuerpo por ese plano, en cualquier ángulo
-	public static final int MAX_PLANES_PER_PIECE = 1;        // cortes libres por ser a la vez (el siguiente tajo por el torso usa el corte de siempre)
+	public static final int MAX_PLANES_PER_PIECE = 6;        // máximo de operaciones/cortes simultáneos por entidad
+	public static final int MAX_OPS_PER_VOLUME = 6;          // tope de operaciones CSG por volumen
+	public static final double MIN_SLICE_VOLUME_PX3 = 8.0;   // volumen mínimo en px³ para separar una pieza válida
+	public static final boolean SYNTHETIC_ANATOMY = true;    // genera anatomía universal si un mob no tiene JSON propio
 	public static final boolean SLIME_SPLIT_NATIVE = true;   // (fase 4) los slimes se dividen a su manera
 	public static final boolean HEADLESS_CREEPER_EXPLODES = false; // un creeper sin cabeza no puede encenderse
 	public static final OnEnd ON_ROOM_END = OnEnd.KEEP;      // al cerrar el ROOM: las partes siguen sueltas o vuelven

@@ -433,7 +433,7 @@ public final class PowerManager {
 			region.withLimit(at, target != null ? Math.max(2.5, target.getBoundingBox().getAverageSideLength() * 1.5) : 4.0);
 		}
 		// El suelo recuerda el corte salvo si llega solo hasta un objetivo (Kikoku, "Alcance: solo el objetivo").
-		CutEngine.cut(p, planes, region, pw.suspend && kind != 3, 0, 0f, true, region.lc == null);
+		CutEngine.cut(p, planes, region, pw.suspend && kind != 3, 0, 0f, true, region.lc == null, kind == 3);
 		if (kind == 3) {
 			// Bisturí: cada clic corta ya, pero lo cortado se queda quieto con la costura encendida hasta que sueltas.
 			for (PieceEntity pe : CutEngine.SPAWNED) {

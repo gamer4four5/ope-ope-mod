@@ -97,6 +97,23 @@ public final class AnatomyRegistry {
 		return get(Registries.ENTITY_TYPE.getId(type));
 	}
 
+	/** Devuelve la anatomía del JSON o genera una {@link SyntheticAnatomy} universal (sin ensuciar {@link #get}). */
+	public static Anatomy getOrSynthetic(net.minecraft.entity.LivingEntity le) {
+		if (le == null) return null;
+		Anatomy a = get(le.getType());
+		if (a != null) return a;
+		return dev.opeope.OpeConfig.SYNTHETIC_ANATOMY ? SyntheticAnatomy.getOrCreate(le) : null;
+	}
+
+	public static Anatomy getOrSynthetic(Identifier entityId) {
+		if (entityId == null) return null;
+		Anatomy a = get(entityId);
+		if (a != null) return a;
+		if (!dev.opeope.OpeConfig.SYNTHETIC_ANATOMY) return null;
+		EntityType<?> type = Registries.ENTITY_TYPE.get(entityId);
+		return SyntheticAnatomy.getOrCreate(type);
+	}
+
 	public static int count() {
 		return BUILTIN.size();
 	}
