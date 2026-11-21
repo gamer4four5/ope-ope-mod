@@ -141,6 +141,29 @@ public class PlayerPower {
 	public boolean bisturi;
 	public boolean dirty = true;
 
+	// Progreso de Recompensa Pirata y Maestría Quirúrgica
+	public long bounty = 0L;
+	public int killStreak = 0;
+	public long lastKillTick = -1000L;
+
+	public int masteryTier() {
+		if (bounty >= 300_000_000L) return 4;
+		if (bounty >= 100_000_000L) return 3;
+		if (bounty >= 30_000_000L) return 2;
+		if (bounty >= 5_000_000L) return 1;
+		return 0;
+	}
+
+	public String masteryRankName() {
+		return switch (masteryTier()) {
+			case 1 -> "Cirujano de Combate";
+			case 2 -> "Supernova";
+			case 3 -> "Shichibukai";
+			case 4 -> "Emperador Quirúrgico (Yonko)";
+			default -> "Aprendiz";
+		};
+	}
+
 	public boolean onCooldown(Tech t) {
 		if (freeMode) return false;
 		return cooldowns[t.ordinal()] > 0;
@@ -151,7 +174,8 @@ public class PlayerPower {
 			cooldowns[t.ordinal()] = 0;
 			return;
 		}
-		cooldowns[t.ordinal()] = t.ticks;
+		double mul = Math.max(0.55, 1.0 - 0.10 * masteryTier());
+		cooldowns[t.ordinal()] = Math.max(1, (int) Math.round(t.ticks * mul));
 		dirty = true;
 	}
 }

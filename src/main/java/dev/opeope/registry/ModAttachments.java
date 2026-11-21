@@ -22,6 +22,10 @@ public final class ModAttachments {
 	public static final AttachmentType<dev.opeope.anatomy.DismemberState> DISMEMBER = AttachmentRegistry.<dev.opeope.anatomy.DismemberState>builder()
 		.persistent(dev.opeope.anatomy.DismemberState.CODEC).buildAndRegister(OpeOpeMod.id("dismember"));
 
+	/** Recompensa pirata en Berries (progreso quirúrgico acumulado). */
+	public static final AttachmentType<Long> BOUNTY = AttachmentRegistry.<Long>builder()
+		.persistent(Codec.LONG).copyOnDeath().buildAndRegister(OpeOpeMod.id("bounty"));
+
 	public static void init() {}
 
 	public static boolean hasFruit(PlayerEntity p) {
@@ -30,5 +34,14 @@ public final class ModAttachments {
 
 	public static boolean hasAwakening(PlayerEntity p) {
 		return Boolean.TRUE.equals(p.getAttached(AWAKENING));
+	}
+
+	public static long getBounty(PlayerEntity p) {
+		Long v = p.getAttached(BOUNTY);
+		return v == null ? 0L : Math.max(0L, v);
+	}
+
+	public static void setBounty(PlayerEntity p, long val) {
+		p.setAttached(BOUNTY, Math.max(0L, val));
 	}
 }

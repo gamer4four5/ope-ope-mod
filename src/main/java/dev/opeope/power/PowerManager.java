@@ -3,6 +3,7 @@ package dev.opeope.power;
 import dev.opeope.entity.PieceEntity;
 
 import dev.opeope.OpeConfig;
+import dev.opeope.OpeOpeMod;
 import dev.opeope.net.Payloads;
 import dev.opeope.registry.ModAttachments;
 import dev.opeope.registry.ModEffects;
@@ -17,23 +18,31 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.ExperienceOrbEntity;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.attribute.EntityAttribute;
+import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributeModifier;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.boss.WitherEntity;
 import net.minecraft.entity.boss.dragon.EnderDragonEntity;
 import net.minecraft.entity.damage.DamageTypes;
+import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.ElderGuardianEntity;
 import net.minecraft.entity.mob.WardenEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
@@ -56,6 +65,9 @@ public final class PowerManager {
 	private PowerManager() {}
 
 	private static final Map<UUID, PlayerPower> POWERS = new HashMap<>();
+	private static final Identifier MASTERY_HEALTH_ID = OpeOpeMod.id("mastery_health");
+	private static final Identifier MASTERY_SPEED_ID = OpeOpeMod.id("mastery_speed");
+	private static final Identifier MASTERY_DAMAGE_ID = OpeOpeMod.id("mastery_damage");
 
 	public static PlayerPower get(ServerPlayerEntity p) {
 		return POWERS.computeIfAbsent(p.getUuid(), u -> new PlayerPower());
@@ -82,13 +94,18 @@ public final class PowerManager {
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.KIKOKU));
 				}
 			}
-			get(p).dirty = true;
+			PlayerPower pw = get(p);
+			pw.bounty = ModAttachments.getBounty(p);
+			applyMasteryAttributes(p, pw);
+			pw.dirty = true;
 			sendAllRooms(p);
 			GroundCuts.sendAll(p);
 		});
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> cleanup(handler.getPlayer()));
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			PlayerPower pw = get(newPlayer);
+			pw.bounty = ModAttachments.getBounty(newPlayer);
+			applyMasteryAttributes(newPlayer, pw);
 			releaseAll(newPlayer, pw, oldPlayer.getServerWorld());   // lo que llevaba se quedó en el mundo donde murió
 			pw.dirty = true;
 			sendAllRooms(newPlayer);
@@ -138,9 +155,13 @@ public final class PowerManager {
 				if (dead != null) releaseAll(sp, dead, sp.getServerWorld());
 			}
 			Entity attacker = source.getAttacker();
-			if (attacker instanceof ServerPlayerEntity sp && ModAttachments.hasFruit(sp)
-				&& (entity instanceof EnderDragonEntity || entity instanceof WitherEntity)) {
-				grantAwakening(sp);
+			if (attacker instanceof ServerPlayerEntity sp && ModAttachments.hasFruit(sp)) {
+				if (entity instanceof EnderDragonEntity || entity instanceof WitherEntity) {
+					grantAwakening(sp);
+				}
+				if (entity != sp && !(entity instanceof ArmorStandEntity) && entity.getWorld() instanceof ServerWorld sw) {
+					onSurgicalKill(sp, sw, entity);
+				}
 			}
 			// La fruta aparece de vez en cuando: el Guardián Anciano (el mar) y el Warden la llevan dentro.
 			if (attacker instanceof ServerPlayerEntity && !entity.getWorld().isClient) {
@@ -165,7 +186,10 @@ public final class PowerManager {
 			return;
 		}
 		p.setAttached(ModAttachments.HAS_FRUIT, true);
-		get(p).dirty = true;
+		PlayerPower pw = get(p);
+		pw.bounty = ModAttachments.getBounty(p);
+		applyMasteryAttributes(p, pw);
+		pw.dirty = true;
 		p.sendMessage(Text.translatable("opeope.msg.ate"), false);
 		p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
 		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, 0.7f);
@@ -178,7 +202,81 @@ public final class PowerManager {
 		p.removeAttached(ModAttachments.HAS_FRUIT);
 		p.removeAttached(ModAttachments.AWAKENING);
 		pw.awakened = false;
+		applyMasteryAttributes(p, pw);
 		pw.dirty = true;
+	}
+
+	private static void onSurgicalKill(ServerPlayerEntity sp, ServerWorld sw, LivingEntity victim) {
+		PlayerPower pw = get(sp);
+		int prevTier = pw.masteryTier();
+		float maxHp = Math.max(1f, victim.getMaxHealth());
+		long base;
+		if (victim instanceof EnderDragonEntity || victim instanceof WitherEntity || maxHp >= 150f) {
+			base = Math.min(60_000_000L, Math.max(25_000_000L, 25_000_000L + (long) ((maxHp - 150f) * 200_000L)));
+		} else if (maxHp >= 50f) {
+			base = Math.min(12_000_000L, 4_000_000L + (long) ((maxHp - 50f) * 80_000L));
+		} else {
+			base = 1_000_000L + (long) (maxHp * 45_000L);
+		}
+		long now = sw.getTime();
+		if (now - pw.lastKillTick <= 240L) pw.killStreak++;
+		else pw.killStreak = 1;
+		pw.lastKillTick = now;
+
+		double mult = 1.0 + Math.min(2.0, (pw.killStreak - 1) * 0.25);
+		long gain = Math.round(base * mult);
+		pw.bounty += gain;
+		ModAttachments.setBounty(sp, pw.bounty);
+
+		boolean inside = inRoom(sp, victim.getPos());
+		boolean shamblesReset = false;
+		if (inside || prevTier >= 4) {
+			sp.heal(Math.min(6.0f, 1.5f + 0.5f * prevTier + (pw.killStreak >= 3 ? 1.5f : 0f)));
+			if (pw.cooldowns[Tech.SHAMBLES.ordinal()] > 0) {
+				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				pw.dirty = true;
+				shamblesReset = true;
+			}
+		}
+		if (pw.killStreak >= 3) {
+			ExperienceOrbEntity.spawn(sw, victim.getPos().add(0, 0.5, 0), 6 + pw.killStreak * 2);
+		}
+
+		int afterTier = pw.masteryTier();
+		if (afterTier > prevTier) {
+			applyMasteryAttributes(sp, pw);
+			sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 1.0f, 1.15f);
+			sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 0.9f, 1.4f);
+			sw.spawnParticles(ParticleTypes.TOTEM_OF_UNDYING, sp.getX(), sp.getY() + 1.0, sp.getZ(), 32, 0.6, 0.8, 0.6, 0.15);
+			sp.sendMessage(Text.literal("§6★ ¡NUEVO RANGO PIRATA: " + pw.masteryRankName()
+				+ " §f(฿" + formatBerries(pw.bounty) + ")! §bEnfriamientos -" + (afterTier * 10) + "%"), false);
+		} else if (base >= 4_000_000L || pw.killStreak >= 3) {
+			sp.sendMessage(Text.literal("§b+฿" + formatBerries(gain) + " §7(Total: §f฿" + formatBerries(pw.bounty)
+				+ "§7) §eRacha ×" + pw.killStreak + (shamblesReset ? " · ¡Shambles recargado!" : "")), true);
+		}
+	}
+
+	private static String formatBerries(long v) {
+		return java.text.NumberFormat.getIntegerInstance(new java.util.Locale("es", "ES")).format(v);
+	}
+
+	private static void applyMasteryAttributes(ServerPlayerEntity p, PlayerPower pw) {
+		int tier = ModAttachments.hasFruit(p) ? pw.masteryTier() : 0;
+		double hpBonus = switch (tier) { case 1 -> 2.0; case 2 -> 6.0; case 3 -> 10.0; case 4 -> 16.0; default -> 0.0; };
+		double spdBonus = switch (tier) { case 1 -> 0.08; case 2 -> 0.14; case 3 -> 0.20; case 4 -> 0.25; default -> 0.0; };
+		double dmgBonus = switch (tier) { case 2 -> 0.15; case 3 -> 0.28; case 4 -> 0.45; default -> 0.0; };
+		setMasteryMod(p, EntityAttributes.GENERIC_MAX_HEALTH, MASTERY_HEALTH_ID, hpBonus, EntityAttributeModifier.Operation.ADD_VALUE);
+		setMasteryMod(p, EntityAttributes.GENERIC_MOVEMENT_SPEED, MASTERY_SPEED_ID, spdBonus, EntityAttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+		setMasteryMod(p, EntityAttributes.GENERIC_ATTACK_DAMAGE, MASTERY_DAMAGE_ID, dmgBonus, EntityAttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+		if (p.getHealth() > p.getMaxHealth()) p.setHealth(p.getMaxHealth());
+	}
+
+	private static void setMasteryMod(ServerPlayerEntity p, RegistryEntry<EntityAttribute> attr, Identifier id,
+									  double val, EntityAttributeModifier.Operation op) {
+		EntityAttributeInstance inst = p.getAttributeInstance(attr);
+		if (inst == null) return;
+		inst.removeModifier(id);
+		if (val > 1e-4) inst.addTemporaryModifier(new EntityAttributeModifier(id, val, op));
 	}
 
 	public static void grantAwakening(ServerPlayerEntity p) {
