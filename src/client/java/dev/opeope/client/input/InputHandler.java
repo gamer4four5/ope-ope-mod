@@ -513,11 +513,11 @@ public final class InputHandler {
 			}
 			case SHAMBLES -> {
 				long h = mc().getWindow().getHandle();
-				boolean mod = InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_ALT)
-					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_ALT)
-					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_CONTROL)
-					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_CONTROL);
-				if (mod) {
+				boolean ctrl = (InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_LEFT_CONTROL)
+					|| InputUtil.isKeyPressed(h, GLFW.GLFW_KEY_RIGHT_CONTROL))
+					&& !Keys.SHAMBLES.matches(InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_CONTROL)
+					&& !Keys.SHAMBLES.matches(InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_CONTROL);
+				if (ctrl) {
 					Send.action(Actions.SHAMBLES_MODE, 1);
 					RoomSounds.shamblesSnap();
 					dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();

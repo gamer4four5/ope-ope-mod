@@ -121,11 +121,11 @@ public final class PlayerAnimClient {
 			st.stridePhase += (float) (dt * (7.5 + 8.5 * runFrac));
 		}
 		float targetLean = MathHelper.clamp(
-			17.0f * st.sprintBlend + 5.5f * runFrac + 9.5f * st.landSquash - 4.0f * Math.max(0f, -st.fwdSpeed / 0.20f),
-			-6f, 24f);
+			11.5f * st.sprintBlend + 3.8f * runFrac + 6.5f * st.landSquash - 3.0f * Math.max(0f, -st.fwdSpeed / 0.20f),
+			-4f, 16f);
 		float targetBank = MathHelper.clamp(
-			st.turnRate * 0.055f + (st.latSpeed / 0.22f) * 10.5f,
-			-14f, 14f);
+			st.turnRate * 0.042f + (st.latSpeed / 0.22f) * 7.5f,
+			-9.5f, 9.5f);
 		st.lastLeanDeg = targetLean;
 		st.lastBankDeg = targetBank;
 		return st;
@@ -136,9 +136,9 @@ public final class PlayerAnimClient {
 		if (skipPlayerPose(p) || p.deathTime > 0) return;
 		State st = update(p, tickDelta);
 		float bounce = p.isOnGround() && Math.abs(st.fwdSpeed) + Math.abs(st.latSpeed) > 0.03f
-			? (float) Math.abs(Math.sin(st.stridePhase)) * (0.045f * st.sprintBlend + 0.015f)
+			? (float) Math.abs(Math.sin(st.stridePhase)) * (0.035f * st.sprintBlend + 0.010f)
 			: 0f;
-		float yOff = bounce - st.landSquash * 0.14f;
+		float yOff = bounce - st.landSquash * 0.11f;
 		if (Math.abs(yOff) > 1e-4f) matrices.translate(0f, yOff, 0f);
 		if (Math.abs(st.lastLeanDeg) > 0.05f) {
 			matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-st.lastLeanDeg));
@@ -149,10 +149,13 @@ public final class PlayerAnimClient {
 		}
 	}
 
-	/** Cinemática articulada sobre BipedEntityModel: estabilización de cabeza, torso, porte de Kikoku, salto y chasquido. */
+	/** Cinemática articulada sobre BipedEntityModel: estabilización de cabeza, torso unido, porte de Kikoku, salto y chasquido. */
 	public static void applyBipedAngles(LivingEntity entity, BipedEntityModel<?> model, float limbAngle, float limbDistance,
 										float animationProgress, float headYaw, float headPitch) {
-		if (!(entity instanceof AbstractClientPlayerEntity p) || skipPlayerPose(p) || p.deathTime > 0) return;
+		if (!(entity instanceof AbstractClientPlayerEntity p)) return;
+		// Garantizar siempre que body.roll no se acumule entre fotogramas (vanilla no lo reinicia)
+		model.body.roll = 0.0f;
+		if (skipPlayerPose(p) || p.deathTime > 0) return;
 		State st = STATES.get(p.getId());
 		if (st == null) st = update(p, 0f);
 
@@ -162,14 +165,21 @@ public final class PlayerAnimClient {
 		float air = st.airBlend;
 		boolean swinging = model.handSwingProgress > 0f;
 
-		// 1) Respiración viva + torsión atlética de columna al correr
+		// 1) Torsión natural de hombros al correr manteniendo los pivotes unidos al torso
+		if (!swinging) {
+			float spineYaw = MathHelper.sin(limbAngle * 0.6662f) * (0.09f * runBlend + 0.07f * sprint);
+			model.body.yaw = spineYaw;
+			model.rightArm.pivotZ = MathHelper.sin(spineYaw) * 5.0f;
+			model.rightArm.pivotX = -MathHelper.cos(spineYaw) * 5.0f;
+			model.leftArm.pivotZ = -MathHelper.sin(spineYaw) * 5.0f;
+			model.leftArm.pivotX = MathHelper.cos(spineYaw) * 5.0f;
+		}
 		float breath = MathHelper.sin(animationProgress * 0.067f) * 0.025f;
-		model.body.yaw += MathHelper.sin(limbAngle * 0.6662f) * (0.14f * runBlend + 0.10f * sprint);
-		model.body.pitch += 0.06f * sprint + 0.18f * squash + breath * 0.5f;
-		model.body.roll += MathHelper.clamp(st.lastBankDeg * 0.008f, -0.14f, 0.14f);
+		model.rightArm.roll += breath;
+		model.leftArm.roll -= breath;
 
 		// 2) Estabilización del horizonte en cabeza al inclinarse corriendo o aterrizando
-		model.head.pitch -= (float) Math.toRadians(st.lastLeanDeg * 0.65f);
+		model.head.pitch -= (float) Math.toRadians(st.lastLeanDeg * 0.60f);
 
 		// 3) Porte de Kikoku / espada estilo Law al esprintar + drive atlético sin arma
 		ItemStack main = p.getMainHandStack();
@@ -180,44 +190,44 @@ public final class PlayerAnimClient {
 				var swordArm = mainArm == Arm.RIGHT ? model.rightArm : model.leftArm;
 				var freeArm = mainArm == Arm.RIGHT ? model.leftArm : model.rightArm;
 				float sideSign = mainArm == Arm.RIGHT ? 1f : -1f;
-				float carryPitch = 0.88f + 0.14f * MathHelper.sin(limbAngle * 0.6662f);
+				float carryPitch = 0.65f + 0.10f * MathHelper.sin(limbAngle * 0.6662f);
 				swordArm.pitch = MathHelper.lerp(sprint, swordArm.pitch, carryPitch);
-				swordArm.yaw = MathHelper.lerp(sprint, swordArm.yaw, -0.28f * sideSign);
-				swordArm.roll = MathHelper.lerp(sprint, swordArm.roll, 0.34f * sideSign);
-				freeArm.pitch = MathHelper.lerp(sprint, freeArm.pitch, -0.82f + MathHelper.sin(limbAngle * 0.6662f) * 0.55f);
-				freeArm.yaw = MathHelper.lerp(sprint, freeArm.yaw, 0.25f * sideSign);
-				freeArm.roll = MathHelper.lerp(sprint, freeArm.roll, -0.22f * sideSign);
+				swordArm.yaw = MathHelper.lerp(sprint, swordArm.yaw, -0.16f * sideSign);
+				swordArm.roll = MathHelper.lerp(sprint, swordArm.roll, 0.18f * sideSign);
+				freeArm.pitch = MathHelper.lerp(sprint, freeArm.pitch, -0.68f + MathHelper.sin(limbAngle * 0.6662f) * 0.48f);
+				freeArm.yaw = MathHelper.lerp(sprint, freeArm.yaw, 0.20f * sideSign);
+				freeArm.roll = MathHelper.lerp(sprint, freeArm.roll, -0.16f * sideSign);
 			} else {
-				model.rightArm.pitch = model.rightArm.pitch * (1f + 0.25f * sprint) - 0.18f * sprint;
-				model.leftArm.pitch = model.leftArm.pitch * (1f + 0.25f * sprint) - 0.18f * sprint;
-				model.rightArm.yaw -= 0.22f * sprint;
-				model.leftArm.yaw += 0.22f * sprint;
-				model.rightArm.roll += 0.16f * sprint;
-				model.leftArm.roll -= 0.16f * sprint;
+				model.rightArm.pitch = model.rightArm.pitch * (1f + 0.20f * sprint) - 0.12f * sprint;
+				model.leftArm.pitch = model.leftArm.pitch * (1f + 0.20f * sprint) - 0.12f * sprint;
+				model.rightArm.yaw -= 0.14f * sprint;
+				model.leftArm.yaw += 0.14f * sprint;
+				model.rightArm.roll += 0.10f * sprint;
+				model.leftArm.roll -= 0.10f * sprint;
 			}
 		}
 
-		// 4) Zancada más expresiva al esprintar + absorción de rodillas en el aire / aterrizaje
+		// 4) Zancada expresiva al esprintar + absorción de rodillas en aire / aterrizaje
 		if (sprint > 0.05f && air < 0.35f) {
-			model.rightLeg.pitch *= (1f + 0.18f * sprint);
-			model.leftLeg.pitch *= (1f + 0.18f * sprint);
+			model.rightLeg.pitch *= (1f + 0.15f * sprint);
+			model.leftLeg.pitch *= (1f + 0.15f * sprint);
 		}
 		if (air > 0.05f) {
-			float armFlare = 0.38f * air + Math.max(0f, st.fallSpeed) * 0.24f;
+			float armFlare = 0.26f * air + Math.max(0f, st.fallSpeed) * 0.18f;
 			model.rightArm.roll += armFlare;
 			model.leftArm.roll -= armFlare;
 			if (!swinging) {
-				model.rightArm.pitch = MathHelper.lerp(air, model.rightArm.pitch, -0.22f - Math.max(0f, st.fallSpeed) * 0.32f);
-				model.leftArm.pitch = MathHelper.lerp(air, model.leftArm.pitch, -0.15f - Math.max(0f, st.fallSpeed) * 0.32f);
+				model.rightArm.pitch = MathHelper.lerp(air, model.rightArm.pitch, -0.18f - Math.max(0f, st.fallSpeed) * 0.22f);
+				model.leftArm.pitch = MathHelper.lerp(air, model.leftArm.pitch, -0.12f - Math.max(0f, st.fallSpeed) * 0.22f);
 			}
-			model.rightLeg.pitch = MathHelper.lerp(air * 0.65f, model.rightLeg.pitch, -0.45f);
-			model.leftLeg.pitch = MathHelper.lerp(air * 0.65f, model.leftLeg.pitch, 0.32f);
+			model.rightLeg.pitch = MathHelper.lerp(air * 0.55f, model.rightLeg.pitch, -0.35f);
+			model.leftLeg.pitch = MathHelper.lerp(air * 0.55f, model.leftLeg.pitch, 0.24f);
 		}
 		if (squash > 0.02f) {
-			model.rightLeg.pitch -= 0.36f * squash;
-			model.leftLeg.pitch -= 0.18f * squash;
-			model.rightArm.roll += 0.26f * squash;
-			model.leftArm.roll -= 0.26f * squash;
+			model.rightLeg.pitch -= 0.26f * squash;
+			model.leftLeg.pitch -= 0.14f * squash;
+			model.rightArm.roll += 0.18f * squash;
+			model.leftArm.roll -= 0.18f * squash;
 		}
 
 		// 5) Chasquido de dedos para Shambles con la mano libre (o la principal si está vacía)
@@ -299,8 +309,8 @@ public final class PlayerAnimClient {
 	public static float[] computeTestMetrics(float fwdSpeed, float latSpeed, float yawRate, boolean sprinting, float shamblesGesture) {
 		float runFrac = MathHelper.clamp((float) Math.sqrt(fwdSpeed * fwdSpeed + latSpeed * latSpeed) / 0.26f, 0f, 1.35f);
 		float sprint = sprinting && fwdSpeed > 0.05f ? 1f : 0f;
-		float lean = MathHelper.clamp(17.0f * sprint + 5.5f * runFrac, -6f, 24f);
-		float bank = MathHelper.clamp(yawRate * 0.055f + (latSpeed / 0.22f) * 10.5f, -14f, 14f);
+		float lean = MathHelper.clamp(11.5f * sprint + 3.8f * runFrac, -4f, 16f);
+		float bank = MathHelper.clamp(yawRate * 0.042f + (latSpeed / 0.22f) * 7.5f, -9.5f, 9.5f);
 		float gest = MathHelper.clamp(shamblesGesture, 0f, 1f);
 		return new float[]{lean, bank, gest};
 	}
