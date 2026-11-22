@@ -379,6 +379,10 @@ public final class PowerManager {
 		GravityPowers.releaseGravityHeld(p, pw, from);
 		pw.gravityCharging = false;
 		pw.gravityChargeTicks = 0;
+		if (p.getVehicle() instanceof PieceEntity pe && pe.isGravitySurf()) {
+			p.stopRiding();
+			pe.release(Vec3d.ZERO, false);
+		}
 		pw.gravityMountId = -1;
 		Forge.dropWeapons(p, pw);
 		Techniques.releaseSuspended(p, pw);

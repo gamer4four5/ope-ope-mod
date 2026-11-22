@@ -21,6 +21,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityDimensions;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.FallingBlockEntity;
 import net.minecraft.entity.ItemEntity;
@@ -69,6 +70,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Un trozo de mundo cortado: lo que separa Amputate, lo que arranca Takt y las armas que se forjan con ello.
@@ -79,6 +81,10 @@ public class PieceEntity extends Entity {
 	private static final TrackedData<Byte> FLAGS = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
 	private static final TrackedData<Long> FX_TIME = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.LONG);
 	private static final TrackedData<Byte> TRAIT = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
+	private static final TrackedData<Boolean> GRAVITY_SURF = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+
+	/** Gancho solo-cliente para pilotar la roca flotante de Fujitora sin lag ni vuelo creativo. */
+	@Nullable public static Consumer<PieceEntity> CLIENT_SURF_TICK;
 
 	public static final int F_WEAPON = 1;     // pieza girada (lanza, hoja, martillo, estaca): caja pequeña en el centro
 	public static final int F_SUSPENDED = 2;  // suspendida tras un corte
@@ -89,8 +95,8 @@ public class PieceEntity extends Entity {
 	public static final int F_LANDED = 64;    // posándose o ya posada: no se coge, sin borde, se dibuja a 0,998
 	public static final int F_CHUNK = 128;    // arrancada del suelo con Takt
 
-	/** SLIDING: resbala por el plano del corte. HOVER: no tiene por dónde resbalar y queda separada un momento. LANDING: se posa. CHIMERA: parte cosida a un ser vivo. */
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA }
+	/** SLIDING: resbala por el plano del corte. HOVER: queda separada un momento. LANDING: se posa. CHIMERA: parte cosida. SURF: roca voladora que transporta a Fujitora. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA, SURF }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
 
@@ -128,6 +134,7 @@ public class PieceEntity extends Entity {
 	public int stuckTicks;
 
 	private int restTicks, freeTicks;
+	private int surfEmptyTicks;
 	private int lastImpactAge = -1000;     // el último impacto (age) y su energía: no revienta dos veces seguidas
 	private int wallGrazeAge = -1000;      // último roce contra muro/techo mientras cae hacia el piso
 	private double lastImpactE;
@@ -208,6 +215,25 @@ public class PieceEntity extends Entity {
 		builder.add(FLAGS, (byte) 0);
 		builder.add(FX_TIME, 0L);
 		builder.add(TRAIT, MaterialTrait.NONE.id);
+		builder.add(GRAVITY_SURF, false);
+	}
+
+	public boolean isGravitySurf() {
+		return this.dataTracker != null && this.dataTracker.get(GRAVITY_SURF);
+	}
+
+	public void setGravitySurf(boolean on) {
+		if (this.dataTracker != null) {
+			this.dataTracker.set(GRAVITY_SURF, on);
+		}
+		if (on) {
+			this.mode = Mode.SURF;
+			this.surfEmptyTicks = 0;
+			this.solid = false;
+			this.noClip = false;
+			setNoGravity(true);
+		}
+		setPosition(getX(), getY(), getZ());
 	}
 
 	public void setBlocks(BlockSet set) {
@@ -413,7 +439,7 @@ public class PieceEntity extends Entity {
 			blocks = BlockSet.fromSyncNbt(this.dataTracker.get(BLOCKS));
 			refreshTrait();
 			setPosition(getX(), getY(), getZ());
-		} else if (FLAGS.equals(data)) {
+		} else if (FLAGS.equals(data) || GRAVITY_SURF.equals(data)) {
 			setPosition(getX(), getY(), getZ());
 		}
 	}
@@ -423,6 +449,11 @@ public class PieceEntity extends Entity {
 		if (blocks == null || this.dataTracker == null) return super.calculateBoundingBox();
 		double x = getX(), y = getY(), z = getZ();
 		if (isWeaponShape()) return new Box(x - 0.4, y - 0.4, z - 0.4, x + 0.4, y + 0.4, z + 0.4);
+		if (isGravitySurf()) {
+			double hx = Math.min(0.85, Math.max(0.45, blocks.sx / 2.0 - 0.05));
+			double hz = Math.min(0.85, Math.max(0.45, blocks.sz / 2.0 - 0.05));
+			return new Box(x - hx, y, z - hz, x + hx, y + Math.max(0.8, blocks.sy) - 0.01, z + hz);
+		}
 		double hx = blocks.sx / 2.0 - 0.01, hz = blocks.sz / 2.0 - 0.01;
 		return new Box(x - hx, y, z - hz, x + hx, y + blocks.sy - 0.01, z + hz);
 	}
@@ -509,7 +540,38 @@ public class PieceEntity extends Entity {
 	}
 
 	@Override
+	@Nullable
+	public LivingEntity getControllingPassenger() {
+		return isGravitySurf() && getFirstPassenger() instanceof LivingEntity le ? le : null;
+	}
+
+	@Override
+	protected Vec3d getPassengerAttachmentPos(Entity passenger, EntityDimensions dimensions, float scaleFactor) {
+		double topY = blocks != null && blocks.sy > 0 ? blocks.sy : 1.0;
+		return new Vec3d(0.0, topY, 0.0);
+	}
+
+	@Override
+	protected void updatePassengerPosition(Entity passenger, PositionUpdater positionUpdater) {
+		if (!hasPassenger(passenger)) return;
+		double topY = getY() + (blocks != null && blocks.sy > 0 ? blocks.sy : 1.0);
+		positionUpdater.accept(passenger, getX(), topY, getZ());
+	}
+
+	@Override
+	public Vec3d updatePassengerForDismount(LivingEntity passenger) {
+		double topY = getY() + (blocks != null && blocks.sy > 0 ? blocks.sy : 1.0) + 0.12;
+		return new Vec3d(getX(), topY, getZ());
+	}
+
+	@Override
+	public boolean shouldDismountUnderwater() {
+		return !isGravitySurf();
+	}
+
+	@Override
 	public void updateTrackedPositionAndAngles(double x, double y, double z, float yaw, float pitch, int interpolationSteps) {
+		if (isGravitySurf() && isLogicalSideForUpdatingMovement()) return;
 		this.lerpX = x;
 		this.lerpY = y;
 		this.lerpZ = z;
@@ -533,7 +595,10 @@ public class PieceEntity extends Entity {
 		super.tick();
 		if (flags() != keep) this.dataTracker.set(FLAGS, (byte) keep);
 		if (getWorld().isClient) {
-			if (lerpSteps > 0) {
+			if (isGravitySurf() && isLogicalSideForUpdatingMovement()) {
+				lerpSteps = 0;
+				if (CLIENT_SURF_TICK != null) CLIENT_SURF_TICK.accept(this);
+			} else if (lerpSteps > 0) {
 				setPosition(getX() + (lerpX - getX()) / lerpSteps, getY() + (lerpY - getY()) / lerpSteps,
 					getZ() + (lerpZ - getZ()) / lerpSteps);
 				lerpSteps--;
@@ -572,6 +637,30 @@ public class PieceEntity extends Entity {
 			case HOVER -> hoverTick();
 			case LANDING -> landingTick();
 			case CHIMERA -> chimeraTick();
+			case SURF -> surfTick();
+		}
+	}
+
+	/** La roca levitada por Fujitora lo transporta como vehículo real; al bajarse, cae por gravedad. */
+	private void surfTick() {
+		setNoGravity(true);
+		noClip = false;
+		solid = false;
+		fallDistance = 0f;
+		Entity rider = getFirstPassenger();
+		if (rider == null || !rider.isAlive() || rider.isRemoved()) {
+			if (++surfEmptyTicks > 3) {
+				setGravitySurf(false);
+				release(Vec3d.ZERO, false);
+			}
+			return;
+		}
+		surfEmptyTicks = 0;
+		rider.fallDistance = 0f;
+		if (rider instanceof ServerPlayerEntity sp && !PowerManager.canUse(sp)) {
+			sp.stopRiding();
+			setGravitySurf(false);
+			release(Vec3d.ZERO, false);
 		}
 	}
 
@@ -772,6 +861,10 @@ public class PieceEntity extends Entity {
 
 	/** Suelta la pieza: vuelve a caer con la gravedad. Nadie la lleva ya. */
 	public void release(Vec3d velocity, boolean asThrow) {
+		if (isGravitySurf()) {
+			if (this.dataTracker != null) this.dataTracker.set(GRAVITY_SURF, false);
+			removeAllPassengers();
+		}
 		mode = Mode.FREE;
 		chimeraHostId = -1;
 		fromCut = false;

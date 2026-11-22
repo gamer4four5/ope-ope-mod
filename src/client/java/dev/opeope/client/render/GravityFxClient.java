@@ -6,6 +6,7 @@ import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeSettings;
 import dev.opeope.client.room.CameraFx;
 import dev.opeope.client.room.RoomFxClient;
+import dev.opeope.entity.PieceEntity;
 import dev.opeope.net.Payloads;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
@@ -176,7 +177,7 @@ public final class GravityFxClient {
 		}
 
 		boolean isGrav = ClientState.gravityFruit();
-		boolean riding = isGrav && ClientState.gravityRiding();
+		boolean riding = mc.player.getVehicle() instanceof PieceEntity sr && sr.isGravitySurf();
 		boolean barrier = isGrav && ClientState.has(Payloads.State.CURTAIN);
 		boolean charging = isGrav && ClientState.gravityCharging();
 		boolean blindHaki = isGrav && ClientState.scanTicks > 0;
@@ -519,22 +520,23 @@ public final class GravityFxClient {
 
 	// ------------------------------------------------------------------ efectos persistentes en vivo de Fujitora
 
-	/** 2 anillos gravitatorios púrpura girando bajo la plataforma de piedra de Fujitora mientras surfea el aire. */
+	/** 2 anillos gravitatorios púrpura anclados directamente bajo la losa de roca real que lleva a Fujitora. */
 	private static void drawRockSurfRings(BufferBuilder b, MinecraftClient mc, Vec3d cam, float td, double now, boolean calm) {
-		Vec3d pos = mc.player.getLerpedPos(td);
+		if (!(mc.player.getVehicle() instanceof PieceEntity rock) || !rock.isGravitySurf()) return;
+		Vec3d pos = rock.getLerpedPos(td);
 		double cx = pos.x - cam.x, cy = pos.y - cam.y, cz = pos.z - cam.z;
 		double pulse = calm ? 0.0 : 0.12 * Math.sin(now * 6.5);
 		double spin = calm ? 0.0 : now * 3.8;
 
-		// Anillo principal justo bajo la losa 3×1×3
+		// Anillo principal justo bajo la base de la losa 3×1×3
 		axesFrom(Math.cos(spin) * 0.06, 0.998, Math.sin(spin) * 0.06);
-		ringBand(b, cx, cy - 0.55, cz, 1.35 + pulse, 1.92 + pulse, COL_NEON, 0.78f, 0.05f);
-		ringBand(b, cx, cy - 0.53, cz, 1.55 + pulse, 1.72 + pulse, COL_CORE, 0.85f, 0.15f);
+		ringBand(b, cx, cy - 0.04, cz, 1.38 + pulse, 1.98 + pulse, COL_NEON, 0.80f, 0.05f);
+		ringBand(b, cx, cy - 0.02, cz, 1.58 + pulse, 1.76 + pulse, COL_CORE, 0.88f, 0.15f);
 
-		// Segundo anillo inferior de sustentación
+		// Segundo anillo inferior de sustentación gravitatoria
 		axesFrom(-Math.sin(spin * 1.4) * 0.08, 0.996, Math.cos(spin * 1.4) * 0.08);
-		ringBand(b, cx, cy - 0.95, cz, 0.75 + pulse * 0.6, 1.32 + pulse * 0.6, COL_LIFT, 0.68f, 0f);
-		ringBand(b, cx, cy - 1.18, cz, 0.35, 0.78, COL_ABYSS, 0.55f, 0f);
+		ringBand(b, cx, cy - 0.36, cz, 0.78 + pulse * 0.6, 1.36 + pulse * 0.6, COL_LIFT, 0.70f, 0f);
+		ringBand(b, cx, cy - 0.62, cz, 0.35, 0.82, COL_ABYSS, 0.58f, 0f);
 	}
 
 	/** 3 anillos giroscópicos de Repulsión Orbital alrededor del cuerpo de Fujitora (tecla B). */

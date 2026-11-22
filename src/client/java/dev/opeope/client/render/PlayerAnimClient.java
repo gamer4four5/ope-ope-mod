@@ -58,8 +58,12 @@ public final class PlayerAnimClient {
 		st.shamblesGesture = 1.0f;
 	}
 
+	private static boolean isGravitySurfing(AbstractClientPlayerEntity p) {
+		return p.getVehicle() instanceof dev.opeope.entity.PieceEntity pe && pe.isGravitySurf();
+	}
+
 	private static boolean skipPlayerPose(AbstractClientPlayerEntity p) {
-		return p.isSleeping() || p.isSwimming() || p.isFallFlying() || p.hasVehicle()
+		return p.isSleeping() || p.isSwimming() || p.isFallFlying() || (p.hasVehicle() && !isGravitySurfing(p))
 			|| p.isClimbing() || p.isInSneakingPose() || p.getPose() == EntityPose.DYING;
 	}
 
@@ -78,7 +82,8 @@ public final class PlayerAnimClient {
 		double yawRad = Math.toRadians(p.getBodyYaw());
 		double fx = -Math.sin(yawRad), fz = Math.cos(yawRad);
 		double rx = -fz, rz = fx;
-		Vec3d v = p.getVelocity();
+		boolean surf = isGravitySurfing(p);
+		Vec3d v = surf && p.getVehicle() != null ? p.getVehicle().getVelocity() : p.getVelocity();
 		float rawFwd = (float) (v.x * fx + v.z * fz);
 		float rawLat = (float) (v.x * rx + v.z * rz);
 		float horiz = (float) Math.sqrt(v.x * v.x + v.z * v.z);
@@ -99,7 +104,7 @@ public final class PlayerAnimClient {
 		boolean sprintCond = p.isSprinting() && rawFwd > 0.05f;
 		st.sprintBlend += ((sprintCond ? 1f : 0f) - st.sprintBlend) * kSprint;
 
-		boolean inAir = !p.isOnGround() && !p.getAbilities().flying;
+		boolean inAir = !surf && !p.isOnGround() && !p.getAbilities().flying;
 		st.airBlend += ((inAir ? 1f : 0f) - st.airBlend) * (float) (1.0 - Math.exp(-dt * 10.0));
 		if (inAir) {
 			st.fallSpeed += ((float) MathHelper.clamp(-v.y, -1f, 1.4f) - st.fallSpeed) * 0.25f;
@@ -228,6 +233,14 @@ public final class PlayerAnimClient {
 			model.leftLeg.pitch -= 0.14f * squash;
 			model.rightArm.roll += 0.18f * squash;
 			model.leftArm.roll -= 0.18f * squash;
+		}
+
+		// Postura firme de pie sobre la roca gravitatoria de Fujitora (pies plantados, nunca sentado)
+		if (isGravitySurfing(p)) {
+			model.rightLeg.pitch = 0.08f;
+			model.leftLeg.pitch = -0.10f;
+			model.rightLeg.roll = 0.09f;
+			model.leftLeg.roll = -0.09f;
 		}
 
 		// 5) Chasquido de dedos para Shambles con la mano libre (o la principal si está vacía)

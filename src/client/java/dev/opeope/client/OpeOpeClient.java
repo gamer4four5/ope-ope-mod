@@ -37,6 +37,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		RoomFxClient.init();         // los momentos del ROOM (crear, fijar, lanzar…) que cuenta el servidor
 
 		EntityRendererRegistry.register(ModEntities.PIECE, PieceRenderer::new);
+		dev.opeope.entity.PieceEntity.CLIENT_SURF_TICK = dev.opeope.client.render.GravitySurfClient::tickRock;
 		EntityRendererRegistry.register(ModEntities.STERBEN, SterbenRenderer::new);
 		EntityRendererRegistry.register(ModEntities.MARKER_STONE, FlyingItemEntityRenderer::new);
 		EntityRendererRegistry.register(ModEntities.BODY_PART, dev.opeope.client.render.BodyPartRenderer::new);

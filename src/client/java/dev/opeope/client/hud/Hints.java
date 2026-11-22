@@ -90,10 +90,11 @@ public final class Hints {
 		}
 		if ("grav_roca".equals(id)) {
 			rows.add(row(key(Keys.SHAMBLES), "saltar y lanzar la roca"));
-			rows.add(row(key(Keys.RADIO_KNIFE), "Tengai Shinsei desde el aire"));
+			rows.add(row(sneak(mc), "bajarse de la roca"));
+			rows.add(new Ui.Line().text("WASD ", Theme.HI).action("dirigir roca · ").text("Espacio ", Theme.HI).action("subir · ").text("Ctrl ", Theme.HI).action("turbo"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "Tengai Shinsei desde la roca"));
 			rows.add(row(key(Keys.ROOM), "mantén: presión gravitatoria"));
-			rows.add(row(key(Keys.TAKT), "levitar rocas o enemigos"));
-			return new Context(id, "VUELO EN ROCA", "shambles", Theme.ROOM, rows, false);
+			return new Context(id, "ROCA GRAVITATORIA", "shambles", Theme.ROOM, rows, false);
 		}
 		if ("grav_lev".equals(id)) {
 			rows.add(row(click, "lanzar a velocidad hipersónica"));

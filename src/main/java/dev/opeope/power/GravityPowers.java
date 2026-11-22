@@ -506,42 +506,31 @@ public final class GravityPowers {
 			}
 		}
 
-		// 4) Vuelo Canon de Fujitora sobre plataforma rocosa (SOLO vuela mientras surfea en su roca; en creativo sigue sus pies)
-		Entity mount = pw.gravityMountId >= 0 ? w.getEntityById(pw.gravityMountId) : null;
-		boolean survivalFlight = !p.isCreative() && !p.isSpectator();
-		if (!(mount instanceof PieceEntity pe) || pe.isRemoved() || !pe.isAlive()) {
-			if (pw.gravityMountId >= 0) {
-				pw.gravityMountId = -1;
+		// 4) Vuelo Canon de Fujitora: Fujitora NO vuela nunca; la roca es un vehículo real que lo transporta
+		if (!p.isCreative() && !p.isSpectator() && pw.surgicalFlightGranted) {
+			pw.surgicalFlightGranted = false;
+			p.getAbilities().allowFlying = false;
+			p.getAbilities().flying = false;
+			p.sendAbilitiesUpdate();
+		}
+		if (p.getVehicle() instanceof PieceEntity surfRock && surfRock.isGravitySurf() && surfRock.isAlive()) {
+			if (pw.gravityMountId != surfRock.getId()) {
+				pw.gravityMountId = surfRock.getId();
 				pw.dirty = true;
-			}
-			if (survivalFlight && pw.surgicalFlightGranted) {
-				pw.surgicalFlightGranted = false;
-				p.getAbilities().allowFlying = false;
-				p.getAbilities().flying = false;
-				p.sendAbilitiesUpdate();
-				pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 120);
-			}
-		} else {
-			if (survivalFlight) {
-				if (!p.getAbilities().allowFlying) {
-					p.getAbilities().allowFlying = true;
-					p.getAbilities().flying = true;
-					p.sendAbilitiesUpdate();
-				}
-				pw.surgicalFlightGranted = true;
 			}
 			pw.fallImmunityTicks = 200;
 			p.fallDistance = 0f;
-
-			pe.mode = PieceEntity.Mode.STUCK;
-			pe.noClip = true;
-			pe.solid = false;
-			pe.setFlag(PieceEntity.F_SEAM, true);
-			pe.setPosition(p.getX(), p.getY() - 1.02, p.getZ());
-			pe.setVelocity(p.getVelocity());
 			if (p.age % 3 == 0) {
-				w.spawnParticles(ABYSS_DUST, p.getX(), p.getY() - 0.9, p.getZ(), 2, 0.8, 0.05, 0.8, 0);
+				w.spawnParticles(ABYSS_DUST, surfRock.getX(), surfRock.getY() - 0.1, surfRock.getZ(), 3, 0.85, 0.05, 0.85, 0);
 			}
+		} else if (pw.gravityMountId >= 0) {
+			Entity old = w.getEntityById(pw.gravityMountId);
+			if (old instanceof PieceEntity pe && pe.isGravitySurf() && !pe.hasPassengers()) {
+				pe.release(Vec3d.ZERO, false);
+			}
+			pw.gravityMountId = -1;
+			pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 140);
+			pw.dirty = true;
 		}
 	}
 
@@ -762,34 +751,28 @@ public final class GravityPowers {
 		}
 		if (pw.onCooldown(Tech.SHAMBLES)) return;
 
-		Entity curMount = pw.gravityMountId >= 0 ? w.getEntityById(pw.gravityMountId) : null;
-		if (curMount instanceof PieceEntity pe && !pe.isRemoved() && pe.isAlive()) {
+		// Si ya vas de pie sobre tu roca voladora: saltas de ella y la disparas como proyectil
+		if (p.getVehicle() instanceof PieceEntity ridingRock && ridingRock.isGravitySurf()) {
 			Vec3d look = p.getRotationVector();
-			Vec3d originPos = pe.center();
+			Vec3d originPos = ridingRock.center();
+			p.stopRiding();
 			pw.gravityMountId = -1;
-			if (pw.surgicalFlightGranted) {
-				pw.surgicalFlightGranted = false;
-				p.getAbilities().allowFlying = false;
-				p.getAbilities().flying = false;
-				p.sendAbilitiesUpdate();
-			}
 			pw.fallImmunityTicks = 240;
-			p.setVelocity(look.x * -0.35, 0.55, look.z * -0.35);
+			p.setVelocity(look.x * -0.30, 0.58, look.z * -0.30);
 			p.velocityModified = true;
 			if (p.networkHandler != null) p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), p.getVelocity()));
 
-			pe.noClip = false;
-			pe.setFlag(PieceEntity.F_SEAM, false);
-			pe.release(look.multiply(2.9), true);
+			ridingRock.setFlag(PieceEntity.F_SEAM, false);
+			ridingRock.release(look.multiply(2.9), true);
 			sendFx(w, Payloads.GravityFx.KIND_MOKO, p.getId(), originPos, originPos.add(look.multiply(14.0)), 2.2f, 1.0f, 14);
 			playSound(w, originPos, SoundEvents.ENTITY_BREEZE_WIND_BURST.value(), 1.2f, 0.8f);
 			pw.dirty = true;
-			p.sendMessage(Text.literal("§5🪨 ¡Plataforma gravitatoria lanzada!"), true);
+			p.sendMessage(Text.literal("§5🪨 ¡Roca gravitatoria disparada!"), true);
 			pw.cooldown(Tech.SHAMBLES);
 			return;
 		}
 
-		// Eleva una placa de roca 3×1×3 real bajo tus pies
+		// Arranca una losa real 3×1×3 bajo tus pies y te sube DE PIE sobre ella: LA ROCA TE LLEVA (sin vuelo del jugador)
 		BlockSet set = new BlockSet();
 		BlockPos base = p.getBlockPos().down();
 		for (int dx = -1; dx <= 1; dx++) {
@@ -798,36 +781,41 @@ public final class GravityPowers {
 				BlockState st = w.getBlockState(bp);
 				BlockState sample = (!st.isAir() && !(st.getBlock() instanceof FluidBlock) && !st.hasBlockEntity() && st.getHardness(w, bp) >= 0)
 					? st : ((dx + dz) % 2 == 0 ? Blocks.DEEPSLATE.getDefaultState() : Blocks.COBBLESTONE.getDefaultState());
-				if (!st.isAir() && st == sample && p.getRandom().nextBoolean()) {
+				if (!st.isAir() && st == sample) {
 					w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
 				}
 				set.add(dx + 1, 0, dz + 1, sample, null);
 			}
 		}
 		set.normalize();
-		Vec3d spawnPos = new Vec3d(p.getX(), p.getY() + 0.15, p.getZ());
+		// Coloca la losa limpia por encima del suelo (o dentro del hueco recién arrancado si hay techo bajo) y monta a Fujitora de pie encima
+		double spawnY = p.isOnGround() ? p.getY() + 0.08 : p.getY() - 0.85;
+		Vec3d spawnPos = new Vec3d(p.getX(), spawnY, p.getZ());
 		PieceEntity plat = PieceEntity.spawn(w, set, spawnPos.subtract(set.sx / 2.0, 0, set.sz / 2.0), base, p.getUuid());
-		plat.mode = PieceEntity.Mode.STUCK;
-		plat.noClip = true;
-		plat.solid = false;
+		plat.setYaw(p.getYaw());
+		plat.setGravitySurf(true);
+		if (!w.isSpaceEmpty(plat) && p.isOnGround()) {
+			plat.setPosition(p.getX(), base.getY() + 0.04, p.getZ());
+		}
 		plat.setFlag(PieceEntity.F_SEAM, true);
+		plat.setVelocity(0.0, 0.28, 0.0);
 
+		// Desactiva cualquier vuelo propio (incluso en creativo) para que sea la ROCA quien te lleve físicamente
+		if (p.getAbilities().flying || (!p.isCreative() && !p.isSpectator() && p.getAbilities().allowFlying)) {
+			if (!p.isCreative() && !p.isSpectator()) p.getAbilities().allowFlying = false;
+			p.getAbilities().flying = false;
+			p.sendAbilitiesUpdate();
+			pw.surgicalFlightGranted = false;
+		}
+		p.startRiding(plat, true);
 		pw.gravityMountId = plat.getId();
 		pw.fallImmunityTicks = 300;
-		p.requestTeleport(p.getX(), p.getY() + 1.25, p.getZ());
-		p.setVelocity(0, 0.25, 0);
-		p.velocityModified = true;
-		if (!p.isCreative() && !p.isSpectator()) {
-			p.getAbilities().allowFlying = true;
-			p.getAbilities().flying = true;
-			p.sendAbilitiesUpdate();
-			pw.surgicalFlightGranted = true;
-		}
+		p.fallDistance = 0f;
 		pw.dirty = true;
 		sendFx(w, Payloads.GravityFx.KIND_LIFT_PULSE, p.getId(), spawnPos, spawnPos.add(0, 3.5, 0), 2.8f, 1.0f, 20);
 		playSound(w, spawnPos, SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 0.7f);
 		playSound(w, spawnPos, SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 0.6f);
-		p.sendMessage(Text.literal("§5🪨 Vuelo Canon de Fujitora: ¡Surfea en tu roca! §7([Alt] otra vez para lanzarla)"), true);
+		p.sendMessage(Text.literal("§5🪨 ¡La roca te eleva! §7(WASD dirigir · Espacio subir · Ctrl turbo · Mayús bajar · Alt lanzar)"), true);
 		pw.cooldown(Tech.SHAMBLES);
 	}
 
