@@ -72,6 +72,9 @@ public final class Union {
 			p.sendMessage(Text.translatable("opeope.msg.sew"), true);
 			return;
 		}
+		if (SurgicalSurvival.trySurgicalAssembly(p, pw)) {
+			return;
+		}
 		pw.unionMode = !pw.unionMode;
 		clearSelection(p, pw);
 		pw.dirty = true;
@@ -125,7 +128,10 @@ public final class Union {
 			p.getWorld().playSound(null, pe.getX(), pe.getY(), pe.getZ(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1f, 1.5f);
 			return;
 		}
-		if (pw.unionSelected < 0) return;
+		if (pw.unionSelected < 0) {
+			SurgicalSurvival.trySurgicalAssembly(p, pw);
+			return;
+		}
 		Entity sel = p.getWorld().getEntityById(pw.unionSelected);
 		clearSelection(p, pw);
 		pw.dirty = true;

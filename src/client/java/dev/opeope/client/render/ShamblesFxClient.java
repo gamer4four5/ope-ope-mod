@@ -4,11 +4,13 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeSettings;
+import dev.opeope.client.hud.ScanList;
 import dev.opeope.client.input.InputHandler;
 import dev.opeope.client.room.CameraFx;
 import dev.opeope.client.room.RoomFxClient;
 import dev.opeope.client.room.ScreenFx;
 import dev.opeope.net.Payloads;
+import net.minecraft.util.math.BlockPos;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -140,7 +142,9 @@ public final class ShamblesFxClient {
 			if (age < 0 || age > WARP_DUR) it.remove();
 		}
 		boolean showPreview = ClientState.ownRoom() != null && (markedEntityId >= 0 || InputHandler.isShamblesDown());
-		if (WARPS.isEmpty() && !showPreview) return;
+		List<ScanList.ScannedBlock> xrayBlocks = ClientState.scanTicks > 0 ? ScanList.SCANNED_BLOCKS : List.of();
+		boolean showScanXray = !xrayBlocks.isEmpty();
+		if (WARPS.isEmpty() && !showPreview && !showScanXray) return;
 
 		Vec3d cam = ctx.camera().getPos();
 		float td = ctx.tickCounter().getTickDelta(true);
@@ -163,16 +167,26 @@ public final class ShamblesFxClient {
 		RenderSystem.setShader(GameRenderer::getPositionColorProgram);
 
 		try {
-			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-			for (WarpEvent w : WARPS) {
-				drawWarp(b, mc, w, cam, now, calm);
+			if (!WARPS.isEmpty() || showPreview) {
+				BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+				for (WarpEvent w : WARPS) {
+					drawWarp(b, mc, w, cam, now, calm);
+				}
+				if (showPreview) {
+					drawLivePreview(b, mc, cam, td, now);
+				}
+				var built = b.endNullable();
+				if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 			}
-			if (showPreview) {
-				drawLivePreview(b, mc, cam, td, now);
+			if (showScanXray) {
+				RenderSystem.disableDepthTest();
+				BufferBuilder xb = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
+				drawScanXray(xb, xrayBlocks, cam, now, calm);
+				var builtX = xb.endNullable();
+				if (builtX != null) BufferRenderer.drawWithGlobalProgram(builtX);
 			}
-			var built = b.endNullable();
-			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 		} finally {
+			RenderSystem.enableDepthTest();
 			RenderSystem.defaultBlendFunc();
 			RenderSystem.depthMask(true);
 			RenderSystem.enableCull();
@@ -442,6 +456,29 @@ public final class ShamblesFxClient {
 	}
 
 	// ------------------------------------------------------------------ geometría auxiliar
+
+	private static void drawScanXray(BufferBuilder b, List<ScanList.ScannedBlock> blocks, Vec3d cam, double now, boolean calm) {
+		float pulse = calm ? 0.55f : (float) (0.45 + 0.25 * Math.sin(now * 5.2));
+		for (ScanList.ScannedBlock sb : blocks) {
+			BlockPos pos = sb.pos();
+			double cx = pos.getX() + 0.5 - cam.x;
+			double cy = pos.getY() + 0.5 - cam.y;
+			double cz = pos.getZ() + 0.5 - cam.z;
+			float coreAlpha = sb.treasure() ? pulse * 0.42f : pulse * 0.28f;
+			float edgeAlpha = MathHelper.clamp(pulse + 0.25f, 0.35f, 0.90f);
+			// Núcleo translúcido del mineral/tesoro detectado por Scan
+			drawRotBox(b, cx, cy, cz, 1.0, 0.0, -0.44, -0.44, -0.44, 0.44, 0.44, 0.44, sb.rgb(), coreAlpha);
+			// 12 aristas luminosas tipo bisturí X-Ray
+			double s = 0.48, t = 0.028;
+			for (double a : new double[]{-s, s - t}) {
+				for (double c : new double[]{-s, s - t}) {
+					drawRotBox(b, cx, cy, cz, 1.0, 0.0, -s, a, c, s, a + t, c + t, sb.rgb(), edgeAlpha);
+					drawRotBox(b, cx, cy, cz, 1.0, 0.0, a, -s, c, a + t, s, c + t, sb.rgb(), edgeAlpha);
+					drawRotBox(b, cx, cy, cz, 1.0, 0.0, a, c, -s, a + t, c + t, s, sb.rgb(), edgeAlpha);
+				}
+			}
+		}
+	}
 
 	private static void drawSilhouette(BufferBuilder b, double fx, double fy, double fz, double w, double h, float yawDeg, int rgb, float alpha) {
 		if (alpha <= 0.01f) return;

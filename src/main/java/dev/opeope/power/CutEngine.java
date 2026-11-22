@@ -270,6 +270,9 @@ public final class CutEngine {
 		var aimHit = PowerManager.raycastBlock(player, aimReach);
 		Vec3d aim = aimHit.getType() != net.minecraft.util.hit.HitResult.Type.MISS ? aimHit.getPos()
 			: player.getEyePos().add(player.getRotationVector().multiply(Math.min(24.0, region.sampleR() * 0.5)));
+		if (blocks) {
+			SurgicalSurvival.harvestSlicedResources(player, w, aim, planes, region);
+		}
 
 		LongOpenHashSet seen = new LongOpenHashSet();
 		LongArrayList seeds = new LongArrayList();

@@ -125,6 +125,10 @@ public final class Shambles {
 			return;
 		}
 		if (sneaking) {
+			if (SurgicalSurvival.tryExtractOreVein(p, pw, true)) {
+				pw.cooldown(Tech.SHAMBLES);
+				return;
+			}
 			blocks(p, pw);
 			return;
 		}
@@ -169,6 +173,12 @@ public final class Shambles {
 			}
 		}
 		if (target != null && !PowerManager.inRoom(p, target.getBoundingBox().getCenter())) target = null;
+
+		// Con Scan o apuntando a una mena dentro del ROOM: extrae toda la veta e intercambia por piedra
+		if (marked == null && target == null && SurgicalSurvival.tryExtractOreVein(p, pw, false)) {
+			pw.cooldown(Tech.SHAMBLES);
+			return;
+		}
 
 		// Con Scan, Shambles roba lo que lleva en la mano.
 		if (target instanceof LivingEntity le && pw.scanTicks > 0 && !le.getMainHandStack().isEmpty()) {

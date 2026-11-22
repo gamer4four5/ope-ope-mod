@@ -454,6 +454,7 @@ public final class Techniques {
 		pw.cooldown(Tech.SCAN);
 		sound(p, p.getPos(), SoundEvents.BLOCK_BEACON_POWER_SELECT, 1f, 2f);
 		p.sendMessage(Text.translatable("opeope.msg.scan"), true);
+		SurgicalSurvival.scanRoomReport(p, pw);
 	}
 
 	/** Radio Knife: corte eléctrico. Hiere, corta en tres y lo cortado no se puede rearmar en 5 s. */
@@ -1029,7 +1030,15 @@ public final class Techniques {
 		}
 		if (pw.onCooldown(Tech.MES)) return;
 		LivingEntity t = livingInSight(p, 6);
-		if (t == null || t instanceof EnderDragonEntity || t instanceof WitherEntity) {
+		if (t == null) {
+			if (SurgicalSurvival.trySurgicalBlockMes(p, pw)) {
+				pw.cooldown(Tech.MES);
+				return;
+			}
+			p.sendMessage(Text.translatable("opeope.msg.too_far"), true);
+			return;
+		}
+		if (t instanceof EnderDragonEntity || t instanceof WitherEntity) {
 			p.sendMessage(Text.translatable("opeope.msg.too_far"), true);
 			return;
 		}
@@ -1205,6 +1214,7 @@ public final class Techniques {
 		if (hasConductiveInHandOrNear(p, pw)) origins.add(p.getPos().add(0, 1.0, 0));
 		Set<LivingEntity> already = new HashSet<>(hit);
 		Conduction.chain(p, pw, origins, already, dmg(30) * 0.6f * aerialMult, 60, false);
+		SurgicalSurvival.onCounterShockBlocksAndMobs(p, pw, hit);
 
 		pw.cooldown(Tech.COUNTER);
 	}

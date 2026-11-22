@@ -78,6 +78,7 @@ public final class PowerManager {
 	}
 
 	public static void init() {
+		SurgicalSurvival.init();
 		ServerTickEvents.END_SERVER_TICK.register(PowerManager::tick);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			ServerPlayerEntity p = handler.getPlayer();
@@ -177,6 +178,7 @@ public final class PowerManager {
 			GroundCuts.clearAll();
 			Takt.clearAll();
 			ElementEffects.clearAll();
+			SurgicalSurvival.clearPending();
 		});
 	}
 
@@ -242,18 +244,32 @@ public final class PowerManager {
 			ExperienceOrbEntity.spawn(sw, victim.getPos().add(0, 0.5, 0), 6 + pw.killStreak * 2);
 		}
 
-		int afterTier = pw.masteryTier();
-		if (afterTier > prevTier) {
-			applyMasteryAttributes(sp, pw);
-			sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 1.0f, 1.15f);
-			sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 0.9f, 1.4f);
-			sw.spawnParticles(ParticleTypes.TOTEM_OF_UNDYING, sp.getX(), sp.getY() + 1.0, sp.getZ(), 32, 0.6, 0.8, 0.6, 0.15);
-			sp.sendMessage(Text.literal("§6★ ¡NUEVO RANGO PIRATA: " + pw.masteryRankName()
-				+ " §f(฿" + formatBerries(pw.bounty) + ")! §bEnfriamientos -" + (afterTier * 10) + "%"), false);
-		} else if (base >= 4_000_000L || pw.killStreak >= 3) {
+		if (!promoteIfTierUp(sp, sw, pw, prevTier) && (base >= 4_000_000L || pw.killStreak >= 3)) {
 			sp.sendMessage(Text.literal("§b+฿" + formatBerries(gain) + " §7(Total: §f฿" + formatBerries(pw.bounty)
 				+ "§7) §eRacha ×" + pw.killStreak + (shamblesReset ? " · ¡Shambles recargado!" : "")), true);
 		}
+	}
+
+	/** Otorga Berries de progreso por cirugías/extracciones quirúrgicas y actualiza rango + atributos. */
+	public static void addBounty(ServerPlayerEntity sp, long gain) {
+		if (gain <= 0 || !ModAttachments.hasFruit(sp)) return;
+		PlayerPower pw = get(sp);
+		int prevTier = pw.masteryTier();
+		pw.bounty += gain;
+		ModAttachments.setBounty(sp, pw.bounty);
+		promoteIfTierUp(sp, sp.getServerWorld(), pw, prevTier);
+	}
+
+	private static boolean promoteIfTierUp(ServerPlayerEntity sp, ServerWorld sw, PlayerPower pw, int prevTier) {
+		int afterTier = pw.masteryTier();
+		if (afterTier <= prevTier) return false;
+		applyMasteryAttributes(sp, pw);
+		sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.PLAYERS, 1.0f, 1.15f);
+		sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 0.9f, 1.4f);
+		sw.spawnParticles(ParticleTypes.TOTEM_OF_UNDYING, sp.getX(), sp.getY() + 1.0, sp.getZ(), 32, 0.6, 0.8, 0.6, 0.15);
+		sp.sendMessage(Text.literal("§6★ ¡NUEVO RANGO PIRATA: " + pw.masteryRankName()
+			+ " §f(฿" + formatBerries(pw.bounty) + ")! §bEnfriamientos -" + (afterTier * 10) + "%"), false);
+		return true;
 	}
 
 	private static String formatBerries(long v) {
@@ -340,6 +356,7 @@ public final class PowerManager {
 		CutStates.tick(server);
 		Takt.serverTick(server);
 		ElementEffects.serverTick(server);
+		SurgicalSurvival.tickPendingRestores(server);
 	}
 
 	public static void syncState(ServerPlayerEntity p, PlayerPower pw) {
