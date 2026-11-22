@@ -1,5 +1,7 @@
 package dev.opeope.power;
 
+import dev.opeope.entity.BlockSet;
+import dev.opeope.entity.PieceEntity;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.block.AmethystClusterBlock;
 import net.minecraft.block.BambooBlock;
@@ -8,6 +10,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.CocoaBlock;
 import net.minecraft.block.CropBlock;
+import net.minecraft.block.FluidBlock;
 import net.minecraft.block.NetherWartBlock;
 import net.minecraft.block.Oxidizable;
 import net.minecraft.block.SugarCaneBlock;
@@ -21,6 +24,7 @@ import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.Enchantments;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ExperienceOrbEntity;
 import net.minecraft.entity.ItemEntity;
@@ -29,9 +33,11 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.item.BlockItem;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.recipe.AbstractCookingRecipe;
 import net.minecraft.recipe.CraftingRecipe;
@@ -309,49 +315,338 @@ public final class SurgicalSurvival {
 
 		for (BlockPos bp : vein) {
 			BlockState st = w.getBlockState(bp);
-			BlockEntity be = w.getBlockEntity(bp);
-			List<ItemStack> drops = Block.getDroppedStacks(st, w, bp, be, p, virtualTool);
+			int[] yield = givePerfectOreYield(p, w, pw, bp, st, virtualTool, silkTouch, autoSmelt, false, null);
+			totalItems += yield[0];
+			smeltedCount += yield[1];
 			BlockState replace = hostReplacement(w, bp, st);
 			w.setBlockState(bp, replace, Block.NOTIFY_LISTENERS);
 			w.spawnParticles(CutEngine.ROOM_DUST, bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5, 4, 0.25, 0.25, 0.25, 0);
-
-			for (ItemStack drop : drops) {
-				if (drop.isEmpty()) continue;
-				ItemStack finalStack = drop.copy();
-				if (autoSmelt) {
-					Optional<RecipeEntry<AbstractCookingRecipe>> smelted = w.getRecipeManager()
-						.getFirstMatch(RecipeType.SMELTING, new SingleStackRecipeInput(finalStack), w)
-						.map(e -> (RecipeEntry<AbstractCookingRecipe>) (RecipeEntry<?>) e);
-					if (smelted.isPresent()) {
-						ItemStack res = smelted.get().value().getResult(w.getRegistryManager()).copy();
-						if (!res.isEmpty()) {
-							res.setCount(res.getCount() * finalStack.getCount());
-							finalStack = res;
-							smeltedCount += finalStack.getCount();
-						}
-					}
-				}
-				totalItems += finalStack.getCount();
-				p.getInventory().offerOrDrop(finalStack);
-			}
-			if (!silkTouch) totalXp += xpForOre(st);
+			if (!silkTouch) totalXp += xpForOre(st) * 2;
 		}
 
 		Vec3d center = Vec3d.ofCenter(seed);
 		if (totalXp > 0) ExperienceOrbEntity.spawn(w, p.getPos().add(0, 0.4, 0), totalXp);
 		Shambles.fx(p, center.subtract(0, 1.0, 0), p.getPos());
 		w.playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.ENTITY_ITEM_PICKUP, SoundCategory.PLAYERS, 0.9f, 1.45f);
-		PowerManager.addBounty(p, 100_000L * vein.size());
+		PowerManager.addBounty(p, 150_000L * vein.size());
 
 		String oreName = shortOreName(seedState.getBlock().getName().getString());
 		if (silkTouch) {
 			p.sendMessage(Text.literal("§bShambles (Toque de Seda): §f¡Extraídos " + vein.size() + "× " + oreName + " intactos!"), true);
 		} else if (autoSmelt && smeltedCount > 0) {
-			p.sendMessage(Text.literal("§bShambles + K-ROOM: §f¡Extraídos y fundidos " + vein.size() + "× " + oreName + " → " + totalItems + " lingotes/gemas!"), true);
+			p.sendMessage(Text.literal("§bShambles + K-ROOM: §f¡Separados y fundidos " + vein.size() + "× " + oreName + " → " + totalItems + " lingotes/gemas puros!"), true);
 		} else {
-			p.sendMessage(Text.literal("§bShambles Quirúrgico: §f¡Extraídos " + vein.size() + "× " + oreName + " (" + totalItems + " uds.) por roca!"), true);
+			p.sendMessage(Text.literal("§bShambles (Separación Perfecta): §f¡" + vein.size() + "× " + oreName + " → " + totalItems + " minerales puros sin romper la roca!"), true);
 		}
 		return true;
+	}
+
+	/**
+	 * Separa molecularmente el mineral de su roca huésped dentro del ROOM: rinde 2×–4× de mineral puro + subproductos
+	 * cristalizados y, si se indica, devuelve también la roca limpia o los apila en {@code bag}.
+	 */
+	public static int[] givePerfectOreYield(ServerPlayerEntity p, ServerWorld w, PlayerPower pw, BlockPos pos, BlockState oreState,
+											  ItemStack tool, boolean silkTouch, boolean autoSmelt, boolean includeHostRock,
+											  @Nullable Map<Item, Integer> bag) {
+		int totalItems = 0, smeltedCount = 0;
+		BlockEntity be = w.isChunkLoaded(pos) ? w.getBlockEntity(pos) : null;
+		List<ItemStack> drops = Block.getDroppedStacks(oreState, w, pos, be, p, tool);
+		int tier = pw.masteryTier();
+		int purityMult = silkTouch ? 1 : (2 + (tier >= 2 ? 1 : 0) + (tier >= 1 && w.random.nextFloat() < 0.35f ? 1 : 0));
+
+		for (ItemStack drop : drops) {
+			if (drop.isEmpty()) continue;
+			ItemStack finalStack = drop.copy();
+			if (!silkTouch) {
+				finalStack.setCount(drop.getCount() * purityMult);
+			}
+			if (autoSmelt && !silkTouch) {
+				Optional<RecipeEntry<AbstractCookingRecipe>> smelted = w.getRecipeManager()
+					.getFirstMatch(RecipeType.SMELTING, new SingleStackRecipeInput(finalStack), w)
+					.map(e -> (RecipeEntry<AbstractCookingRecipe>) (RecipeEntry<?>) e);
+				if (smelted.isPresent()) {
+					ItemStack res = smelted.get().value().getResult(w.getRegistryManager()).copy();
+					if (!res.isEmpty()) {
+						res.setCount(Math.max(1, res.getCount()) * finalStack.getCount());
+						finalStack = res;
+						smeltedCount += finalStack.getCount();
+					}
+				}
+			}
+			totalItems += finalStack.getCount();
+			deliverStack(p, finalStack, bag);
+		}
+
+		if (!silkTouch) {
+			List<ItemStack> extras = rollSurgicalByproduct(w, oreState);
+			for (ItemStack ex : extras) {
+				totalItems += ex.getCount();
+				deliverStack(p, ex, bag);
+			}
+		}
+
+		if (includeHostRock) {
+			BlockState host = hostReplacement(w, pos, oreState);
+			if (!host.isAir() && host.getBlock().asItem() != Items.AIR) {
+				deliverStack(p, new ItemStack(host.getBlock().asItem(), 1), bag);
+			}
+		}
+		return new int[]{totalItems, smeltedCount};
+	}
+
+	private static List<ItemStack> rollSurgicalByproduct(ServerWorld w, BlockState st) {
+		List<ItemStack> extras = new ArrayList<>();
+		String path = Registries.BLOCK.getId(st.getBlock()).getPath();
+		boolean deepslate = path.contains("deepslate");
+		if (st.isIn(BlockTags.COAL_ORES)) {
+			if (w.random.nextFloat() < 0.20f) extras.add(new ItemStack(Items.DIAMOND, 1));
+			else if (w.random.nextFloat() < 0.30f) extras.add(new ItemStack(Items.QUARTZ, 2));
+		} else if (st.isIn(BlockTags.IRON_ORES) || st.isIn(BlockTags.COPPER_ORES)) {
+			extras.add(new ItemStack(Items.IRON_NUGGET, 2 + w.random.nextInt(3)));
+			if (w.random.nextFloat() < 0.25f) extras.add(new ItemStack(Items.RAW_GOLD, 1));
+		} else if (st.isIn(BlockTags.GOLD_ORES) || st.isIn(BlockTags.REDSTONE_ORES) || st.isIn(BlockTags.LAPIS_ORES)) {
+			extras.add(new ItemStack(Items.GOLD_NUGGET, 2 + w.random.nextInt(3)));
+			if (deepslate && w.random.nextFloat() < 0.18f) extras.add(new ItemStack(Items.DIAMOND, 1));
+			else if (w.random.nextFloat() < 0.22f) extras.add(new ItemStack(Items.EMERALD, 1));
+		} else if (st.isIn(BlockTags.DIAMOND_ORES) || st.isIn(BlockTags.EMERALD_ORES) || st.isOf(Blocks.ANCIENT_DEBRIS)) {
+			extras.add(new ItemStack(st.isOf(Blocks.ANCIENT_DEBRIS) ? Items.NETHERITE_SCRAP
+				: (st.isIn(BlockTags.EMERALD_ORES) ? Items.EMERALD : Items.DIAMOND), 1));
+		} else if (w.random.nextFloat() < 0.35f) {
+			extras.add(new ItemStack(Items.QUARTZ, 2));
+		}
+		return extras;
+	}
+
+	private static void deliverStack(ServerPlayerEntity p, ItemStack st, @Nullable Map<Item, Integer> bag) {
+		if (st.isEmpty()) return;
+		if (bag != null && st.getComponents().isEmpty()) {
+			bag.merge(st.getItem(), st.getCount(), Integer::sum);
+			return;
+		}
+		int remaining = st.getCount();
+		int max = st.getMaxCount();
+		while (remaining > 0) {
+			int take = Math.min(max, remaining);
+			p.getInventory().offerOrDrop(st.copyWithCount(take));
+			remaining -= take;
+		}
+	}
+
+	private static void flushBag(ServerPlayerEntity p, Map<Item, Integer> bag) {
+		for (var e : bag.entrySet()) {
+			int remaining = e.getValue();
+			int max = e.getKey().getMaxCount();
+			while (remaining > 0) {
+				int take = Math.min(max, remaining);
+				p.getInventory().offerOrDrop(new ItemStack(e.getKey(), take));
+				remaining -= take;
+			}
+		}
+		bag.clear();
+	}
+
+	/** Separa el mineral puro de una mena in-situ sin destruir su roca huésped. */
+	public static int extractOreFromBlockInPlace(ServerPlayerEntity p, ServerWorld w, PlayerPower pw, BlockPos pos, BlockState st, ItemStack fortuneTool) {
+		int[] y = givePerfectOreYield(p, w, pw, pos, st, fortuneTool, false, pw.kroomBladeTicks > 0, false, null);
+		w.setBlockState(pos, hostReplacement(w, pos, st), Block.NOTIFY_LISTENERS);
+		w.spawnParticles(CutEngine.ROOM_DUST, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 6, 0.25, 0.25, 0.25, 0);
+		return y[0];
+	}
+
+	// ------------------------------------------------------------------ Takt Telequinético: Romper / Excavar / Pulverizar con la Mente
+
+	/**
+	 * Romper bloques con la mente (`Shift + R` / Orden Takt):
+	 * - Si llevas trozos/montañas flotando en Takt: los comprime y pulveriza en el aire, separando todos sus minerales (2×–4×).
+	 * - Si apuntas a un árbol: tala el árbol entero mentalmente.
+	 * - Si apuntas a una mena: extrae toda la veta conectada con separación quirúrgica perfecta.
+	 * - Si apuntas a pared/suelo dentro del ROOM: excava un volumen 3×3×3 con la mente sin usar pico.
+	 */
+	public static void telekineticMindBreak(ServerPlayerEntity p, PlayerPower pw) {
+		ServerWorld w = p.getServerWorld();
+		List<Entity> held = Takt.resolve(p, pw);
+		if (!held.isEmpty() && held.stream().anyMatch(e -> e instanceof PieceEntity pe && pe.weapon == null)) {
+			crushHeldTaktPieces(p, pw, w, held);
+			return;
+		}
+
+		Room room = pw.room != null && pw.room.dim == w.getRegistryKey() ? pw.room : pw.rroom;
+		if (room == null) {
+			PowerManager.noRoom(p);
+			return;
+		}
+
+		BlockHitResult hit = PowerManager.raycastBlock(p, 45.0);
+		if (hit.getType() != HitResult.Type.BLOCK || !room.contains(hit.getPos())) {
+			p.sendMessage(Text.literal("§7Apunta a bloques dentro de tu ROOM para romperlos con la mente"), true);
+			return;
+		}
+
+		BlockPos seed = hit.getBlockPos();
+		BlockState seedState = w.getBlockState(seed);
+		if (seedState.isAir()) return;
+
+		if (isOre(seedState)) {
+			tryExtractOreVein(p, pw, false);
+			return;
+		}
+
+		if (seedState.isIn(BlockTags.LOGS)) {
+			mindChopTree(p, pw, w, room, seed);
+			return;
+		}
+
+		ItemStack fortuneTool = createVirtualPickaxe(w, false, Math.max(1, pw.masteryTier()));
+		boolean autoSmelt = pw.kroomBladeTicks > 0;
+		Map<Item, Integer> bag = new LinkedHashMap<>();
+		int broken = 0, oresYield = 0;
+		BlockPos underFeet = p.getBlockPos().down();
+
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dy = -1; dy <= 1; dy++) {
+				for (int dz = -1; dz <= 1; dz++) {
+					BlockPos bp = seed.add(dx, dy, dz);
+					if (bp.getY() < w.getBottomY() || bp.getY() >= w.getTopY()) continue;
+					if (p.isOnGround() && bp.equals(underFeet)) continue;
+					Vec3d bc = Vec3d.ofCenter(bp);
+					if (!room.contains(bc)) continue;
+					BlockState st = w.getBlockState(bp);
+					if (st.isAir() || st.getBlock() instanceof FluidBlock || st.hasBlockEntity() || st.getHardness(w, bp) < 0) continue;
+
+					if (isOre(st)) {
+						int[] res = givePerfectOreYield(p, w, pw, bp, st, fortuneTool, false, autoSmelt, true, bag);
+						oresYield += res[0];
+					} else {
+						for (ItemStack drop : Block.getDroppedStacks(st, w, bp, null, p, fortuneTool)) {
+							deliverStack(p, drop, bag);
+						}
+					}
+					w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+					if (broken < 18) {
+						w.spawnParticles(new BlockStateParticleEffect(ParticleTypes.BLOCK, st), bc.x, bc.y, bc.z, 6, 0.25, 0.25, 0.25, 0.12);
+						w.spawnParticles(CutEngine.ROOM_DUST, bc.x, bc.y, bc.z, 3, 0.25, 0.25, 0.25, 0);
+					}
+					broken++;
+				}
+			}
+		}
+
+		if (broken == 0) return;
+		flushBag(p, bag);
+		Vec3d c = Vec3d.ofCenter(seed);
+		Techniques.beam(p, p.getEyePos().add(p.getRotationVector()), c, CutEngine.ROOM_DUST);
+		playSound(w, c, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 0.7f, 1.45f);
+		playSound(w, c, SoundEvents.BLOCK_AMETHYST_BLOCK_BREAK, 1.1f, 0.8f);
+		if (oresYield > 0) PowerManager.addBounty(p, 80_000L * Math.max(1, oresYield / 3));
+
+		p.sendMessage(Text.literal(oresYield > 0
+			? "§b🧠 Takt (Excavación Mental): §f¡" + broken + " bloques fracturados · " + oresYield + " minerales puros separados!"
+			: "§b🧠 Takt (Excavación Mental): §f¡" + broken + " bloques fracturados con la mente!"), true);
+	}
+
+	private static void crushHeldTaktPieces(ServerPlayerEntity p, PlayerPower pw, ServerWorld w, List<Entity> held) {
+		ItemStack fortuneTool = createVirtualPickaxe(w, false, Math.max(1, pw.masteryTier()));
+		boolean autoSmelt = pw.kroomBladeTicks > 0;
+		Map<Item, Integer> bag = new LinkedHashMap<>();
+		int brokenBlocks = 0, oresYield = 0, crushedPieces = 0;
+
+		for (Entity e : held) {
+			if (!(e instanceof PieceEntity pe) || pe.weapon != null || pe.blocks == null) continue;
+			Vec3d center = pe.center();
+			BlockPos refPos = BlockPos.ofFloored(center);
+			for (BlockSet.Entry entry : pe.blocks.entries) {
+				BlockState st = entry.state();
+				if (st.isAir() || st.getBlock() instanceof FluidBlock) continue;
+				if (isOre(st)) {
+					int[] res = givePerfectOreYield(p, w, pw, refPos, st, fortuneTool, false, autoSmelt, true, bag);
+					oresYield += res[0];
+				} else {
+					List<ItemStack> drops = Block.getDroppedStacks(st, w, refPos, null, p, fortuneTool);
+					if (drops.isEmpty() && st.getBlock().asItem() != Items.AIR && w.random.nextFloat() < 0.7f) {
+						deliverStack(p, new ItemStack(st.getBlock().asItem(), 1), bag);
+					} else {
+						for (ItemStack d : drops) deliverStack(p, d, bag);
+					}
+				}
+				brokenBlocks++;
+			}
+
+			int pid = pe.getId();
+			pw.takt.remove((Integer) pid);
+			pw.parked.remove(pid);
+			pw.taktOffsets.remove(pid);
+			Takt.forget(pid);
+			pw.rips.removeIf(r -> {
+				if (r.entityId == pid) {
+					GroundCuts.forgetRip(r.id);
+					return true;
+				}
+				return false;
+			});
+			pe.discard();
+			crushedPieces++;
+
+			w.spawnParticles(ParticleTypes.EXPLOSION, center.x, center.y, center.z, 2, 0.5, 0.5, 0.5, 0);
+			w.spawnParticles(CutEngine.ROOM_DUST, center.x, center.y, center.z, 45, 1.2, 1.2, 1.2, 0.04);
+			Techniques.beam(p, p.getEyePos().add(p.getRotationVector()), center, CutEngine.ROOM_DUST);
+			playSound(w, center, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 0.9f, 1.25f);
+			playSound(w, center, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.7f);
+		}
+
+		if (crushedPieces == 0) return;
+		pw.dirty = true;
+		flushBag(p, bag);
+		PowerManager.addBounty(p, 50_000L * crushedPieces + 40_000L * oresYield);
+		p.sendMessage(Text.literal(oresYield > 0
+			? "§b🧠 Takt (Pulverización Mental): §f¡" + brokenBlocks + " bloques desintegrados → " + oresYield + " minerales puros separados!"
+			: "§b🧠 Takt (Pulverización Mental): §f¡" + brokenBlocks + " bloques pulverizados en tu inventario!"), true);
+	}
+
+	private static void mindChopTree(ServerPlayerEntity p, PlayerPower pw, ServerWorld w, Room room, BlockPos seed) {
+		ItemStack tool = createVirtualPickaxe(w, false, Math.max(1, pw.masteryTier()));
+		List<BlockPos> targets = new ArrayList<>();
+		Set<Long> visited = new HashSet<>();
+		Queue<BlockPos> queue = new ArrayDeque<>();
+		queue.add(seed);
+		visited.add(seed.asLong());
+
+		while (!queue.isEmpty() && targets.size() < 120) {
+			BlockPos cur = queue.poll();
+			BlockState st = w.getBlockState(cur);
+			if (!st.isIn(BlockTags.LOGS) && !st.isIn(BlockTags.LEAVES)) continue;
+			if (!room.contains(Vec3d.ofCenter(cur))) continue;
+			targets.add(cur);
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = 0; dy <= 1; dy++) {
+					for (int dz = -1; dz <= 1; dz++) {
+						BlockPos nxt = cur.add(dx, dy, dz);
+						if (visited.add(nxt.asLong())) {
+							BlockState nst = w.getBlockState(nxt);
+							if (nst.isIn(BlockTags.LOGS) || nst.isIn(BlockTags.LEAVES)) queue.add(nxt);
+						}
+					}
+				}
+			}
+		}
+
+		Map<Item, Integer> bag = new LinkedHashMap<>();
+		int logs = 0;
+		for (BlockPos bp : targets) {
+			BlockState st = w.getBlockState(bp);
+			if (st.isIn(BlockTags.LOGS)) logs++;
+			for (ItemStack d : Block.getDroppedStacks(st, w, bp, null, p, tool)) {
+				deliverStack(p, d, bag);
+			}
+			w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+			if (logs <= 14) {
+				w.spawnParticles(CutEngine.ROOM_DUST, bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5, 3, 0.25, 0.25, 0.25, 0);
+			}
+		}
+		flushBag(p, bag);
+		Vec3d c = Vec3d.ofCenter(seed);
+		Techniques.beam(p, p.getEyePos().add(p.getRotationVector()), c, CutEngine.ROOM_DUST);
+		playSound(w, c, SoundEvents.BLOCK_WOOD_BREAK, 1.3f, 0.85f);
+		p.sendMessage(Text.literal("§a🧠 Takt (Tala Mental): §f¡Árbol entero de " + logs + " troncos recolectado con la mente!"), true);
 	}
 
 	@Nullable
@@ -386,6 +681,10 @@ public final class SurgicalSurvival {
 			}
 		}
 		return best;
+	}
+
+	public static ItemStack createPickaxe(ServerWorld w, int fortuneLevel) {
+		return createVirtualPickaxe(w, false, fortuneLevel);
 	}
 
 	private static ItemStack createVirtualPickaxe(ServerWorld w, boolean silkTouch, int fortuneLevel) {
@@ -760,7 +1059,7 @@ public final class SurgicalSurvival {
 		ItemStack fortuneTool = createVirtualPickaxe(w, false, Math.max(1, pw.masteryTier()));
 		BlockPos center = BlockPos.ofFloored(aim);
 		int rx = 7, ry = 5;
-		int harvested = 0;
+		int harvested = 0, slicedOres = 0, oreBlocks = 0;
 
 		for (int dx = -rx; dx <= rx; dx++) {
 			for (int dz = -rx; dz <= rx; dz++) {
@@ -774,7 +1073,10 @@ public final class SurgicalSurvival {
 					BlockState st = w.getBlockState(pos);
 					if (st.isAir()) continue;
 
-					if (st.getBlock() instanceof CropBlock crop && crop.isMature(st)) {
+					if (isOre(st) && !st.isOf(Blocks.AMETHYST_CLUSTER) && oreBlocks < 24) {
+						slicedOres += extractOreFromBlockInPlace(p, w, pw, pos, st, fortuneTool);
+						oreBlocks++;
+					} else if (st.getBlock() instanceof CropBlock crop && crop.isMature(st)) {
 						harvestWithReplant(p, w, pos, st, crop.withAge(0), fortuneTool);
 						harvested++;
 					} else if (st.isOf(Blocks.NETHER_WART) && st.get(NetherWartBlock.AGE) >= NetherWartBlock.MAX_AGE) {
@@ -800,9 +1102,14 @@ public final class SurgicalSurvival {
 			}
 		}
 
-		if (harvested > 0) {
-			playSound(w, aim, SoundEvents.ITEM_CROP_PLANT, 0.9f, 1.25f);
-			p.sendMessage(Text.literal("§a✦ Amputate Quirúrgico: §f¡" + harvested + " cultivos/amatistas cosechados y replantados!"), true);
+		if (harvested > 0 || slicedOres > 0) {
+			if (harvested > 0) {
+				playSound(w, aim, SoundEvents.ITEM_CROP_PLANT, 0.9f, 1.25f);
+				p.sendMessage(Text.literal("§a✦ Amputate Quirúrgico: §f¡" + harvested + " cultivos/amatistas cosechados y replantados!"), true);
+			} else {
+				playSound(w, aim, SoundEvents.ENTITY_ITEM_PICKUP, 0.9f, 1.45f);
+				p.sendMessage(Text.literal("§b✦ Corte Quirúrgico: §f¡" + slicedOres + " minerales puros separados al cortar!"), true);
+			}
 		}
 	}
 

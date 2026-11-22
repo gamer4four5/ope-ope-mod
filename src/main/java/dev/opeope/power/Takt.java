@@ -933,7 +933,11 @@ public final class Takt {
 				p.sendMessage(Text.translatable("opeope.msg.park"), true);
 			}
 			case Actions.ORDER_SETDOWN -> setDown(p, pw, null);
-			case Actions.ORDER_DROP -> dropAll(p, pw, false);
+			case Actions.ORDER_DROP -> {
+				if (p.isSneaking() && !resolve(p, pw).isEmpty()) SurgicalSurvival.telekineticMindBreak(p, pw);
+				else dropAll(p, pw, false);
+			}
+			case Actions.ORDER_MIND_BREAK -> SurgicalSurvival.telekineticMindBreak(p, pw);
 			case Actions.ORDER_ZONE -> zone(p, pw);
 			case Actions.ORDER_CUT -> grabCut(p, pw);
 			case Actions.ORDER_GATHER -> Union.gather(p, pw);

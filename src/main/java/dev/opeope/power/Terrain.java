@@ -130,6 +130,10 @@ public final class Terrain {
 					BlockState s = w.getBlockState(bp);
 					if (s.isAir() || s.hasBlockEntity() || s.getHardness(w, bp) < 0) continue;
 					if (sample == null) sample = s;
+					if (SurgicalSurvival.isOre(s)) {
+						SurgicalSurvival.extractOreFromBlockInPlace(p, w, pw, bp, s,
+							SurgicalSurvival.createPickaxe(w, Math.max(1, pw.masteryTier())));
+					}
 					w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
 				}
 			} else if (k == 0) {

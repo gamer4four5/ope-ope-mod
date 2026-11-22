@@ -406,6 +406,13 @@ public final class InputHandler {
 			row2Down = false;
 		}
 		if (Keys.TAKT.matches(type, code)) {
+			if (mc().player != null && mc().player.isSneaking() && !rowRLatched && !rowROneKey) {
+				Send.action(Actions.TAKT_ORDER, Actions.ORDER_MIND_BREAK);
+				dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();
+				mc().player.swingHand(Hand.MAIN_HAND);
+				mark(markCode, NOTHING);
+				return true;
+			}
 			if (rowRLatched || rowROneKey) {
 				// cierra la fila; si no se usó y se ve el trozo, lo arranca (se mira antes de cerrar)
 				boolean rip = !rUsed && ClientState.heldIds.length == 0 && TerrainFx.previewShown();

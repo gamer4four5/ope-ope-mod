@@ -25,7 +25,7 @@ public final class Actions {
 
 	// Órdenes de Takt (R mantenida + tecla)
 	public static final int ORDER_ORBIT = 1, ORDER_PARK = 2, ORDER_SETDOWN = 3, ORDER_DROP = 4, ORDER_ZONE = 5,
-		ORDER_CUT = 6, ORDER_GATHER = 7, ORDER_UNITE = 8, ORDER_THROW_ALL = 9, ORDER_FORGE = 10; // + 0..4
+		ORDER_CUT = 6, ORDER_GATHER = 7, ORDER_UNITE = 8, ORDER_THROW_ALL = 9, ORDER_FORGE = 10, ORDER_MIND_BREAK = 20; // + 0..4
 
 	public static void handle(ServerPlayerEntity p, int action, int arg) {
 		if (action == ISLAND_ACTION && !ModAttachments.hasFruit(p)) {
