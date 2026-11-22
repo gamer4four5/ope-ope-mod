@@ -156,9 +156,29 @@ public final class AbilityBar {
 		}
 
 		if (ClientState.gravityFruit()) {
-			name[0] = "Campo Grav.";
-			name[1] = "Gravedad";
+			plain(0, "room", "Gravito", ClientState.gravityCharging(), Theme.ROOM);
+			plain(1, "takt", "Levitar", ClientState.taktCount > 0, Theme.SOFT);
+			if (ClientState.taktCount > 0) {
+				badge[1] = Integer.toString(ClientState.taktCount);
+				badgeBg[1] = Theme.SOFT;
+			}
+			tech(2, "shambles", Tech.SHAMBLES);
 			name[2] = "Roca Vuelo";
+			lit[2] = ClientState.gravityRiding();
+			accent[2] = Theme.ROOM;
+			Tech[] gRow2 = {Tech.RAIN, Tech.RADIO_KNIFE};
+			Tech gLongest = null;
+			for (Tech t : gRow2) {
+				if (cooldown(t) > 0 && (gLongest == null || cooldown(t) > cooldown(gLongest))) gLongest = t;
+			}
+			icon[3] = "fila2";
+			name[3] = "Segunda fila";
+			cd[3] = gLongest != null ? cooldown(gLongest) : 0;
+			total[3] = gLongest != null ? gLongest.ticks : 0;
+			hasTech[3] = true;
+			denyTechs[3] = gRow2;
+			lit[3] = InputHandler.row2Down && !InputHandler.playerListShown();
+			accent[3] = Theme.TAB;
 			tech(4, "gamma", Tech.RADIO_KNIFE);
 			name[4] = "Tengai Shinsei";
 			tech(5, "injection", Tech.INJECTION);
@@ -171,7 +191,7 @@ public final class AbilityBar {
 			tech(8, "curtain", Tech.CURTAIN);
 			name[8] = "Repulsión";
 			lit[8] = ClientState.has(Payloads.State.CURTAIN);
-			tech(9, "piedra", Tech.MARKER);
+			plain(9, "orbita", "Vórtice", false, Theme.SOFT);
 			plain(10, "despertar", "Despertar", awake, Theme.AWAKE);
 			locked[10] = !ClientState.has(Payloads.State.AWAKEN_UNLOCKED);
 			return;

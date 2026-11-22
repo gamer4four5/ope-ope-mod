@@ -91,6 +91,19 @@ public final class ClientState {
 		return has(Payloads.State.GRAVITY_FRUIT);
 	}
 
+	public static int gravityVector() {
+		return (has(Payloads.State.GRAVITY_VEC_BIT0) ? 1 : 0)
+			| (has(Payloads.State.GRAVITY_VEC_BIT1) ? 2 : 0);
+	}
+
+	public static boolean gravityRiding() {
+		return has(Payloads.State.GRAVITY_RIDING);
+	}
+
+	public static boolean gravityCharging() {
+		return has(Payloads.State.GRAVITY_CHARGING);
+	}
+
 	public static int shamblesMode() {
 		if (has(Payloads.State.SHAMBLES_MODE_ENTITIES)) return 2;
 		if (has(Payloads.State.SHAMBLES_MODE_SWAP)) return 1;

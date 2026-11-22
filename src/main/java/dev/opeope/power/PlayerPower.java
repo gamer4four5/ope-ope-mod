@@ -141,9 +141,15 @@ public class PlayerPower {
 	public boolean bisturi;
 	public boolean dirty = true;
 
-	// Fruta activa (1 = Ope Ope no Mi, 2 = Gravity / Zushi Zushi no Mi) y montura rocosa de Fujitora
+	// Fruta activa (1 = Ope Ope no Mi, 2 = Gravity / Zushi Zushi no Mi) y estado propio de Fujitora (SIN ROOM)
 	public int fruitKind = 1;
 	public int gravityMountId = -1;
+	public int gravityVector = 0; // 0 = Aplastar (+G), 1 = Antigravedad (-G), 2 = Repeler, 3 = Atraer
+	public boolean gravityCharging = false;
+	public int gravityChargeTicks = 0;
+	public Vec3d gravityChargePos = Vec3d.ZERO;
+	public final List<Integer> gravityHeld = new ArrayList<>();
+	public double gravityHoldDist = 8.5;
 
 	public boolean isGravity() {
 		return fruitKind == 2;

@@ -35,21 +35,33 @@ public final class RoomPill {
 		if (r <= 0f && own != null) r = own.radius();
 
 		line = new Ui.Line();
-		String domeName = ClientState.gravityFruit() ? "Campo Grav." : "ROOM";
-		if (RoomHudState.casting()) {
-			line.text(domeName + " → ", Theme.TEXT).text(Txt.meters(RoomHudState.castDistance()), Theme.HI);
-		} else if (RoomHudState.recalling()) {
-			line.text(domeName + " ← ", Theme.TEXT).text("contigo", Theme.HI);
-		} else if (own == null) {
-			line.text("Sin " + domeName, Theme.TEXT2);
-		} else if (own.state() == 0 || RoomHudState.growing()) {
-			line.text(domeName + " ", Theme.TEXT).text(Txt.radius(r), Theme.HI).text(" · creciendo", Theme.TEXT2);
+		if (ClientState.gravityFruit()) {
+			hasRoom = true;
+			String vec = switch (ClientState.gravityVector()) {
+				case 1 -> "⬆ -G";
+				case 2 -> "➡ Repeler";
+				case 3 -> "🌀 Vórtice";
+				default -> "⬇ +G";
+			};
+			line.text("GRAVITY ", Theme.ROOM).text(vec, Theme.HI);
+			if (ClientState.gravityRiding()) line.text(" · Roca", Theme.SOFT);
+			if (ClientState.gravityCharging()) line.text(" · Cargando", Theme.GOLD);
 		} else {
-			boolean inside = RoomHudState.inside();
-			line.text(domeName + " ", Theme.TEXT).text(Txt.radius(r), Theme.HI)
-				.text(inside ? " · dentro" : " · fuera", inside ? Theme.SOFT : Theme.OUT_WARN);
+			if (RoomHudState.casting()) {
+				line.text("ROOM → ", Theme.TEXT).text(Txt.meters(RoomHudState.castDistance()), Theme.HI);
+			} else if (RoomHudState.recalling()) {
+				line.text("ROOM ← ", Theme.TEXT).text("contigo", Theme.HI);
+			} else if (own == null) {
+				line.text("Sin ROOM", Theme.TEXT2);
+			} else if (own.state() == 0 || RoomHudState.growing()) {
+				line.text("ROOM ", Theme.TEXT).text(Txt.radius(r), Theme.HI).text(" · creciendo", Theme.TEXT2);
+			} else {
+				boolean inside = RoomHudState.inside();
+				line.text("ROOM ", Theme.TEXT).text(Txt.radius(r), Theme.HI)
+					.text(inside ? " · dentro" : " · fuera", inside ? Theme.SOFT : Theme.OUT_WARN);
+			}
+			if (hasRRoom(mc)) line.text(" · R-ROOM", Theme.AWAKE);
 		}
-		if (hasRRoom(mc)) line.text(" · R-ROOM", Theme.AWAKE);
 
 		int maxRight = Math.min(c.leftMax(), c.effectsLeft(c.M, c.M + 14) - 4);
 		int maxW = Math.max(40, maxRight - c.M);

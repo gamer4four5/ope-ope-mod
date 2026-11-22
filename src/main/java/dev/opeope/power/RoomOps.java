@@ -35,6 +35,7 @@ public final class RoomOps {
 	}
 
 	public static void press(ServerPlayerEntity p, PlayerPower pw) {
+		if (pw.isGravity()) return;
 		pw.roomKeyDown = true;
 		pw.roomPressTick = now(p);
 		pw.roomUsedDuringHold = false;

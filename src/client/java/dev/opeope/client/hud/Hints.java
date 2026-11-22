@@ -40,6 +40,11 @@ public final class Hints {
 	/** El contexto de ahora (sin contar los primeros pasos), o null si no hay fruta. */
 	public static String currentId(MinecraftClient mc) {
 		if (mc.player == null || !ClientState.hasFruit()) return null;
+		if (ClientState.gravityFruit()) {
+			if (ClientState.taktCount > 0) return "grav_lev";
+			if (ClientState.gravityRiding()) return "grav_roca";
+			return "grav_inicio";
+		}
 		if (heartInHand(mc)) return "corazon";
 		if (ClientState.union()) return "union";
 		if (ClientState.taktCount > 0) return "takt";
@@ -73,6 +78,30 @@ public final class Hints {
 		boolean bisturiToggle = st.modoBisturi == OpeSettings.Modo2.ALTERNAR;
 		KeyLabels.Glyph click = KeyLabels.mouseLeft(), right = KeyLabels.mouseRight(), wheel = KeyLabels.wheel();
 		List<Ui.Line> rows = new ArrayList<>();
+		if ("grav_inicio".equals(id)) {
+			rows.add(row(key(Keys.ROOM), "mantén: Gravito · Mayús: vector"));
+			rows.add(row(key(Keys.TAKT), "levitar roca/mob · Mayús: prensa"));
+			rows.add(row(key(Keys.SHAMBLES), "surfear en roca · Mayús: veta"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "Tengai Shinsei (meteorito)"));
+			rows.add(row(key(Keys.INJECTION), "Moko · " + KeyLabels.text(Keys.GAMMA.key) + " Jigoku Tabi"));
+			rows.add(row(key(Keys.SCAN), "Haki Ciego · " + KeyLabels.text(Keys.CURTAIN.key) + " Repulsión"));
+			rows.add(row(key(Keys.ROW2), "Tab: Dressrosa / Cristalizar"));
+			return new Context(id, "GRAVITY · FUJITORA", "room", Theme.ROOM, rows, false);
+		}
+		if ("grav_roca".equals(id)) {
+			rows.add(row(key(Keys.SHAMBLES), "saltar y lanzar la roca"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "Tengai Shinsei desde el aire"));
+			rows.add(row(key(Keys.ROOM), "mantén: presión gravitatoria"));
+			rows.add(row(key(Keys.TAKT), "levitar rocas o enemigos"));
+			return new Context(id, "VUELO EN ROCA", "shambles", Theme.ROOM, rows, false);
+		}
+		if ("grav_lev".equals(id)) {
+			rows.add(row(click, "lanzar a velocidad hipersónica"));
+			rows.add(row(right, "estampar contra el suelo (+G)"));
+			rows.add(chord(sneak(mc), key(Keys.TAKT), "prensar rocas (minerales)"));
+			rows.add(row(wheel, "acercar o alejar masas"));
+			return new Context(id, "LEVITACIÓN", "takt", Theme.SOFT, rows, false);
+		}
 		if ("inicio".equals(id)) {
 			rows.add(row(key(Keys.ROOM), roomToggle ? "toca: abre el ROOM" : "mantén: abre el ROOM"));
 			rows.add(row(key(Keys.TAKT), "Takt: coge lo que miras"));

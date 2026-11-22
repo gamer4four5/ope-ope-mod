@@ -202,6 +202,11 @@ public final class Takt {
 			return;
 		}
 		PlayerPower pw = PowerManager.get(p);
+		if (pw.isGravity()) {
+			if (tap.kind() == Payloads.TaktTap.KIND_DOUBLE) GravityPowers.releaseGravityHeld(p, pw);
+			else GravityPowers.levitateTap(p, pw);
+			return;
+		}
 		if (tap.kind() == Payloads.TaktTap.KIND_DOUBLE) doubleTap(p, pw, tap);
 		else tapChecked(p, pw, tap);
 	}

@@ -225,7 +225,8 @@ public final class Payloads {
 			STYLE_SWORD = 1024, STYLE_FIGHT = 2048, FREE_MODE = 4096,
 			KROOM_BLADE = 8192, ETERNAL_YOUTH = 16384, ZERO_G = 32768,
 			SHAMBLES_MODE_SWAP = 65536, SHAMBLES_MODE_ENTITIES = 131072, SHAMBLES_MARKED = 262144,
-			GRAVITY_FRUIT = 524288;
+			GRAVITY_FRUIT = 524288, GRAVITY_VEC_BIT0 = 1048576, GRAVITY_VEC_BIT1 = 2097152,
+			GRAVITY_RIDING = 4194304, GRAVITY_CHARGING = 8388608;
 		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);
@@ -657,6 +658,48 @@ public final class Payloads {
 			buf.writeFloat(bw);
 			buf.writeFloat(bh);
 			buf.writeFloat(byaw);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
+	/** Servidor → cliente: efectos 3D exclusivos de la fruta Gravity (Zushi Zushi no Mi) — sin relación con ROOM. */
+	public record GravityFx(
+		int kind, int userId,
+		double ax, double ay, double az,
+		double bx, double by, double bz,
+		float radius, float power, int ticks
+	) implements CustomPayload {
+		public static final int KIND_PRESS_COLUMN = 0, KIND_MOKO = 1, KIND_METEOR_RIFT = 2,
+			KIND_LIFT_PULSE = 3, KIND_SHIELD_BURST = 4, KIND_CHARGE_RING = 5, KIND_HYPER_PRESS = 6,
+			KIND_METEOR_IMPACT = 7, KIND_PULL_VORTEX = 8;
+		public static final Id<GravityFx> ID = new Id<>(OpeOpeMod.id("gravity_fx"));
+		public static final PacketCodec<RegistryByteBuf, GravityFx> CODEC = PacketCodec.of(GravityFx::write, GravityFx::read);
+
+		static GravityFx read(RegistryByteBuf buf) {
+			return new GravityFx(
+				buf.readVarInt(), buf.readVarInt(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(),
+				buf.readFloat(), buf.readFloat(), buf.readVarInt()
+			);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(kind);
+			buf.writeVarInt(userId);
+			buf.writeDouble(ax);
+			buf.writeDouble(ay);
+			buf.writeDouble(az);
+			buf.writeDouble(bx);
+			buf.writeDouble(by);
+			buf.writeDouble(bz);
+			buf.writeFloat(radius);
+			buf.writeFloat(power);
+			buf.writeVarInt(ticks);
 		}
 
 		@Override

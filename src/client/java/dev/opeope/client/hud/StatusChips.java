@@ -73,6 +73,22 @@ public final class StatusChips {
 	private static List<Chip> chips(MinecraftClient mc, OpeSettings.Interfaz mode, long now) {
 		List<Chip> out = new ArrayList<>();
 		boolean simple = mode == OpeSettings.Interfaz.SENCILLA;
+		if (ClientState.gravityFruit()) {
+			if (ClientState.gravityRiding()) out.add(new Chip("shambles", Theme.ROOM, "Surfeando en Roca", Theme.HI, -1f));
+			if (ClientState.gravityCharging()) out.add(new Chip("room", Theme.GOLD, "Canalizando Presión", Theme.GOLD, -1f));
+			if (ClientState.scanTicks > 0) {
+				float f = Anim.clamp01(ClientState.scanTicks / 320f);
+				out.add(new Chip("scan", Theme.HI, "Haki Ciego " + Txt.secs(ClientState.scanTicks), Theme.HI, f));
+			}
+			if (ClientState.has(Payloads.State.CURTAIN)) {
+				out.add(new Chip("curtain", Theme.SOFT, countdown("Repulsión", curtainAt, 200, now), Theme.SOFT, -1f));
+			}
+			if (ClientState.awakened()) out.add(new Chip("despertar", Theme.AWAKE, "Despertar Gravity", Theme.AWAKE, -1f));
+			if (ClientState.freeMode()) out.add(new Chip("despertar", Theme.HI, "Modo Libre", Theme.HI, -1f));
+			String other = otherRoomOwner(mc);
+			if (other != null) out.add(new Chip("room", Theme.SOFT, "En el ROOM de " + other, Theme.SOFT, -1f));
+			return out;
+		}
 		int style = ClientState.combatStyle();
 		if (style == 2) out.add(new Chip("hoja", Theme.AWAKE, "Estilo: Espada Kikoku", Theme.AWAKE, -1f));
 		else if (style == 3) out.add(new Chip("counter", Theme.FORGE, "Estilo: Pelea y Palma", Theme.FORGE, -1f));

@@ -132,8 +132,8 @@ public final class PowerManager {
 					sp.fallDistance = 0f;
 					return false;
 				}
-				// Haki de Observación Ciego de Fujitora: 40% de esquiva instintiva mientras está activo
-				if (pw.isGravity() && pw.scanTicks > 0 && !source.isOf(DamageTypes.OUT_OF_WORLD) && sp.getRandom().nextFloat() < 0.40f) {
+				// Haki de Observación Ciego de Fujitora: 45% de esquiva instintiva mientras está activo
+				if (pw.isGravity() && pw.scanTicks > 0 && !source.isOf(DamageTypes.OUT_OF_WORLD) && sp.getRandom().nextFloat() < 0.45f) {
 					ServerWorld sw = sp.getServerWorld();
 					sw.spawnParticles(GravityPowers.ASTRAL_DUST, sp.getX(), sp.getY() + 1.0, sp.getZ(), 18, 0.4, 0.6, 0.4, 0.04);
 					sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.PLAYERS, 0.8f, 1.8f);
@@ -227,7 +227,7 @@ public final class PowerManager {
 		if (target == 2) {
 			GravityPowers.equipYakuzaKasenSafely(p);
 			p.sendMessage(Text.literal("§5✦ Has activado la Fruta Gravity (Zushi Zushi no Mi) — Almirante Fujitora."), false);
-			p.sendMessage(Text.literal("§7Pulsa §f[Alt]§7 para volar en tu roca, §f[Z]§7 Meteorito, §f[X]§7 Moko, §f[C]§7 Jigoku Tabi, §f[J]§7 para alternar fruta."), false);
+			p.sendMessage(Text.literal("§7Controles Gravity (sin ROOM): §f[G]§7 Gravito (Mayús+G vector) · §f[R]§7 Levitar roca/mob · §f[Alt]§7 Vuelo en roca · §f[Z/X/C/V/B]§7 Técnicas · §f[J]§7 Cambiar fruta"), false);
 		} else {
 			p.sendMessage(Text.translatable("opeope.msg.ate"), false);
 			p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
@@ -376,6 +376,10 @@ public final class PowerManager {
 	public static void releaseAll(ServerPlayerEntity p, PlayerPower pw, ServerWorld from) {
 		Takt.cancelPending(p, pw);
 		Takt.dropAll(p, pw, false, from);
+		GravityPowers.releaseGravityHeld(p, pw, from);
+		pw.gravityCharging = false;
+		pw.gravityChargeTicks = 0;
+		pw.gravityMountId = -1;
 		Forge.dropWeapons(p, pw);
 		Techniques.releaseSuspended(p, pw);
 		pw.clearAerialWindow();
@@ -403,7 +407,7 @@ public final class PowerManager {
 		CutStates.tick(server);
 		Takt.serverTick(server);
 		ElementEffects.serverTick(server);
-		GravityPowers.tickMeteors(server);
+		GravityPowers.tickServer(server);
 		SurgicalSurvival.tickPendingRestores(server);
 	}
 
@@ -428,11 +432,18 @@ public final class PowerManager {
 		if (pw.shamblesMode == 1) flags |= Payloads.State.SHAMBLES_MODE_SWAP;
 		else if (pw.shamblesMode == 2) flags |= Payloads.State.SHAMBLES_MODE_ENTITIES;
 		if (pw.shamblesMark >= 0 && pw.shamblesMarkTicks > 0) flags |= Payloads.State.SHAMBLES_MARKED;
-		if (pw.isGravity()) flags |= Payloads.State.GRAVITY_FRUIT;
+		if (pw.isGravity()) {
+			flags |= Payloads.State.GRAVITY_FRUIT;
+			if ((pw.gravityVector & 1) != 0) flags |= Payloads.State.GRAVITY_VEC_BIT0;
+			if ((pw.gravityVector & 2) != 0) flags |= Payloads.State.GRAVITY_VEC_BIT1;
+			if (pw.gravityMountId >= 0) flags |= Payloads.State.GRAVITY_RIDING;
+			if (pw.gravityCharging) flags |= Payloads.State.GRAVITY_CHARGING;
+		}
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
-		int[] held = new int[Math.min(pw.takt.size(), 64)];   // lo que lleva en Takt, en orden (el cliente dibuja sus fantasmas)
-		for (int i = 0; i < held.length; i++) held[i] = pw.takt.get(i);
-		ServerPlayNetworking.send(p, new Payloads.State(flags, pw.pattern, pw.takt.size(), pw.taktMode.ordinal(), weapon, pw.scanTicks,
+		List<Integer> heldSrc = pw.isGravity() ? pw.gravityHeld : pw.takt;
+		int[] held = new int[Math.min(heldSrc.size(), 64)];
+		for (int i = 0; i < held.length; i++) held[i] = heldSrc.get(i);
+		ServerPlayNetworking.send(p, new Payloads.State(flags, pw.pattern, heldSrc.size(), pw.taktMode.ordinal(), weapon, pw.scanTicks,
 			pw.cooldowns.clone(), held));
 	}
 

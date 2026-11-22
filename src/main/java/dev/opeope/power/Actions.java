@@ -22,6 +22,9 @@ public final class Actions {
 
 	// Fusión: Estilos de Combate (1=Fruta, 2=Espada Kikoku, 3=Pelea), Mover ROOM y Panel Isla Bisturí [J]
 	public static final int STYLE_SWITCH = 100, FIGHT_COMBO = 101, ROOM_MOVE = 102, ISLAND_ACTION = 103;
+	// Acciones exclusivas de Gravity (Zushi Zushi no Mi — SIN ROOM ni Takt)
+	public static final int GRAVITY_HOLD_START = 110, GRAVITY_HOLD_END = 111, GRAVITY_VECTOR = 112,
+		GRAVITY_LIFT = 113, GRAVITY_THROW = 114, GRAVITY_SLAM = 115, GRAVITY_SCROLL = 116;
 
 	// Órdenes de Takt (R mantenida + tecla)
 	public static final int ORDER_ORBIT = 1, ORDER_PARK = 2, ORDER_SETDOWN = 3, ORDER_DROP = 4, ORDER_ZONE = 5,
@@ -33,7 +36,7 @@ public final class Actions {
 		}
 		if (!ModAttachments.hasFruit(p)) return;
 		PlayerPower pw = PowerManager.get(p);
-		boolean release = (action == ROOM_RELEASE) || ((action == FLOOR || action == BISTURI || action == SURGERY
+		boolean release = (action == ROOM_RELEASE) || (action == GRAVITY_HOLD_END) || ((action == FLOOR || action == BISTURI || action == SURGERY
 			|| action == ANESTHESIA || action == RROOM || action == SQUEEZE) && arg == 0);
 		if (!release && action != ISLAND_ACTION && !PowerManager.canUse(p)) {
 			p.sendMessage(Text.translatable("opeope.msg.sea"), true);
@@ -111,6 +114,28 @@ public final class Actions {
 
 	private static boolean handleGravityAction(ServerPlayerEntity p, PlayerPower pw, int action, int arg) {
 		switch (action) {
+			// G: NUNCA crea ROOM; canaliza presión gravitatoria direccional o cambia de vector
+			case ROOM_PRESS, GRAVITY_HOLD_START -> GravityPowers.startGravityCharge(p, pw);
+			case ROOM_RELEASE, GRAVITY_HOLD_END -> GravityPowers.releaseGravityCharge(p, pw);
+			case ROOM_SCROLL, GRAVITY_VECTOR -> GravityPowers.cycleVector(p, pw, arg >= 0 ? 1 : -1);
+			case ROOM_LAUNCH, ROOM_BRING -> GravityPowers.cycleVector(p, pw, 1);
+
+			// R y clics: levitación gravitatoria libre en cualquier lugar del mundo (SIN ROOM)
+			case GRAVITY_LIFT, TAKT_TAP -> GravityPowers.levitateTap(p, pw);
+			case GRAVITY_THROW, TAKT_THROW_ONE -> GravityPowers.throwGravityHeld(p, pw, false);
+			case TAKT_THROW_ALL -> GravityPowers.throwGravityHeld(p, pw, true);
+			case GRAVITY_SLAM -> GravityPowers.slamGravityHeld(p, pw);
+			case GRAVITY_SCROLL, TAKT_SCROLL -> GravityPowers.scrollHoldDist(pw, arg);
+			case TAKT_DOUBLE -> GravityPowers.releaseGravityHeld(p, pw);
+			case TAKT_ORDER -> {
+				if (arg == ORDER_MIND_BREAK) GravityPowers.gravityMinePress(p, pw);
+				else if (arg == ORDER_DROP) GravityPowers.releaseGravityHeld(p, pw);
+				else if (arg == ORDER_THROW_ALL) GravityPowers.throwGravityHeld(p, pw, true);
+				else if (arg == ORDER_ORBIT || arg == ORDER_ZONE || arg == ORDER_CUT) GravityPowers.dressrosaRubble(p, pw);
+				else GravityPowers.levitateTap(p, pw);
+			}
+
+			// Técnicas canon de Fujitora (Yakuza Kasen + Zushi Zushi no Mi)
 			case SHAMBLES -> GravityPowers.rockFlightToggle(p, pw);
 			case RADIO_KNIFE, KROOM -> GravityPowers.tengaiShinsei(p, pw, p.isSneaking() || pw.awakened);
 			case INJECTION -> GravityPowers.moko(p, pw);
@@ -123,16 +148,18 @@ public final class Actions {
 				if (arg == 1) GravityPowers.blindObservationHaki(p, pw);
 			}
 			case CURTAIN, SILENT -> GravityPowers.repulsionShield(p, pw);
-			case RAIN, STERBEN -> GravityPowers.dressrosaRubble(p, pw);
+			case RAIN, STERBEN, SOULS -> GravityPowers.dressrosaRubble(p, pw);
 			case COUNTER, PUNCTURE -> GravityPowers.tengaiShinsei(p, pw, true);
-			case UNION -> {
-				if (!GravityPowers.gravityHyperCompression(p, pw)) Union.toggle(p, pw);
-			}
+			case UNION -> GravityPowers.gravityHyperCompression(p, pw);
 			case AWAKEN -> Techniques.toggleAwaken(p, pw);
-			case SUSPEND -> Techniques.toggleZeroGravityRoom(p, pw);
-			case SOULS -> GravityPowers.dressrosaRubble(p, pw);
-			default -> {
+			case SUSPEND -> GravityPowers.cycleVector(p, pw, 1);
+			case MES, MARKER -> GravityPowers.gravityPullVortex(p, pw);
+			case ISLAND_ACTION -> {
 				return false;
+			}
+			// Bloquea cualquier acción residual de Law (ROOM, Bisturí, Estilo Kikoku, etc.) cuando Gravity está activa
+			default -> {
+				return true;
 			}
 		}
 		return true;

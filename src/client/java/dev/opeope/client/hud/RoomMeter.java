@@ -23,6 +23,7 @@ public final class RoomMeter {
 	private static HudCanvas canvas;
 
 	static boolean wanted(long now) {
+		if (ClientState.gravityFruit()) return false;
 		ClientState.RoomInfo own = ClientState.ownRoom();
 		if (own != null && own.state() == 0) return true;
 		if (RoomHudState.growing()) return true;

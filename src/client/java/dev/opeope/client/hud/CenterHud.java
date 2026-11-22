@@ -72,6 +72,11 @@ public final class CenterHud {
 	/** La mira y la barrita de Amputate (no ocupan sitio). */
 	static void layoutCentre(HudCanvas c, LayoutState s) {
 		canvas = c;
+		if (ClientState.gravityFruit()) {
+			reticle = false;
+			amputate = false;
+			return;
+		}
 		MinecraftClient mc = MinecraftClient.getInstance();
 		boolean own = ClientState.ownRoom() != null;
 		reticle = own && aimValid && !mc.gameRenderer.getCamera().isThirdPerson();
@@ -84,11 +89,15 @@ public final class CenterHud {
 		takt = false;
 		int n = ClientState.taktCount;
 		if (n <= 0 || s.stripOpen || s.bisturi) return;
-		int mode = ClientState.taktMode;
-		String m = mode >= 0 && mode < TAKT_MODES.length ? TAKT_MODES[mode] : TAKT_MODES[0];
-		taktLine = new Ui.Line().text("×" + n, Theme.HI).text(" · " + m, Theme.TEXT);
-		int wp = ClientState.weapon;
-		if (wp >= 0 && wp < Forge.NAMES.length) taktLine.text(" · " + Forge.NAMES[wp], Theme.FORGE);
+		if (ClientState.gravityFruit()) {
+			taktLine = new Ui.Line().text("×" + n, Theme.HI).text(" · Levitando (Izq. lanzar · Der. aplastar)", Theme.TEXT);
+		} else {
+			int mode = ClientState.taktMode;
+			String m = mode >= 0 && mode < TAKT_MODES.length ? TAKT_MODES[mode] : TAKT_MODES[0];
+			taktLine = new Ui.Line().text("×" + n, Theme.HI).text(" · " + m, Theme.TEXT);
+			int wp = ClientState.weapon;
+			if (wp >= 0 && wp < Forge.NAMES.length) taktLine.text(" · " + Forge.NAMES[wp], Theme.FORGE);
+		}
 		int max = Math.min(c.W - 2 * c.M, 200);
 		taktW = Math.min(max, 2 + 12 + 3 + taktLine.width(c.tr) + 6);
 		taktX = c.cx - taktW / 2;

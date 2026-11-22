@@ -83,6 +83,7 @@ public final class InputHandler {
 	public static boolean rDown;
 	public static long rDownAt;
 	private static boolean shamblesDown;
+	private static boolean gravityChargeDown;
 
 	public static boolean isShamblesDown() {
 		return shamblesDown;
@@ -273,6 +274,20 @@ public final class InputHandler {
 		if (!active() || vertical == 0) return false;
 		int dir = vertical > 0 ? 1 : -1;
 		long now = System.currentTimeMillis();
+		if (ClientState.gravityFruit()) {
+			if (gravityChargeDown) {
+				Send.action(Actions.GRAVITY_VECTOR, dir);
+				lastFruitInputAt = now;
+				return true;
+			}
+			if (ClientState.taktCount > 0 && mc().player != null
+				&& (mc().player.getMainHandStack().isEmpty() || mc().player.getMainHandStack().isOf(ModItems.YAKUZA_KASEN))) {
+				Send.action(Actions.GRAVITY_SCROLL, dir);
+				lastFruitInputAt = now;
+				return true;
+			}
+			return false;
+		}
 		if (shamblesDown) {
 			Send.action(Actions.SHAMBLES_MODE, dir);
 			RoomSounds.shamblesSnap();
@@ -406,6 +421,17 @@ public final class InputHandler {
 			row2Down = false;
 		}
 		if (Keys.TAKT.matches(type, code)) {
+			if (ClientState.gravityFruit()) {
+				if (mc().player != null && mc().player.isSneaking()) {
+					Send.action(Actions.TAKT_ORDER, Actions.ORDER_MIND_BREAK);
+				} else {
+					Send.action(Actions.GRAVITY_LIFT);
+				}
+				dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();
+				if (mc().player != null) mc().player.swingHand(Hand.MAIN_HAND);
+				mark(markCode, NOTHING);
+				return true;
+			}
 			if (mc().player != null && mc().player.isSneaking() && !rowRLatched && !rowROneKey) {
 				Send.action(Actions.TAKT_ORDER, Actions.ORDER_MIND_BREAK);
 				dev.opeope.client.render.PlayerAnimClient.triggerShamblesGesture();
@@ -513,6 +539,9 @@ public final class InputHandler {
 	/** La fila de arriba. Devuelve lo que pasa al soltar (o null si la tecla no es de la fruta). */
 	private static Runnable main(Keys k) {
 		ClientPlayerEntity p = mc().player;
+		if (ClientState.gravityFruit()) {
+			return mainGravity(k, p);
+		}
 		boolean awake = ClientState.awakened();
 		switch (k) {
 			case ROOM -> {
@@ -590,6 +619,69 @@ public final class InputHandler {
 			case CURTAIN -> {
 				deny(awake ? Tech.SILENT : Tech.CURTAIN);
 				Send.action(awake ? Actions.SILENT : Actions.CURTAIN);
+				return NOTHING;
+			}
+			default -> {
+				return null;
+			}
+		}
+	}
+
+	/** Controles exclusivos de la Fruta Gravity (Fujitora): 0 ROOM, 0 Takt, 100 % vectores y técnicas gravitatorias. */
+	private static Runnable mainGravity(Keys k, ClientPlayerEntity p) {
+		switch (k) {
+			case ROOM -> {
+				if (p.isSneaking()) {
+					Send.action(Actions.GRAVITY_VECTOR, 1);
+					return NOTHING;
+				}
+				gravityChargeDown = true;
+				Send.action(Actions.GRAVITY_HOLD_START);
+				return () -> {
+					gravityChargeDown = false;
+					Send.action(Actions.GRAVITY_HOLD_END);
+				};
+			}
+			case SHAMBLES -> {
+				deny(Tech.SHAMBLES);
+				Send.action(Actions.SHAMBLES);
+				return NOTHING;
+			}
+			case MARKER -> {
+				Send.action(Actions.MARKER);
+				p.swingHand(Hand.MAIN_HAND);
+				return NOTHING;
+			}
+			case SCAN -> {
+				deny(Tech.SCAN);
+				Send.action(Actions.SCAN);
+				return NOTHING;
+			}
+			case RADIO_KNIFE -> {
+				deny(Tech.RADIO_KNIFE);
+				Send.action(Actions.RADIO_KNIFE);
+				p.swingHand(Hand.MAIN_HAND);
+				return NOTHING;
+			}
+			case INJECTION -> {
+				deny(Tech.INJECTION);
+				Send.action(Actions.INJECTION);
+				p.swingHand(Hand.MAIN_HAND);
+				return NOTHING;
+			}
+			case GAMMA -> {
+				deny(Tech.GAMMA);
+				Send.action(Actions.GAMMA);
+				p.swingHand(Hand.MAIN_HAND);
+				return NOTHING;
+			}
+			case CURTAIN -> {
+				deny(Tech.CURTAIN);
+				Send.action(Actions.CURTAIN);
+				return NOTHING;
+			}
+			case AWAKEN -> {
+				Send.action(Actions.AWAKEN);
 				return NOTHING;
 			}
 			default -> {
@@ -695,6 +787,23 @@ public final class InputHandler {
 	/** La segunda fila (Tab mantenido, fija o «una tecla»). */
 	private static Runnable row2(Keys k) {
 		ClientPlayerEntity p = mc().player;
+		if (ClientState.gravityFruit()) {
+			switch (k) {
+				case T_STERBEN, T_SOULS, T_RAIN -> {
+					deny(Tech.RAIN);
+					Send.action(Actions.RAIN);
+				}
+				case T_UNION -> Send.action(Actions.UNION);
+				case T_MES -> Send.action(Actions.MES);
+				case T_COUNTER -> {
+					deny(Tech.RADIO_KNIFE);
+					Send.action(Actions.COUNTER);
+				}
+				case T_SUSPEND -> Send.action(Actions.GRAVITY_VECTOR, 1);
+				default -> {}
+			}
+			return NOTHING;
+		}
 		boolean awake = ClientState.awakened();
 		switch (k) {
 			case T_STERBEN -> {
@@ -908,6 +1017,19 @@ public final class InputHandler {
 		boolean empty = main.isEmpty();
 		boolean kikoku = main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
 		boolean free = empty || kikoku;
+		if (ClientState.gravityFruit()) {
+			if (ClientState.taktCount > 0 && free) {
+				Send.action(Actions.GRAVITY_THROW);
+				p.swingHand(Hand.MAIN_HAND);
+				mark(code, NOTHING);
+				return true;
+			}
+			if (main.isOf(ModItems.YAKUZA_KASEN)) {
+				Send.action(Actions.GAMMA);
+				return false;
+			}
+			return false;
+		}
 		if (roomMode()) {
 			roomUse();
 			Send.action(Actions.ROOM_LAUNCH);
@@ -989,6 +1111,16 @@ public final class InputHandler {
 		ItemStack main = p.getMainHandStack();
 		boolean empty = main.isEmpty();
 		boolean free = empty || main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
+		if (ClientState.gravityFruit()) {
+			if (interactable()) return false;
+			if (ClientState.taktCount > 0 && free) {
+				Send.action(Actions.GRAVITY_SLAM);
+				p.swingHand(Hand.MAIN_HAND);
+				mark(code, NOTHING);
+				return true;
+			}
+			return false;
+		}
 		if (roomMode()) {
 			roomUse();
 			Send.action(Actions.ROOM_BRING);
@@ -1227,12 +1359,16 @@ public final class InputHandler {
 		boolean focused = mc.isWindowFocused();
 		if (wasFocused && !focused) clearLatches(mc.player != null);   // solo el flanco: Xvfb puede decir «sin foco» siempre
 		wasFocused = focused;
+		if (mc.currentScreen != null && gravityChargeDown) {
+			gravityChargeDown = false;
+			if (mc.player != null) Send.action(Actions.GRAVITY_HOLD_END);
+		}
 		if (mc.currentScreen != null && anyLatch()) clearLatches(mc.player != null);
 		if (dragging && (mc.currentScreen != null || ClientState.ownRoom() == null)) cancelDrag();
 		if (mc.player == null || !ClientState.hasFruit() || mc.player.isSpectator()) {
 			clearLatches(mc.player != null);
 			hidePlayerList();
-			row2Down = rDown = roomDown = leftHeld = dragging = shamblesDown = false;
+			row2Down = rDown = roomDown = leftHeld = dragging = shamblesDown = gravityChargeDown = false;
 			sizeToastAt = 0;
 			if (Bisturi.active) Bisturi.cancel();
 			return;
@@ -1287,7 +1423,7 @@ public final class InputHandler {
 	public static void onDisconnect() {
 		clearLatches(false);
 		hidePlayerList();
-		row2Down = rDown = roomDown = leftHeld = shamblesDown = false;
+		row2Down = rDown = roomDown = leftHeld = shamblesDown = gravityChargeDown = false;
 		rUsed = roomUsed = row2Used = false;
 		unionCHeld = surgeryOn = false;
 		lastRTapAt = lastRoomTapAt = 0;
