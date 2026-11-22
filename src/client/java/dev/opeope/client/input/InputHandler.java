@@ -325,7 +325,7 @@ public final class InputHandler {
 			return true;
 		}
 		if (ClientState.taktCount > 0 && mc().player != null
-			&& (mc().player.getMainHandStack().isEmpty() || mc().player.getMainHandStack().isOf(ModItems.KIKOKU))) {
+			&& (mc().player.getMainHandStack().isEmpty() || mc().player.getMainHandStack().isOf(ModItems.KIKOKU) || mc().player.getMainHandStack().isOf(ModItems.YAKUZA_KASEN))) {
 			Send.action(Actions.TAKT_SCROLL, dir);
 			lastFruitInputAt = now;
 			return true;
@@ -906,7 +906,7 @@ public final class InputHandler {
 		ClientPlayerEntity p = mc().player;
 		ItemStack main = p.getMainHandStack();
 		boolean empty = main.isEmpty();
-		boolean kikoku = main.isOf(ModItems.KIKOKU);
+		boolean kikoku = main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
 		boolean free = empty || kikoku;
 		if (roomMode()) {
 			roomUse();
@@ -968,7 +968,7 @@ public final class InputHandler {
 			mark(code, InputHandler::endDrag);
 			return true;
 		}
-		if (kikoku && (ClientState.ownRoom() != null || ClientState.kroomBlade())) {
+		if (kikoku && (ClientState.ownRoom() != null || ClientState.kroomBlade() || (main.isOf(ModItems.YAKUZA_KASEN) && ClientState.gravityFruit()))) {
 			kikokuCut(p);
 			return false;   // el golpe normal de la espada también ocurre
 		}
@@ -988,7 +988,7 @@ public final class InputHandler {
 		ClientPlayerEntity p = mc().player;
 		ItemStack main = p.getMainHandStack();
 		boolean empty = main.isEmpty();
-		boolean free = empty || main.isOf(ModItems.KIKOKU);
+		boolean free = empty || main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
 		if (roomMode()) {
 			roomUse();
 			Send.action(Actions.ROOM_BRING);

@@ -14,8 +14,8 @@ final class PlayerTick {
 			else if (pw.cooldowns[i] > 0) pw.cooldowns[i]--;
 		}
 
-		// Inmunidad total al daño por caída dentro del ROOM o tras teletransportarse al cielo con Shambles
-		if (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0) {
+		// Inmunidad total al daño por caída dentro del ROOM, tras Shambles o montado en roca gravitatoria
+		if (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0 || (pw.isGravity() && pw.gravityMountId >= 0)) {
 			p.fallDistance = 0f;
 			if (pw.fallImmunityTicks > 0) {
 				if (p.isOnGround() && pw.fallImmunityTicks < 580) {
@@ -40,7 +40,11 @@ final class PlayerTick {
 		Techniques.anesthesiaTick(p, pw);
 		Techniques.kroomBladeTick(p, pw);
 		Techniques.eternalYouthTick(p, pw);
-		Techniques.surgicalDomainTick(p, pw);
+		if (pw.isGravity()) {
+			GravityPowers.tickFieldAndFlight(p, pw);
+		} else {
+			Techniques.surgicalDomainTick(p, pw);
+		}
 		Takt.tickThrown(p.getServerWorld());
 
 		if (pw.shamblesMarkTicks > 0 && --pw.shamblesMarkTicks == 0 && pw.shamblesMark >= 0) {
@@ -69,6 +73,7 @@ final class PlayerTick {
 				pw.dirty = true;
 			}
 			if (pw.floorOp != null) pw.floorOp = null;
+			if (pw.gravityMountId >= 0) pw.gravityMountId = -1;
 		}
 	}
 }

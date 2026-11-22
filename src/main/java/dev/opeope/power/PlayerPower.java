@@ -141,6 +141,14 @@ public class PlayerPower {
 	public boolean bisturi;
 	public boolean dirty = true;
 
+	// Fruta activa (1 = Ope Ope no Mi, 2 = Gravity / Zushi Zushi no Mi) y montura rocosa de Fujitora
+	public int fruitKind = 1;
+	public int gravityMountId = -1;
+
+	public boolean isGravity() {
+		return fruitKind == 2;
+	}
+
 	// Progreso de Recompensa Pirata y Maestría Quirúrgica
 	public long bounty = 0L;
 	public int killStreak = 0;

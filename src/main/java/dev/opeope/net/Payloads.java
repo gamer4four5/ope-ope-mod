@@ -224,7 +224,8 @@ public final class Payloads {
 			UNION = 32, BISTURI = 64, UNION_SELECTED = 128, CURTAIN = 256, SILENT = 512,
 			STYLE_SWORD = 1024, STYLE_FIGHT = 2048, FREE_MODE = 4096,
 			KROOM_BLADE = 8192, ETERNAL_YOUTH = 16384, ZERO_G = 32768,
-			SHAMBLES_MODE_SWAP = 65536, SHAMBLES_MODE_ENTITIES = 131072, SHAMBLES_MARKED = 262144;
+			SHAMBLES_MODE_SWAP = 65536, SHAMBLES_MODE_ENTITIES = 131072, SHAMBLES_MARKED = 262144,
+			GRAVITY_FRUIT = 524288;
 		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);

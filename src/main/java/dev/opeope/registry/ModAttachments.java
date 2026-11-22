@@ -26,10 +26,24 @@ public final class ModAttachments {
 	public static final AttachmentType<Long> BOUNTY = AttachmentRegistry.<Long>builder()
 		.persistent(Codec.LONG).copyOnDeath().buildAndRegister(OpeOpeMod.id("bounty"));
 
+	/** Tipo de fruta activa del jugador: 0 = ninguna, 1 = Ope Ope no Mi, 2 = Gravity (Zushi Zushi no Mi). */
+	public static final AttachmentType<Integer> FRUIT_KIND = AttachmentRegistry.<Integer>builder()
+		.persistent(Codec.INT).copyOnDeath().buildAndRegister(OpeOpeMod.id("fruit_kind"));
+
 	public static void init() {}
 
 	public static boolean hasFruit(PlayerEntity p) {
 		return Boolean.TRUE.equals(p.getAttached(HAS_FRUIT));
+	}
+
+	public static int getFruitKind(PlayerEntity p) {
+		if (!hasFruit(p)) return 0;
+		Integer k = p.getAttached(FRUIT_KIND);
+		return (k != null && k == 2) ? 2 : 1;
+	}
+
+	public static void setFruitKind(PlayerEntity p, int kind) {
+		p.setAttached(FRUIT_KIND, kind == 2 ? 2 : 1);
 	}
 
 	public static boolean hasAwakening(PlayerEntity p) {

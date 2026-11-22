@@ -19,7 +19,9 @@ public final class ModItems {
 	private ModItems() {}
 
 	public static Item FRUIT;
+	public static Item GRAVITY_FRUIT;
 	public static Item KIKOKU;
+	public static Item YAKUZA_KASEN;
 	public static Item HEART;
 	public static Item MARKER_STONE;
 
@@ -28,10 +30,14 @@ public final class ModItems {
 	}
 
 	public static void init() {
-		FRUIT = register("ope_ope_no_mi", new FruitItem(new Item.Settings().maxCount(1).rarity(Rarity.EPIC)
+		FRUIT = register("ope_ope_no_mi", new FruitItem(1, new Item.Settings().maxCount(1).rarity(Rarity.EPIC)
+			.food(new FoodComponent.Builder().nutrition(2).saturationModifier(0.1f).alwaysEdible().build())));
+		GRAVITY_FRUIT = register("gravity_fruit", new FruitItem(2, new Item.Settings().maxCount(1).rarity(Rarity.EPIC)
 			.food(new FoodComponent.Builder().nutrition(2).saturationModifier(0.1f).alwaysEdible().build())));
 		KIKOKU = register("kikoku", new SwordItem(ToolMaterials.NETHERITE, new Item.Settings().fireproof().rarity(Rarity.EPIC)
 			.attributeModifiers(SwordItem.createAttributeModifiers(ToolMaterials.NETHERITE, 5, -2.6f))));
+		YAKUZA_KASEN = register("yakuza_kasen", new SwordItem(ToolMaterials.NETHERITE, new Item.Settings().fireproof().rarity(Rarity.EPIC)
+			.attributeModifiers(SwordItem.createAttributeModifiers(ToolMaterials.NETHERITE, 6, -2.4f))));
 		HEART = register("corazon", new HeartItem(new Item.Settings().maxCount(1).rarity(Rarity.RARE)));
 		MARKER_STONE = register("piedra_marcador", new Item(new Item.Settings()));
 
@@ -40,7 +46,9 @@ public final class ModItems {
 			.displayName(Text.translatable("itemGroup.opeope"))
 			.entries((ctx, entries) -> {
 				entries.add(FRUIT);
+				entries.add(GRAVITY_FRUIT);
 				entries.add(KIKOKU);
+				entries.add(YAKUZA_KASEN);
 				entries.add(MARKER_STONE);
 			})
 			.build();

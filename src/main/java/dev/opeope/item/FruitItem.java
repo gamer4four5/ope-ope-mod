@@ -7,17 +7,24 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.World;
 
-/** La Ope Ope no Mi. Al comerla, el jugador recibe el poder (para siempre, también tras morir). */
+/** Fruta del diablo (Ope Ope no Mi o Gravity / Zushi Zushi no Mi). Al comerla, el jugador activa ese poder. */
 public class FruitItem extends Item {
+	private final int fruitKind;
+
 	public FruitItem(Settings settings) {
+		this(1, settings);
+	}
+
+	public FruitItem(int fruitKind, Settings settings) {
 		super(settings);
+		this.fruitKind = fruitKind;
 	}
 
 	@Override
 	public ItemStack finishUsing(ItemStack stack, World world, LivingEntity user) {
 		ItemStack result = super.finishUsing(stack, world, user);
 		if (!world.isClient && user instanceof ServerPlayerEntity player) {
-			PowerManager.grantFruit(player);
+			PowerManager.grantFruit(player, fruitKind);
 		}
 		return result;
 	}

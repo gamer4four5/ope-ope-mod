@@ -39,6 +39,9 @@ public final class Actions {
 			p.sendMessage(Text.translatable("opeope.msg.sea"), true);
 			return;
 		}
+		if (pw.isGravity() && handleGravityAction(p, pw, action, arg)) {
+			return;
+		}
 		switch (action) {
 			case ROOM_PRESS -> RoomOps.press(p, pw);
 			case ROOM_RELEASE -> RoomOps.release(p, pw, arg);
@@ -104,5 +107,34 @@ public final class Actions {
 			case ISLAND_ACTION -> Techniques.islandAction(p, pw, arg);
 			default -> {}
 		}
+	}
+
+	private static boolean handleGravityAction(ServerPlayerEntity p, PlayerPower pw, int action, int arg) {
+		switch (action) {
+			case SHAMBLES -> GravityPowers.rockFlightToggle(p, pw);
+			case RADIO_KNIFE, KROOM -> GravityPowers.tengaiShinsei(p, pw, p.isSneaking() || pw.awakened);
+			case INJECTION -> GravityPowers.moko(p, pw);
+			case ANESTHESIA -> {
+				if (arg == 1) GravityPowers.moko(p, pw);
+			}
+			case GAMMA, SHOCK_WILLE -> GravityPowers.jigokuTabi(p, pw);
+			case SCAN -> GravityPowers.blindObservationHaki(p, pw);
+			case RROOM -> {
+				if (arg == 1) GravityPowers.blindObservationHaki(p, pw);
+			}
+			case CURTAIN, SILENT -> GravityPowers.repulsionShield(p, pw);
+			case RAIN, STERBEN -> GravityPowers.dressrosaRubble(p, pw);
+			case COUNTER, PUNCTURE -> GravityPowers.tengaiShinsei(p, pw, true);
+			case UNION -> {
+				if (!GravityPowers.gravityHyperCompression(p, pw)) Union.toggle(p, pw);
+			}
+			case AWAKEN -> Techniques.toggleAwaken(p, pw);
+			case SUSPEND -> Techniques.toggleZeroGravityRoom(p, pw);
+			case SOULS -> GravityPowers.dressrosaRubble(p, pw);
+			default -> {
+				return false;
+			}
+		}
+		return true;
 	}
 }

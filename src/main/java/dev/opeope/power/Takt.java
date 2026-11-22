@@ -937,7 +937,10 @@ public final class Takt {
 				if (p.isSneaking() && !resolve(p, pw).isEmpty()) SurgicalSurvival.telekineticMindBreak(p, pw);
 				else dropAll(p, pw, false);
 			}
-			case Actions.ORDER_MIND_BREAK -> SurgicalSurvival.telekineticMindBreak(p, pw);
+			case Actions.ORDER_MIND_BREAK -> {
+				if (pw.isGravity()) GravityPowers.gravityMinePress(p, pw);
+				else SurgicalSurvival.telekineticMindBreak(p, pw);
+			}
 			case Actions.ORDER_ZONE -> zone(p, pw);
 			case Actions.ORDER_CUT -> grabCut(p, pw);
 			case Actions.ORDER_GATHER -> Union.gather(p, pw);

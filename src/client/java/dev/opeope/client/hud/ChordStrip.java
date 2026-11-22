@@ -58,16 +58,26 @@ public final class ChordStrip {
 
 	private static List<List<Entry>> tabRows(boolean shortNames, boolean room) {
 		boolean awake = ClientState.awakened();
+		boolean gravity = ClientState.gravityFruit();
 		boolean heart = Hints.heartInHand(MinecraftClient.getInstance());
 		List<Entry> r1 = new ArrayList<>(), r2 = new ArrayList<>(), r3 = new ArrayList<>();
 		int a = Theme.TAB;
-		r1.add(e(Keys.T_STERBEN, "sterben", a, "Sterben", Tech.STERBEN, false));
-		r1.add(e(Keys.T_SOULS, "almas", a, shortNames ? "Almas" : "Cambio de almas", Tech.SOULS, false));
-		r1.add(e(Keys.T_UNION, "union", a, shortNames ? "Unión" : "Unión (mant.: Cirugía)", null, false));
-		r1.add(e(Keys.T_RAIN, "lluvia", a, "Lluvia", Tech.RAIN, !room));
-		r1.add(e(Keys.T_MES, "mes", a, heart ? "Devolver" : "Mes", Tech.MES, false));
-		r1.add(awake ? e(Keys.T_COUNTER, "puncture", a, "Puncture Wille", Tech.PUNCTURE, false)
-			: e(Keys.T_COUNTER, "counter", a, "Counter Shock", Tech.COUNTER, false));
+		if (gravity) {
+			r1.add(e(Keys.T_STERBEN, "lluvia", a, "Escombros", Tech.RAIN, false));
+			r1.add(e(Keys.T_SOULS, "lluvia", a, "Dressrosa", Tech.RAIN, false));
+			r1.add(e(Keys.T_UNION, "union", a, shortNames ? "Comprimir" : "Cristalización", null, false));
+			r1.add(e(Keys.T_RAIN, "lluvia", a, "Escombros", Tech.RAIN, false));
+			r1.add(e(Keys.T_MES, "mes", a, "Extirpar Bloque", Tech.MES, false));
+			r1.add(e(Keys.T_COUNTER, "puncture", a, "Lluvia Meteoritos", Tech.RADIO_KNIFE, false));
+		} else {
+			r1.add(e(Keys.T_STERBEN, "sterben", a, "Sterben", Tech.STERBEN, false));
+			r1.add(e(Keys.T_SOULS, "almas", a, shortNames ? "Almas" : "Cambio de almas", Tech.SOULS, false));
+			r1.add(e(Keys.T_UNION, "union", a, shortNames ? "Unión" : "Unión (mant.: Cirugía)", null, false));
+			r1.add(e(Keys.T_RAIN, "lluvia", a, "Lluvia", Tech.RAIN, !room));
+			r1.add(e(Keys.T_MES, "mes", a, heart ? "Devolver" : "Mes", Tech.MES, false));
+			r1.add(awake ? e(Keys.T_COUNTER, "puncture", a, "Puncture Wille", Tech.PUNCTURE, false)
+				: e(Keys.T_COUNTER, "counter", a, "Counter Shock", Tech.COUNTER, false));
+		}
 		r2.add(e(Keys.T_PILLAR, "pilar", a, "Pilar", null, !room));
 		r2.add(e(Keys.T_WALL, "muralla", a, "Muralla", null, !room));
 		r2.add(e(Keys.T_CHASM, "sima", a, "Sima", null, !room));

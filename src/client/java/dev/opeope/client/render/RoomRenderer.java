@@ -44,8 +44,12 @@ public final class RoomRenderer {
 	private static final int OUTLINE_SEG = 96, DISC_SEG = 16, ARC_SEG = 10, TRAIL = 28, TETHER_SEG = 16;
 	private static final double TRAIL_SECONDS = 0.16;
 
-	private static final int CORE_RGB = 0xBFF4FF, GLOW_RGB = 0x8FD8FF, GROUND_RGB = 0x9FE6FF;
-	private static final int HI_RGB = 0xE8FBFF, ROOM_RGB = 0x8FE3FF, SOFT_RGB = 0x9FE6FF;
+	private static int coreRgb()   { return ClientState.gravityFruit() ? 0xFFE3B8FF & 0xFFFFFF : 0xBFF4FF; }
+	private static int glowRgb()   { return ClientState.gravityFruit() ? 0xA64DFF : 0x8FD8FF; }
+	private static int groundRgb() { return ClientState.gravityFruit() ? 0xB86BFF : 0x9FE6FF; }
+	private static int hiRgb()     { return ClientState.gravityFruit() ? 0xF5E0FF : 0xE8FBFF; }
+	private static int roomRgb()   { return ClientState.gravityFruit() ? 0xC266FF : 0x8FE3FF; }
+	private static int softRgb()   { return ClientState.gravityFruit() ? 0xD499FF : 0x9FE6FF; }
 
 	/** Normales de la esfera unidad: (LAT + 1)·(LON + 1) puntos, 3 floats cada uno. */
 	private static final float[] UNIT = sphereTable(LAT, LON);
@@ -332,7 +336,7 @@ public final class RoomRenderer {
 		double scale = v.strength * v.fade(td) * (1f + 1.2f * v.pulse(td));
 		if (scale <= 0.003) return;
 		fillGrid(UNIT, LAT, LON, cx, cy, cz, r, 0.05, 0.55, scale, inside);
-		emitGrid(b, LAT, LON, v.rgb());
+		emitGrid(b, LAT, LON, ClientState.gravityFruit() ? 0x9F48FF : v.rgb());
 	}
 
 	/** El contorno de la esfera vista desde fuera: un anillo fino y blanco y un halo azul a su alrededor. */
@@ -353,9 +357,9 @@ public final class RoomRenderer {
 		planeAxes(wx, wy, wz);
 		float pulse = 1f + 0.5f * v.pulse(td);
 		double glow = 0.010 * d, core = 0.003 * d;
-		ringBand(b, ox, oy, oz, rho - glow / 2, rho, GLOW_RGB, 0f, 0.25f * s * pulse);
-		ringBand(b, ox, oy, oz, rho, rho + glow / 2, GLOW_RGB, 0.25f * s * pulse, 0f);
-		ringBand(b, ox, oy, oz, rho - core / 2, rho + core / 2, CORE_RGB, 0.9f * s, 0.9f * s);
+		ringBand(b, ox, oy, oz, rho - glow / 2, rho, glowRgb(), 0f, 0.25f * s * pulse);
+		ringBand(b, ox, oy, oz, rho, rho + glow / 2, glowRgb(), 0.25f * s * pulse, 0f);
+		ringBand(b, ox, oy, oz, rho - core / 2, rho + core / 2, coreRgb(), 0.9f * s, 0.9f * s);
 	}
 
 	/** Dos ejes perpendiculares a w (para el plano del contorno). */
@@ -433,10 +437,10 @@ public final class RoomRenderer {
 			uz = uz / ul * w;
 			double tx2 = x + ux, ty2 = y + uy, tz2 = z + uz;
 			if (prev && Math.abs(y - py) < 2.0) {
-				vtx(b, px, py, pz, GROUND_RGB, a);
-				vtx(b, qx, qy, qz, GROUND_RGB, aTop);
-				vtx(b, tx2, ty2, tz2, GROUND_RGB, aTop);
-				vtx(b, x, y, z, GROUND_RGB, a);
+				vtx(b, px, py, pz, groundRgb(), a);
+				vtx(b, qx, qy, qz, groundRgb(), aTop);
+				vtx(b, tx2, ty2, tz2, groundRgb(), aTop);
+				vtx(b, x, y, z, groundRgb(), a);
 			}
 			px = x;
 			py = y;
@@ -503,7 +507,7 @@ public final class RoomRenderer {
 			if (sl < 1e-5) continue;
 			float k0 = 1f - k / (float) (TRAIL - 1), k1 = 1f - (k + 1) / (float) (TRAIL - 1);
 			ribbon(b, TR[o0], TR[o0 + 1], TR[o0 + 2], TR[o1], TR[o1 + 1], TR[o1 + 2], 0.2 * k0, 0.2 * k1,
-				ROOM_RGB, 0.7f * a * k0 * k0, 0.7f * a * k1 * k1);
+				roomRgb(), 0.7f * a * k0 * k0, 0.7f * a * k1 * k1);
 		}
 		glow(b, TR[0], TR[1], TR[2], a, now, calm);
 	}
@@ -534,9 +538,9 @@ public final class RoomRenderer {
 	private static void glow(BufferBuilder b, double x, double y, double z, float a, double now, boolean calm) {
 		if (a <= 0.003f || !billboard(x, y, z)) return;
 		if (!calm) a *= (float) (0.85 + 0.15 * Math.sin(Math.PI * 2 * 40 * now));
-		disc(b, x, y, z, 0.6, SOFT_RGB, 0.18f * a, SOFT_RGB, 0f);
-		disc(b, x, y, z, 0.25, ROOM_RGB, 0.5f * a, ROOM_RGB, 0f);
-		disc(b, x, y, z, 0.10, HI_RGB, a, HI_RGB, 0.5f * a);
+		disc(b, x, y, z, 0.6, softRgb(), 0.18f * a, softRgb(), 0f);
+		disc(b, x, y, z, 0.25, roomRgb(), 0.5f * a, roomRgb(), 0f);
+		disc(b, x, y, z, 0.10, hiRgb(), a, hiRgb(), 0.5f * a);
 		double spin = calm ? 0 : 7 * now;
 		double span = Math.toRadians(100), in = 0.38, out = 0.42;
 		float aa = 0.7f * a;
@@ -547,10 +551,10 @@ public final class RoomRenderer {
 				double c0 = Math.cos(t0), s0 = Math.sin(t0), c1 = Math.cos(t1), s1 = Math.sin(t1);
 				// las puntas del arco se apagan
 				float f0 = arcFade(i / (float) ARC_SEG), f1 = arcFade((i + 1) / (float) ARC_SEG);
-				vtx(b, x + (brx * c0 + bux * s0) * in, y + (bry * c0 + buy * s0) * in, z + (brz * c0 + buz * s0) * in, ROOM_RGB, aa * f0);
-				vtx(b, x + (brx * c0 + bux * s0) * out, y + (bry * c0 + buy * s0) * out, z + (brz * c0 + buz * s0) * out, ROOM_RGB, aa * f0);
-				vtx(b, x + (brx * c1 + bux * s1) * out, y + (bry * c1 + buy * s1) * out, z + (brz * c1 + buz * s1) * out, ROOM_RGB, aa * f1);
-				vtx(b, x + (brx * c1 + bux * s1) * in, y + (bry * c1 + buy * s1) * in, z + (brz * c1 + buz * s1) * in, ROOM_RGB, aa * f1);
+				vtx(b, x + (brx * c0 + bux * s0) * in, y + (bry * c0 + buy * s0) * in, z + (brz * c0 + buz * s0) * in, roomRgb(), aa * f0);
+				vtx(b, x + (brx * c0 + bux * s0) * out, y + (bry * c0 + buy * s0) * out, z + (brz * c0 + buz * s0) * out, roomRgb(), aa * f0);
+				vtx(b, x + (brx * c1 + bux * s1) * out, y + (bry * c1 + buy * s1) * out, z + (brz * c1 + buz * s1) * out, roomRgb(), aa * f1);
+				vtx(b, x + (brx * c1 + bux * s1) * in, y + (bry * c1 + buy * s1) * in, z + (brz * c1 + buz * s1) * in, roomRgb(), aa * f1);
 			}
 		}
 	}
@@ -590,8 +594,8 @@ public final class RoomRenderer {
 			double d0 = Math.sqrt(TE[o0] * TE[o0] + TE[o0 + 1] * TE[o0 + 1] + TE[o0 + 2] * TE[o0 + 2]);
 			double d1 = Math.sqrt(TE[o1] * TE[o1] + TE[o1 + 1] * TE[o1 + 1] + TE[o1 + 2] * TE[o1 + 2]);
 			double w0 = Math.max(0.05, 0.004 * d0), w1 = Math.max(0.05, 0.004 * d1);
-			ribbon(b, TE[o0], TE[o0 + 1], TE[o0 + 2], TE[o1], TE[o1 + 1], TE[o1 + 2], w0 * 3, w1 * 3, GLOW_RGB, a * 0.35f, a * 0.35f);
-			ribbon(b, TE[o0], TE[o0 + 1], TE[o0 + 2], TE[o1], TE[o1 + 1], TE[o1 + 2], w0, w1, CORE_RGB, a, a);
+			ribbon(b, TE[o0], TE[o0 + 1], TE[o0 + 2], TE[o1], TE[o1 + 1], TE[o1 + 2], w0 * 3, w1 * 3, glowRgb(), a * 0.35f, a * 0.35f);
+			ribbon(b, TE[o0], TE[o0 + 1], TE[o0 + 2], TE[o1], TE[o1 + 1], TE[o1 + 2], w0, w1, coreRgb(), a, a);
 		}
 	}
 
@@ -605,8 +609,8 @@ public final class RoomRenderer {
 		double x = f.ax - cam.x, y = f.ay - cam.y, z = f.az - cam.z;
 		if (!billboard(x, y, z)) return;
 		double size = (5 + 0.1 * f.r0) * (0.7 + 0.8 * u);
-		disc(b, x, y, z, size, HI_RGB, a, ROOM_RGB, 0f);
-		disc(b, x, y, z, size * 0.35, HI_RGB, a, HI_RGB, a * 0.4f);
+		disc(b, x, y, z, size, hiRgb(), a, roomRgb(), 0f);
+		disc(b, x, y, z, size * 0.35, hiRgb(), a, hiRgb(), a * 0.4f);
 	}
 
 	// ------------------------------------------------------------------ Bisturí y Cubo del Corazón (Mes)

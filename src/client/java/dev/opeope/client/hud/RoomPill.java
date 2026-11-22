@@ -35,17 +35,18 @@ public final class RoomPill {
 		if (r <= 0f && own != null) r = own.radius();
 
 		line = new Ui.Line();
+		String domeName = ClientState.gravityFruit() ? "Campo Grav." : "ROOM";
 		if (RoomHudState.casting()) {
-			line.text("ROOM → ", Theme.TEXT).text(Txt.meters(RoomHudState.castDistance()), Theme.HI);
+			line.text(domeName + " → ", Theme.TEXT).text(Txt.meters(RoomHudState.castDistance()), Theme.HI);
 		} else if (RoomHudState.recalling()) {
-			line.text("ROOM ← ", Theme.TEXT).text("contigo", Theme.HI);
+			line.text(domeName + " ← ", Theme.TEXT).text("contigo", Theme.HI);
 		} else if (own == null) {
-			line.text("Sin ROOM", Theme.TEXT2);
+			line.text("Sin " + domeName, Theme.TEXT2);
 		} else if (own.state() == 0 || RoomHudState.growing()) {
-			line.text("ROOM ", Theme.TEXT).text(Txt.radius(r), Theme.HI).text(" · creciendo", Theme.TEXT2);
+			line.text(domeName + " ", Theme.TEXT).text(Txt.radius(r), Theme.HI).text(" · creciendo", Theme.TEXT2);
 		} else {
 			boolean inside = RoomHudState.inside();
-			line.text("ROOM ", Theme.TEXT).text(Txt.radius(r), Theme.HI)
+			line.text(domeName + " ", Theme.TEXT).text(Txt.radius(r), Theme.HI)
 				.text(inside ? " · dentro" : " · fuera", inside ? Theme.SOFT : Theme.OUT_WARN);
 		}
 		if (hasRRoom(mc)) line.text(" · R-ROOM", Theme.AWAKE);

@@ -25,7 +25,7 @@ public class IslandScreen extends Screen {
 	@Override
 	protected void init() {
 		int cx = this.width / 2;
-		int y = 24;
+		int y = 20;
 		int colW = 154;
 		int gap = 8;
 		int leftX = cx - colW - gap / 2;
@@ -56,6 +56,15 @@ public class IslandScreen extends Screen {
 			.build());
 
 		y += 21;
+
+		// Cambio rápido entre Fruta Ope Ope (Law) y Fruta Gravity (Fujitora)
+		addActionBtn(leftX, y, colW * 2 + gap,
+			ClientState.gravityFruit()
+				? "🌌 Fruta Activa: Gravity (Fujitora) → Cambiar a Ope Ope (Law)"
+				: "💠 Fruta Activa: Ope Ope (Law) → Cambiar a Gravity (Fujitora)",
+			"Alterna al instante entre la Ope Ope no Mi (Trafalgar Law) y la Fruta Gravity / Zushi Zushi no Mi (Almirante Fujitora) conservando tu rango y recompensa.",
+			19);
+		y += 20;
 
 		// Estructuras cortables de Isla Bisturí (al cortarlas, la parte superior queda bajo tu control automáticamente)
 		addActionBtn(leftX, y, colW, "🏠 Casa Isla Bisturí", "Genera una casa frente a ti. Al cortarla, la mitad superior queda bajo tu control con la mirada.", 1);
@@ -129,7 +138,7 @@ public class IslandScreen extends Screen {
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
 		super.render(context, mouseX, mouseY, delta);
 		int cx = this.width / 2;
-		context.drawCenteredTextWithShadow(this.textRenderer, this.title, cx, 12, 0xFF8FE3FF);
+		context.drawCenteredTextWithShadow(this.textRenderer, this.title, cx, 8, ClientState.gravityFruit() ? 0xFFC266FF : 0xFF8FE3FF);
 		context.drawCenteredTextWithShadow(this.textRenderer,
 			Text.literal("§7Flechas §f↑↓←→§7 mueven el ROOM · §fY§7 cambia estilo · §fC§7 con pieza elegida crea §bQuimera§7 al clicar un mob"),
 			cx, this.height - 16, 0xFFAAAAAA);

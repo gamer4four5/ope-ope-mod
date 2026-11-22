@@ -155,6 +155,27 @@ public final class AbilityBar {
 			tech(4, awake ? "kroom" : "radio_knife", awake ? Tech.KROOM : Tech.RADIO_KNIFE);
 		}
 
+		if (ClientState.gravityFruit()) {
+			name[0] = "Campo Grav.";
+			name[1] = "Gravedad";
+			name[2] = "Roca Vuelo";
+			tech(4, "gamma", Tech.RADIO_KNIFE);
+			name[4] = "Tengai Shinsei";
+			tech(5, "injection", Tech.INJECTION);
+			name[5] = "Moko (Tigre)";
+			tech(6, "puncture", Tech.GAMMA);
+			name[6] = "Jigoku Tabi";
+			tech(7, "scan", Tech.SCAN);
+			name[7] = "Haki Ciego";
+			lit[7] = ClientState.scanTicks > 0;
+			tech(8, "curtain", Tech.CURTAIN);
+			name[8] = "Repulsión";
+			lit[8] = ClientState.has(Payloads.State.CURTAIN);
+			tech(9, "piedra", Tech.MARKER);
+			plain(10, "despertar", "Despertar", awake, Theme.AWAKE);
+			locked[10] = !ClientState.has(Payloads.State.AWAKEN_UNLOCKED);
+			return;
+		}
 		if (style == 2) {
 			tech(5, "injection", Tech.INJECTION);
 			name[5] = "Luna de Acero";

@@ -82,21 +82,27 @@ public final class PowerManager {
 		ServerTickEvents.END_SERVER_TICK.register(PowerManager::tick);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			ServerPlayerEntity p = handler.getPlayer();
-			if (!Boolean.getBoolean("opeope.autotest") && !ModAttachments.hasFruit(p)) {
-				boolean hasFruitItem = false;
+			if (!Boolean.getBoolean("opeope.autotest")) {
+				boolean hasOpe = ModAttachments.hasFruit(p);
+				boolean hasOpeItem = false, hasGravityItem = false, hasYakuza = false;
 				for (int i = 0; i < p.getInventory().size(); i++) {
-					if (p.getInventory().getStack(i).isOf(ModItems.FRUIT)) {
-						hasFruitItem = true;
-						break;
-					}
+					ItemStack s = p.getInventory().getStack(i);
+					if (s.isOf(ModItems.FRUIT)) hasOpeItem = true;
+					else if (s.isOf(ModItems.GRAVITY_FRUIT)) hasGravityItem = true;
+					else if (s.isOf(ModItems.YAKUZA_KASEN)) hasYakuza = true;
 				}
-				if (!hasFruitItem) {
+				if (!hasOpe && !hasOpeItem) {
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.FRUIT));
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.KIKOKU));
+				}
+				if (!hasGravityItem && !hasYakuza && ModAttachments.getFruitKind(p) != 2) {
+					p.getInventory().offerOrDrop(new ItemStack(ModItems.GRAVITY_FRUIT));
+					p.getInventory().offerOrDrop(new ItemStack(ModItems.YAKUZA_KASEN));
 				}
 			}
 			PlayerPower pw = get(p);
 			pw.bounty = ModAttachments.getBounty(p);
+			pw.fruitKind = ModAttachments.hasFruit(p) ? ModAttachments.getFruitKind(p) : 1;
 			applyMasteryAttributes(p, pw);
 			pw.dirty = true;
 			sendAllRooms(p);
@@ -122,8 +128,16 @@ public final class PowerManager {
 		ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
 			if (entity instanceof ServerPlayerEntity sp && ModAttachments.hasFruit(sp)) {
 				PlayerPower pw = get(sp);
-				if (source.isOf(DamageTypes.FALL) && (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0)) {
+				if (source.isOf(DamageTypes.FALL) && (pw.room != null || pw.rroom != null || pw.fallImmunityTicks > 0 || (pw.isGravity() && pw.gravityMountId >= 0))) {
 					sp.fallDistance = 0f;
+					return false;
+				}
+				// Haki de Observación Ciego de Fujitora: 40% de esquiva instintiva mientras está activo
+				if (pw.isGravity() && pw.scanTicks > 0 && !source.isOf(DamageTypes.OUT_OF_WORLD) && sp.getRandom().nextFloat() < 0.40f) {
+					ServerWorld sw = sp.getServerWorld();
+					sw.spawnParticles(GravityPowers.ASTRAL_DUST, sp.getX(), sp.getY() + 1.0, sp.getZ(), 18, 0.4, 0.6, 0.4, 0.04);
+					sw.playSound(null, sp.getX(), sp.getY(), sp.getZ(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, SoundCategory.PLAYERS, 0.8f, 1.8f);
+					sp.sendMessage(Text.literal("§d👁 Haki de Observación: ¡Ataque esquivado!"), true);
 					return false;
 				}
 				// Si un golpe fuera a matarte mientras tienes activa la Operación de Juventud Eterna, anula la muerte
@@ -178,23 +192,56 @@ public final class PowerManager {
 			GroundCuts.clearAll();
 			Takt.clearAll();
 			ElementEffects.clearAll();
+			GravityPowers.clearAll();
 			SurgicalSurvival.clearPending();
 		});
 	}
 
 	public static void grantFruit(ServerPlayerEntity p) {
-		if (ModAttachments.hasFruit(p)) {
-			p.sendMessage(Text.translatable("opeope.msg.already"), false);
+		grantFruit(p, 1);
+	}
+
+	public static void grantFruit(ServerPlayerEntity p, int kind) {
+		int target = kind == 2 ? 2 : 1;
+		boolean already = ModAttachments.hasFruit(p);
+		PlayerPower pw = get(p);
+		if (already && ModAttachments.getFruitKind(p) == target) {
+			if (target == 2) {
+				p.sendMessage(Text.literal("§5Ya llevas activa la Fruta Gravity (Zushi Zushi no Mi)."), false);
+			} else {
+				p.sendMessage(Text.translatable("opeope.msg.already"), false);
+			}
 			return;
 		}
+		if (already) {
+			releaseAll(p, pw);
+			RoomOps.remove(p, pw);
+		}
 		p.setAttached(ModAttachments.HAS_FRUIT, true);
-		PlayerPower pw = get(p);
+		ModAttachments.setFruitKind(p, target);
+		pw.fruitKind = target;
+		pw.gravityMountId = -1;
 		pw.bounty = ModAttachments.getBounty(p);
 		applyMasteryAttributes(p, pw);
 		pw.dirty = true;
-		p.sendMessage(Text.translatable("opeope.msg.ate"), false);
-		p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
-		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, 0.7f);
+		if (target == 2) {
+			GravityPowers.equipYakuzaKasenSafely(p);
+			p.sendMessage(Text.literal("§5✦ Has activado la Fruta Gravity (Zushi Zushi no Mi) — Almirante Fujitora."), false);
+			p.sendMessage(Text.literal("§7Pulsa §f[Alt]§7 para volar en tu roca, §f[Z]§7 Meteorito, §f[X]§7 Moko, §f[C]§7 Jigoku Tabi, §f[J]§7 para alternar fruta."), false);
+		} else {
+			p.sendMessage(Text.translatable("opeope.msg.ate"), false);
+			p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
+		}
+		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, target == 2 ? 0.55f : 0.7f);
+	}
+
+	public static void switchFruit(ServerPlayerEntity p) {
+		if (!ModAttachments.hasFruit(p)) {
+			grantFruit(p, 2);
+			return;
+		}
+		int next = ModAttachments.getFruitKind(p) == 2 ? 1 : 2;
+		grantFruit(p, next);
 	}
 
 	public static void removeFruit(ServerPlayerEntity p) {
@@ -356,6 +403,7 @@ public final class PowerManager {
 		CutStates.tick(server);
 		Takt.serverTick(server);
 		ElementEffects.serverTick(server);
+		GravityPowers.tickMeteors(server);
 		SurgicalSurvival.tickPendingRestores(server);
 	}
 
@@ -380,6 +428,7 @@ public final class PowerManager {
 		if (pw.shamblesMode == 1) flags |= Payloads.State.SHAMBLES_MODE_SWAP;
 		else if (pw.shamblesMode == 2) flags |= Payloads.State.SHAMBLES_MODE_ENTITIES;
 		if (pw.shamblesMark >= 0 && pw.shamblesMarkTicks > 0) flags |= Payloads.State.SHAMBLES_MARKED;
+		if (pw.isGravity()) flags |= Payloads.State.GRAVITY_FRUIT;
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
 		int[] held = new int[Math.min(pw.takt.size(), 64)];   // lo que lleva en Takt, en orden (el cliente dibuja sus fantasmas)
 		for (int i = 0; i < held.length; i++) held[i] = pw.takt.get(i);
@@ -505,6 +554,10 @@ public final class PowerManager {
 	public static void handleCut(ServerPlayerEntity p, int kind, float[] raw) {
 		if (!canUse(p)) return;
 		PlayerPower pw = get(p);
+		if (pw.isGravity()) {
+			GravityPowers.jigokuTabi(p, pw);
+			return;
+		}
 		if (kind == 1 && pw.bisturi) Techniques.bisturi(p, pw, false);
 		Room room = pw.room;
 		if (room == null || room.dim != p.getWorld().getRegistryKey()) {

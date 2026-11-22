@@ -429,6 +429,7 @@ public final class Techniques {
 			case 16 -> colossalTakt(p, pw);
 			case 17 -> sterben(p, pw);
 			case 18 -> souls(p, pw);
+			case 19 -> PowerManager.switchFruit(p);
 		}
 	}
 

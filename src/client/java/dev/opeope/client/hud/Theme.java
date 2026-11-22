@@ -9,15 +9,17 @@ import dev.opeope.client.config.OpeSettings;
 public final class Theme {
 	private Theme() {}
 
-	// Acentos (iguales en alto contraste)
-	public static final int ROOM = 0xFF8FE3FF, HI = 0xFFE8FBFF, SOFT = 0xFF9FE6FF;
+	// Acentos dinámicos según fruta activa (Ope Ope cian vs Gravity púrpura)
+	public static int ROOM = 0xFF8FE3FF, HI = 0xFFE8FBFF, SOFT = 0xFF9FE6FF;
 	public static final int TAB = 0xFFC6B5FF, FORGE = 0xFFFFD9A0, AWAKE = 0xFF8CBCFF, GOLD = 0xFFF2C66D;
 	public static final int BAD = 0xFFFFB4AB, OUT_WARN = 0xFFFFCF9A, DANGER = 0xFFFF6767, HEART = 0xFFFF9FB2, UNION = 0xFFC8F0D8;
-	public static final int TAKT = 0xFFB9F0FF;
-	public static final int METER_TRACK = 0x80000000, METER_FILL_A = 0xFF3AA6D6, METER_FILL_B = 0xFF9FE6FF, METER_MARK = 0xFFE8FBFF;
+	public static int TAKT = 0xFFB9F0FF;
+	public static final int METER_TRACK = 0x80000000;
+	public static int METER_FILL_A = 0xFF3AA6D6, METER_FILL_B = 0xFF9FE6FF, METER_MARK = 0xFFE8FBFF;
 	public static final int SHADOW_1 = 0x40000000, SHADOW_2 = 0x20000000, KEYCAP_DEPTH = 0x80000000;
 	public static final int BADGE_TEXT = 0xFF0A1318, PENDING = 0x30FFFFFF, WHITE = 0xFFFFFFFF;
-	public static final int RETICLE_OUT = 0xC08FE3FF, RETICLE_IN = 0xD9E8FBFF, AMPUTATE_TRACK = 0x60000000;
+	public static int RETICLE_OUT = 0xC08FE3FF, RETICLE_IN = 0xD9E8FBFF;
+	public static final int AMPUTATE_TRACK = 0x60000000;
 
 	// Cambian con el alto contraste
 	public static boolean hc;
@@ -38,6 +40,31 @@ public final class Theme {
 			opacity = OpeSettings.panelOpacity();
 		} catch (RuntimeException e) {
 			// sin ajustes cargados todavía: los valores por defecto
+		}
+		boolean gravity = false;
+		try {
+			gravity = dev.opeope.client.ClientState.gravityFruit();
+		} catch (RuntimeException ignored) {}
+		if (gravity) {
+			ROOM = 0xFFC266FF;
+			HI = 0xFFF4DEFF;
+			SOFT = 0xFFD99BFF;
+			TAKT = 0xFFE4B8FF;
+			METER_FILL_A = 0xFF7A26C8;
+			METER_FILL_B = 0xFFD080FF;
+			METER_MARK = 0xFFF4DEFF;
+			RETICLE_OUT = 0xC0C266FF;
+			RETICLE_IN = 0xD9F4DEFF;
+		} else {
+			ROOM = 0xFF8FE3FF;
+			HI = 0xFFE8FBFF;
+			SOFT = 0xFF9FE6FF;
+			TAKT = 0xFFB9F0FF;
+			METER_FILL_A = 0xFF3AA6D6;
+			METER_FILL_B = 0xFF9FE6FF;
+			METER_MARK = 0xFFE8FBFF;
+			RETICLE_OUT = 0xC08FE3FF;
+			RETICLE_IN = 0xD9E8FBFF;
 		}
 		hc = high;
 		float k = opacity / 0.85f;

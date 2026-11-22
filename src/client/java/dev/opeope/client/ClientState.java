@@ -87,6 +87,10 @@ public final class ClientState {
 		return has(Payloads.State.ZERO_G);
 	}
 
+	public static boolean gravityFruit() {
+		return has(Payloads.State.GRAVITY_FRUIT);
+	}
+
 	public static int shamblesMode() {
 		if (has(Payloads.State.SHAMBLES_MODE_ENTITIES)) return 2;
 		if (has(Payloads.State.SHAMBLES_MODE_SWAP)) return 1;
@@ -95,9 +99,11 @@ public final class ClientState {
 
 	public static void apply(Payloads.State s) {
 		int oldMode = shamblesMode();
+		boolean oldGravity = gravityFruit();
 		flags = s.flags();
 		int newMode = shamblesMode();
 		if (newMode != oldMode && hasFruit()) shamblesModeToastUntil = System.currentTimeMillis() + 3500L;
+		if (gravityFruit() != oldGravity) dev.opeope.client.hud.Theme.refresh();
 		pattern = s.pattern();
 		taktCount = s.taktCount();
 		taktMode = s.taktMode();
