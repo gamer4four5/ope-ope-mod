@@ -95,8 +95,8 @@ public class PieceEntity extends Entity {
 	public static final int F_LANDED = 64;    // posándose o ya posada: no se coge, sin borde, se dibuja a 0,998
 	public static final int F_CHUNK = 128;    // arrancada del suelo con Takt
 
-	/** SLIDING: resbala por el plano del corte. HOVER: queda separada un momento. LANDING: se posa. CHIMERA: parte cosida. SURF: roca voladora que transporta a Fujitora. */
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA, SURF }
+	/** SLIDING: resbala por el plano del corte. HOVER: queda separada un momento. LANDING: se posa. CHIMERA: parte cosida. SURF: roca voladora que transporta a Fujitora. SUMMON_SURF: roca real acudiendo desde lejos hacia los pies de Fujitora. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA, SURF, SUMMON_SURF }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
 
@@ -135,6 +135,8 @@ public class PieceEntity extends Entity {
 
 	private int restTicks, freeTicks;
 	private int surfEmptyTicks;
+	@Nullable public UUID surfCallerUuid;
+	private int surfSummonTicks;
 	private int lastImpactAge = -1000;     // el último impacto (age) y su energía: no revienta dos veces seguidas
 	private int wallGrazeAge = -1000;      // último roce contra muro/techo mientras cae hacia el piso
 	private double lastImpactE;
@@ -638,7 +640,55 @@ public class PieceEntity extends Entity {
 			case LANDING -> landingTick();
 			case CHIMERA -> chimeraTick();
 			case SURF -> surfTick();
+			case SUMMON_SURF -> summonSurfTick();
 		}
+	}
+
+	/** Hace que una roca real arrancada del mundo vuele hacia los pies del invocador para subirlo y llevarlo. */
+	public void summonForSurf(UUID caller) {
+		this.mode = Mode.SUMMON_SURF;
+		this.surfCallerUuid = caller;
+		this.surfSummonTicks = 0;
+		this.solid = false;
+		this.noClip = true;
+		setNoGravity(true);
+		setFlags(F_SEAM, F_HELD | F_SUSPENDED);
+	}
+
+	private void summonSurfTick() {
+		if (!(getWorld() instanceof ServerWorld sw)) return;
+		setNoGravity(true);
+		noClip = true;
+		solid = false;
+		fallDistance = 0f;
+		ServerPlayerEntity caller = surfCallerUuid == null ? null : sw.getServer().getPlayerManager().getPlayer(surfCallerUuid);
+		if (caller == null || !caller.isAlive() || caller.getServerWorld() != sw || caller.hasVehicle()
+			|| !PowerManager.canUse(caller) || ++surfSummonTicks > 70) {
+			surfCallerUuid = null;
+			release(Vec3d.ZERO, false);
+			return;
+		}
+		double h = blocks != null && blocks.sy > 0 ? blocks.sy : 1.0;
+		double targetY = caller.isOnGround() ? caller.getY() + 0.08 : caller.getY() - h + 0.06;
+		Vec3d dest = new Vec3d(caller.getX(), targetY, caller.getZ());
+		Vec3d cur = getPos();
+		Vec3d to = dest.subtract(cur);
+		double dist = to.length();
+
+		if (dist <= 1.55) {
+			surfCallerUuid = null;
+			dev.opeope.power.GravityPowers.onSurfRockArrived(caller, this, dest);
+			return;
+		}
+
+		double speed = MathHelper.clamp(dist * 0.40, 1.05, 2.35);
+		double liftArc = surfSummonTicks <= 6 ? 0.32 : 0.0;
+		Vec3d step = to.normalize().multiply(Math.min(dist, speed)).add(0.0, liftArc, 0.0);
+		setPosition(cur.add(step));
+		setVelocity(step);
+		setYaw(caller.getYaw());
+		sw.spawnParticles(dev.opeope.power.GravityPowers.GRAVITY_DUST, getX(), getY() + h * 0.5, getZ(), 4, 0.65, 0.25, 0.65, 0.02);
+		sw.spawnParticles(dev.opeope.power.GravityPowers.ABYSS_DUST, getX(), getY() + 0.1, getZ(), 3, 0.55, 0.15, 0.55, 0.01);
 	}
 
 	/** La roca levitada por Fujitora lo transporta como vehículo real; al bajarse, cae por gravedad. */

@@ -440,7 +440,7 @@ public final class PowerManager {
 			flags |= Payloads.State.GRAVITY_FRUIT;
 			if ((pw.gravityVector & 1) != 0) flags |= Payloads.State.GRAVITY_VEC_BIT0;
 			if ((pw.gravityVector & 2) != 0) flags |= Payloads.State.GRAVITY_VEC_BIT1;
-			if (pw.gravityMountId >= 0) flags |= Payloads.State.GRAVITY_RIDING;
+			if (p.getVehicle() instanceof PieceEntity sr && sr.isGravitySurf()) flags |= Payloads.State.GRAVITY_RIDING;
 			if (pw.gravityCharging) flags |= Payloads.State.GRAVITY_CHARGING;
 		}
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;

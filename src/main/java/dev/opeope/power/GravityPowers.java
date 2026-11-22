@@ -525,12 +525,17 @@ public final class GravityPowers {
 			}
 		} else if (pw.gravityMountId >= 0) {
 			Entity old = w.getEntityById(pw.gravityMountId);
-			if (old instanceof PieceEntity pe && pe.isGravitySurf() && !pe.hasPassengers()) {
-				pe.release(Vec3d.ZERO, false);
+			if (old instanceof PieceEntity pe && pe.mode == PieceEntity.Mode.SUMMON_SURF && pe.isAlive()) {
+				// Roca real en camino hacia tus pies: protege contra caída mientras llega a recogerte
+				pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 140);
+			} else {
+				if (old instanceof PieceEntity pe && pe.isGravitySurf() && !pe.hasPassengers()) {
+					pe.release(Vec3d.ZERO, false);
+				}
+				pw.gravityMountId = -1;
+				pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 140);
+				pw.dirty = true;
 			}
-			pw.gravityMountId = -1;
-			pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 140);
-			pw.dirty = true;
 		}
 	}
 
@@ -772,35 +777,117 @@ public final class GravityPowers {
 			return;
 		}
 
-		// Arranca una losa real 3×1×3 bajo tus pies y te sube DE PIE sobre ella: LA ROCA TE LLEVA (sin vuelo del jugador)
-		BlockSet set = new BlockSet();
-		BlockPos base = p.getBlockPos().down();
-		for (int dx = -1; dx <= 1; dx++) {
-			for (int dz = -1; dz <= 1; dz++) {
-				BlockPos bp = base.add(dx, 0, dz);
-				BlockState st = w.getBlockState(bp);
-				BlockState sample = (!st.isAir() && !(st.getBlock() instanceof FluidBlock) && !st.hasBlockEntity() && st.getHardness(w, bp) >= 0)
-					? st : ((dx + dz) % 2 == 0 ? Blocks.DEEPSLATE.getDefaultState() : Blocks.COBBLESTONE.getDefaultState());
-				if (!st.isAir() && st == sample) {
-					w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
-				}
-				set.add(dx + 1, 0, dz + 1, sample, null);
+		// Si ya hay una roca real volando hacia tus pies: cancelar la llamada
+		if (pw.gravityMountId >= 0) {
+			Entity incoming = w.getEntityById(pw.gravityMountId);
+			if (incoming instanceof PieceEntity pe && pe.mode == PieceEntity.Mode.SUMMON_SURF && pe.isAlive()) {
+				pe.surfCallerUuid = null;
+				pe.release(Vec3d.ZERO, false);
+				pw.gravityMountId = -1;
+				pw.dirty = true;
+				p.sendMessage(Text.literal("§7Llamada de roca cancelada"), true);
+				return;
 			}
 		}
+
+		// Prioridad 1: si ya tienes una roca levitando con [R], la atrae directamente bajo tus pies para subirte en ella
+		cleanHeld(w, pw);
+		PieceEntity heldRock = null;
+		double bestHeldD2 = Double.MAX_VALUE;
+		for (int id : pw.gravityHeld) {
+			Entity e = w.getEntityById(id);
+			if (e instanceof PieceEntity pe && pe.isAlive() && !pe.isRemoved() && pe.blocks != null && !pe.blocks.isEmpty()) {
+				double d2 = pe.squaredDistanceTo(p);
+				if (d2 < bestHeldD2) {
+					bestHeldD2 = d2;
+					heldRock = pe;
+				}
+			}
+		}
+		if (heldRock != null) {
+			pw.gravityHeld.remove((Integer) heldRock.getId());
+			Vec3d from = heldRock.center();
+			heldRock.summonForSurf(p.getUuid());
+			pw.gravityMountId = heldRock.getId();
+			pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 200);
+			pw.dirty = true;
+			sendFx(w, Payloads.GravityFx.KIND_HYPER_PRESS, p.getId(), from, p.getPos().add(0, 0.4, 0), 2.8f, 1.2f, 18);
+			playSound(w, from, SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 0.85f);
+			p.sendMessage(Text.literal("§5🪨 Atrayendo tu roca levitada bajo tus pies..."), true);
+			pw.cooldown(Tech.SHAMBLES);
+			return;
+		}
+
+		// Prioridad 2 y 3: arranca una roca REAL de donde miras (3..52 m) o del terreno/piedra real cercana (5..34 m) y la trae volando
+		BlockPos sourceCenter = findRealRockSource(p, w);
+		if (sourceCenter == null) {
+			p.sendMessage(Text.literal("§7No hay ninguna roca ni terreno real cerca para atraer (apunta a piedra o suelo)"), true);
+			return;
+		}
+
+		BlockSet set = new BlockSet();
+		BlockPos feetBelow = p.getBlockPos().down();
+		int count = 0;
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dz = -1; dz <= 1; dz++) {
+				BlockPos bp = sourceCenter.add(dx, 0, dz);
+				if (p.isOnGround() && bp.equals(feetBelow)) continue;
+				if (!isLiftableTerrain(w, bp)) continue;
+				BlockState st = w.getBlockState(bp);
+				set.add(dx + 1, 0, dz + 1, st, null);
+				w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+				count++;
+			}
+		}
+		// Si en la capa superior de una ladera había pocos bloques, toma también la capa inferior real para formar una losa sólida
+		if (count < 3) {
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dz = -1; dz <= 1; dz++) {
+					BlockPos bp = sourceCenter.add(dx, -1, dz);
+					if (p.isOnGround() && bp.equals(feetBelow)) continue;
+					if (!isLiftableTerrain(w, bp)) continue;
+					BlockState st = w.getBlockState(bp);
+					set.add(dx + 1, 0, dz + 1, st, null);
+					w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+					count++;
+				}
+			}
+		}
+		if (count == 0) {
+			p.sendMessage(Text.literal("§7No se pudo arrancar roca sólida en ese punto"), true);
+			return;
+		}
 		set.normalize();
-		// Coloca la losa limpia por encima del suelo (o dentro del hueco recién arrancado si hay techo bajo) y monta a Fujitora de pie encima
-		double spawnY = p.isOnGround() ? p.getY() + 0.08 : p.getY() - 0.85;
-		Vec3d spawnPos = new Vec3d(p.getX(), spawnY, p.getZ());
-		PieceEntity plat = PieceEntity.spawn(w, set, spawnPos.subtract(set.sx / 2.0, 0, set.sz / 2.0), base, p.getUuid());
+
+		Vec3d originPos = new Vec3d(sourceCenter.getX() + 0.5, sourceCenter.getY() + 0.25, sourceCenter.getZ() + 0.5);
+		PieceEntity plat = PieceEntity.spawn(w, set, originPos.subtract(set.sx / 2.0, 0, set.sz / 2.0), sourceCenter, p.getUuid());
+		plat.setYaw(p.getYaw());
+		plat.summonForSurf(p.getUuid());
+
+		pw.gravityMountId = plat.getId();
+		pw.fallImmunityTicks = Math.max(pw.fallImmunityTicks, 200);
+		pw.dirty = true;
+		sendFx(w, Payloads.GravityFx.KIND_LIFT_PULSE, p.getId(), originPos, originPos.add(0, 4.5, 0), 3.0f, 1.1f, 20);
+		sendFx(w, Payloads.GravityFx.KIND_HYPER_PRESS, p.getId(), originPos, p.getPos().add(0, 0.4, 0), 2.6f, 1.1f, 18);
+		playSound(w, originPos, SoundEvents.BLOCK_STONE_BREAK, 1.3f, 0.52f);
+		playSound(w, p.getPos(), SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 0.75f);
+		p.sendMessage(Text.literal("§5🪨 ¡Arrancando roca real (" + count + " bloques) y atrayéndola hacia ti!"), true);
+		pw.cooldown(Tech.SHAMBLES);
+	}
+
+	/** Llamado desde {@link PieceEntity} en cuanto la roca real atraída llega bajo los pies de Fujitora. */
+	public static void onSurfRockArrived(ServerPlayerEntity p, PieceEntity plat, Vec3d dest) {
+		ServerWorld w = p.getServerWorld();
+		PlayerPower pw = PowerManager.get(p);
+		plat.setPosition(dest.x, dest.y, dest.z);
 		plat.setYaw(p.getYaw());
 		plat.setGravitySurf(true);
-		if (!w.isSpaceEmpty(plat) && p.isOnGround()) {
-			plat.setPosition(p.getX(), base.getY() + 0.04, p.getZ());
+		if (!w.isSpaceEmpty(plat)) {
+			plat.setPosition(dest.x, dest.y + 0.55, dest.z);
 		}
+		plat.setVelocity(0.0, 0.14, 0.0);
 		plat.setFlag(PieceEntity.F_SEAM, true);
-		plat.setVelocity(0.0, 0.28, 0.0);
 
-		// Desactiva cualquier vuelo propio (incluso en creativo) para que sea la ROCA quien te lleve físicamente
 		if (p.getAbilities().flying || (!p.isCreative() && !p.isSpectator() && p.getAbilities().allowFlying)) {
 			if (!p.isCreative() && !p.isSpectator()) p.getAbilities().allowFlying = false;
 			p.getAbilities().flying = false;
@@ -812,11 +899,80 @@ public final class GravityPowers {
 		pw.fallImmunityTicks = 300;
 		p.fallDistance = 0f;
 		pw.dirty = true;
-		sendFx(w, Payloads.GravityFx.KIND_LIFT_PULSE, p.getId(), spawnPos, spawnPos.add(0, 3.5, 0), 2.8f, 1.0f, 20);
-		playSound(w, spawnPos, SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 0.7f);
-		playSound(w, spawnPos, SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 0.6f);
-		p.sendMessage(Text.literal("§5🪨 ¡La roca te eleva! §7(WASD dirigir · Espacio subir · Ctrl turbo · Mayús bajar · Alt lanzar)"), true);
-		pw.cooldown(Tech.SHAMBLES);
+		sendFx(w, Payloads.GravityFx.KIND_LIFT_PULSE, p.getId(), dest, dest.add(0, 3.2, 0), 2.6f, 0.95f, 16);
+		playSound(w, dest, SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 0.8f);
+		p.sendMessage(Text.literal("§5🪨 ¡La roca te recoge y te lleva! §7(WASD dirigir · Espacio subir · Ctrl turbo · Mayús bajar · Alt lanzar)"), true);
+	}
+
+	/**
+	 * Busca una fuente REAL de roca/terreno en el mundo (jamás inventa bloques de la nada ni aparece bajo tus pies):
+	 * 1) Bloque apuntado a 3..52 m; 2) Piedra/roca real cercana (5..34 m); 3) Terreno sólido real cercano (5..32 m).
+	 */
+	private static BlockPos findRealRockSource(ServerPlayerEntity p, ServerWorld w) {
+		BlockHitResult hit = PowerManager.raycastBlock(p, 52.0);
+		if (hit.getType() == HitResult.Type.BLOCK) {
+			BlockPos hp = hit.getBlockPos();
+			if (hit.getPos().squaredDistanceTo(p.getPos()) >= 9.0 && isLiftableTerrain(w, hp)) {
+				return hp;
+			}
+		}
+
+		BlockPos pc = p.getBlockPos();
+		double baseYaw = Math.toRadians(p.getYaw() + 90.0);
+		// Prioriza piedra real primero; si no hay piedra visible (pradera/desierto), busca terreno sólido real a distancia
+		for (int pass = 0; pass < 2; pass++) {
+			boolean stoneOnly = pass == 0;
+			int maxR = stoneOnly ? 34 : 30;
+			for (int r = 5; r <= maxR; r += 3) {
+				// 16 direcciones empezando al frente de tu mirada para que veas la roca despegar y venir hacia ti
+				for (int step = 0; step < 16; step++) {
+					int signed = (step % 2 == 0) ? (step / 2) : -((step + 1) / 2);
+					double ang = baseYaw + signed * (Math.PI / 8.0);
+					int bx = pc.getX() + (int) Math.round(Math.cos(ang) * r);
+					int bz = pc.getZ() + (int) Math.round(Math.sin(ang) * r);
+
+					// 1) Superficie expuesta en el heightmap (omite árboles en búsqueda automática)
+					int topY = w.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, bx, bz) - 1;
+					if (topY >= w.getBottomY() + 1 && Math.abs(topY - pc.getY()) <= 20) {
+						BlockPos cand = new BlockPos(bx, topY, bz);
+						BlockState cst = w.getBlockState(cand);
+						if (isLiftableTerrain(w, cand) && !cst.isIn(BlockTags.LOGS) && !cst.isIn(BlockTags.LEAVES)
+							&& (!stoneOnly || isStoneLike(cst))) {
+							return cand;
+						}
+					}
+					// 2) En cuevas / laderas alrededor de tu altura
+					for (int dy = -2; dy <= 5; dy += 2) {
+						int cy = pc.getY() + dy;
+						if (cy < w.getBottomY() + 1 || cy >= w.getTopY() - 1) continue;
+						BlockPos cand = new BlockPos(bx, cy, bz);
+						if (isLiftableTerrain(w, cand) && w.getBlockState(cand.up()).isAir()
+							&& (!stoneOnly || isStoneLike(w.getBlockState(cand)))) {
+							return cand;
+						}
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	private static boolean isLiftableTerrain(ServerWorld w, BlockPos bp) {
+		if (bp.getY() < w.getBottomY() + 1 || bp.getY() >= w.getTopY()) return false;
+		BlockState st = w.getBlockState(bp);
+		return !st.isAir() && !(st.getBlock() instanceof FluidBlock) && !st.hasBlockEntity()
+			&& st.getHardness(w, bp) >= 0f && !st.getCollisionShape(w, bp).isEmpty();
+	}
+
+	private static boolean isStoneLike(BlockState st) {
+		return st.isIn(BlockTags.BASE_STONE_OVERWORLD)
+			|| st.isIn(BlockTags.BASE_STONE_NETHER)
+			|| st.isIn(BlockTags.TERRACOTTA)
+			|| st.isOf(Blocks.COBBLESTONE) || st.isOf(Blocks.MOSSY_COBBLESTONE) || st.isOf(Blocks.COBBLED_DEEPSLATE)
+			|| st.isOf(Blocks.SANDSTONE) || st.isOf(Blocks.RED_SANDSTONE) || st.isOf(Blocks.BLACKSTONE)
+			|| st.isOf(Blocks.BASALT) || st.isOf(Blocks.SMOOTH_BASALT) || st.isOf(Blocks.END_STONE)
+			|| st.isOf(Blocks.STONE_BRICKS) || st.isOf(Blocks.BRICKS) || st.isOf(Blocks.OBSIDIAN)
+			|| st.isOf(Blocks.CALCITE) || st.isOf(Blocks.DRIPSTONE_BLOCK);
 	}
 
 	private static boolean extractOreVeinByGravity(ServerPlayerEntity p, PlayerPower pw) {
