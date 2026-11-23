@@ -714,6 +714,12 @@ public final class LawFxClient {
 			ring(b, sc, ringR - edge, ringR, CORE, a, a * 0.4f);
 			ring(b, sc, ringR * 0.72, ringR - edge, ROOM, a * 0.12f, a * 0.6f);
 			ring(b, sc.add(0, -0.6, 0), ringR * 0.9, ringR * 1.0, ROOM, 0f, a * 0.3f);   // la estela del barrido
+			// una pared de luz baja alrededor del anillo: el plano del escáner se ve también de canto
+			for (int i = 0; i < SEG; i++) {
+				Vec3d p0 = sc.add(COS[i] * ringR, 0, SIN[i] * ringR), p1 = sc.add(COS[i + 1] * ringR, 0, SIN[i + 1] * ringR);
+				quad(b, p0.add(0, -1.1, 0), p1.add(0, -1.1, 0), p1, p0, ROOM, 0f, 0f, a * 0.55f, a * 0.55f);
+				quad(b, p0, p1, p1.add(0, 0.25, 0), p0.add(0, 0.25, 0), CORE, a * 0.7f, a * 0.7f, 0f, 0f);
+			}
 			// la rejilla del escáner dentro del disco
 			for (int k = 1; k <= 4; k++) {
 				double rk = ringR * k / 5.0;

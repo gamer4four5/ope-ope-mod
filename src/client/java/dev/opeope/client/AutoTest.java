@@ -237,12 +237,24 @@ public final class AutoTest {
 		}
 		for (int k = 0; k < s.third().length; k++) {
 			int at = 8 + s.third()[k];
-			if (r == at - 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK);
-			if (r == at) {
-				shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-3p" + (k == 0 ? "" : String.valueOf(k)));
-				OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+			// de frente se ve el gesto de Law; de espaldas, el efecto delante de él
+			if (r == at - 2) {
+				// la cámara de frente queda a ~4 bloques delante de Law: el zombi se aparta un momento para no taparla
+				server(srv, id, (sp, pw) -> {
+					if (galleryZombie != null && galleryZombie.isAlive()) {
+						Vec3d zp = galleryZombie.getPos();
+						galleryZombie.refreshPositionAndAngles(zp.x + 3.5, zp.y, zp.z, galleryZombie.getYaw(), 0f);
+					}
+				});
 			}
-			if (r == at + 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+			if (r == at - 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT);
+			if (r == at) {
+				shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-frente" + (k == 0 ? "" : String.valueOf(k)));
+				OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+				mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK);
+			}
+			if (r == at + 1) shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-3p" + (k == 0 ? "" : String.valueOf(k)));
+			if (r == at + 2) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
 		}
 	}
 

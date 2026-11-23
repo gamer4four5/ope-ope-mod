@@ -404,8 +404,8 @@ public final class PlayerAnimClient {
 		if (!mainHand && !both) return;
 		switch (st.gestureKind) {
 			case GESTURE_PALM -> {
-				matrices.translate(-0.06f * side * w, 0.16f * w, -0.10f * w);
-				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(32f * w));
+				matrices.translate(-0.04f * side * w, 0.09f * w, -0.06f * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(20f * w));
 				matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-10f * side * w));
 			}
 			case GESTURE_INDEX -> {

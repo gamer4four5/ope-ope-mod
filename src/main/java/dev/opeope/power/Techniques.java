@@ -1466,8 +1466,9 @@ public final class Techniques {
 		for (int h = -maxDepth; h <= 14; h += 2) {
 			w.spawnParticles(KROOM_DUST, c.x, c.y + h, c.z, 4, 1.2, 0.5, 1.2, 0.05);
 		}
-		w.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, c.x, c.y, c.z, 2, 2.0, 1.0, 2.0, 0);
-		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 90, 5.5, 2.0, 5.5, 0.05);
+		// sin la humareda de una explosión: en el anime es una implosión limpia de luz (la dibuja LawFx.PUNCTURE)
+		w.spawnParticles(ParticleTypes.EXPLOSION, c.x, c.y, c.z, 4, R * 0.5, 0.5, R * 0.5, 0);
+		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 40, 5.5, 2.0, 5.5, 0.05);
 
 		// Onda de choque masiva contra todos los enemigos en el radio del cráter
 		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(c, c).expand(12.0), e -> e != p && e.isAlive())) {
