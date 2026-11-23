@@ -101,12 +101,13 @@ public final class GravityFxClient {
 		boolean isUser = p.userId() == mc.player.getId();
 		double distSq = mc.player.squaredDistanceTo(p.ax(), p.ay(), p.az());
 
-		if (p.kind() == Payloads.GravityFx.KIND_METEOR_IMPACT && distSq < 110 * 110) {
-			float prox = (float) MathHelper.clamp(1.0 - Math.sqrt(distSq) / 110.0, 0.2, 1.0);
-			CameraFx.trauma(0.85f * prox);
-			CameraFx.kick(3.2f * prox, 0f, 1.8f * prox);
-			CameraFx.fov(-5.5f * prox, 0.04f, 0.45f);
-			triggerPulse(0.45f * prox, COL_FIRE);
+		if (p.kind() == Payloads.GravityFx.KIND_METEOR_IMPACT && distSq < 380 * 380) {
+			float prox = (float) MathHelper.clamp(1.0 - Math.sqrt(distSq) / 380.0, 0.25, 1.0);
+			float amp = MathHelper.clamp(p.power() * 0.55f, 0.7f, 2.2f);
+			CameraFx.trauma(Math.min(1.0f, 0.75f * prox * amp));
+			CameraFx.kick(3.8f * prox * Math.min(1.6f, amp), 0f, 2.2f * prox);
+			CameraFx.fov(-7.2f * prox, 0.04f, 0.65f);
+			triggerPulse(Math.min(0.55f, 0.42f * prox * amp), COL_FIRE);
 		} else if (isUser) {
 			switch (p.kind()) {
 				case Payloads.GravityFx.KIND_PRESS_COLUMN -> {
@@ -162,6 +163,7 @@ public final class GravityFxClient {
 		EVENTS.clear();
 		screenPulseStart = -100;
 		screenPulseStrength = 0f;
+		CameraFx.traumaFloor("meteor", 0f);
 	}
 
 	public static void renderWorld(WorldRenderContext ctx) {
@@ -176,13 +178,31 @@ public final class GravityFxClient {
 			if (age < 0 || age > ev.duration) it.remove();
 		}
 
+		// Recolecta todos los meteoritos reales cayendo en el cielo para envolverlos en bola de fuego y cola de plasma
+		List<PieceEntity> fallingMeteors = null;
+		float approachTremor = 0f;
+		for (Entity ent : mc.world.getEntities()) {
+			if (ent instanceof PieceEntity pe && pe.isAlive() && pe.isMeteor()) {
+				if (fallingMeteors == null) fallingMeteors = new ArrayList<>(4);
+				fallingMeteors.add(pe);
+				double d = Math.sqrt(pe.squaredDistanceTo(mc.player));
+				if (d < 240.0) {
+					float t = (float) MathHelper.clamp((1.0 - d / 240.0) * (0.14 + pe.meteorScale() * 0.055), 0.0, 0.48);
+					approachTremor = Math.max(approachTremor, t);
+				}
+			}
+		}
+		CameraFx.traumaFloor("meteor", approachTremor);
+
 		boolean isGrav = ClientState.gravityFruit();
 		boolean riding = mc.player.getVehicle() instanceof PieceEntity sr && sr.isGravitySurf();
 		boolean barrier = isGrav && ClientState.has(Payloads.State.CURTAIN);
 		boolean charging = isGrav && ClientState.gravityCharging();
+		boolean meteorCharging = isGrav && ClientState.gravityMeteorCharging();
 		boolean blindHaki = isGrav && ClientState.scanTicks > 0;
+		boolean hasMeteors = fallingMeteors != null && !fallingMeteors.isEmpty();
 
-		if (EVENTS.isEmpty() && !riding && !barrier && !charging && !blindHaki) return;
+		if (EVENTS.isEmpty() && !riding && !barrier && !charging && !meteorCharging && !hasMeteors && !blindHaki) return;
 
 		Vec3d cam = ctx.camera().getPos();
 		float td = ctx.tickCounter().getTickDelta(true);
@@ -205,15 +225,17 @@ public final class GravityFxClient {
 		RenderSystem.setShader(GameRenderer::getPositionColorProgram);
 
 		try {
-			// Pasada 1 (profundidad activada): anillos 3D de gravedad, relámpagos, grietas de meteorito y estados en vivo
-			if (!EVENTS.isEmpty() || riding || barrier || charging) {
+			// Pasada 1 (profundidad activada): anillos 3D de gravedad, relámpagos, bolas de fuego de meteorito y estados en vivo
+			if (!EVENTS.isEmpty() || riding || barrier || charging || meteorCharging || hasMeteors) {
 				BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
 				for (FxEvent ev : EVENTS) {
 					drawEvent(b, ev, cam, now, calm);
 				}
+				if (hasMeteors) drawFallingMeteors(b, fallingMeteors, cam, td, now, calm);
 				if (riding) drawRockSurfRings(b, mc, cam, td, now, calm);
 				if (barrier) drawRepulsionBarrier(b, mc, cam, td, now, calm);
 				if (charging) drawLiveChargeAim(b, mc, cam, td, now, calm);
+				if (meteorCharging) drawLiveMeteorCharge(b, mc, cam, td, now, calm);
 				var built = b.endNullable();
 				if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 			}
@@ -339,13 +361,13 @@ public final class GravityFxClient {
 	/** Haz gravitatorio ascendente desde la espada hacia el cielo + grieta cósmica giratoria en las nubes (Tengai Shinsei). */
 	private static void drawMeteorRift(BufferBuilder b, double ax, double ay, double az, double bx, double by, double bz,
 									   double r, double t, double fade, double now, int seed, boolean calm) {
-		// 1) Haz vertical púrpura-blanco disparado al cielo en los primeros instantes
+		// 1) Haz vertical púrpura-blanco disparado al cielo en los primeros instantes (escalado al tamaño del meteorito)
 		if (t < 0.45) {
 			double u = t / 0.45;
-			float ba = (float) (Math.sin(u * Math.PI) * 0.92);
-			double beamW = 0.55 * (1.0 - 0.35 * u);
-			ribbon(b, ax, ay, az, bx, by, bz, beamW * 2.4, beamW * 3.8, COL_NEON, ba * 0.45f, ba * 0.22f);
-			ribbon(b, ax, ay, az, bx, by, bz, beamW * 0.8, beamW * 1.1, COL_CORE, ba * 0.95f, ba * 0.65f);
+			float ba = (float) (Math.sin(u * Math.PI) * 0.94);
+			double beamW = Math.max(0.65, r * 0.055) * (1.0 - 0.30 * u);
+			ribbon(b, ax, ay, az, bx, by, bz, beamW * 2.2, beamW * 4.2, COL_NEON, ba * 0.50f, ba * 0.28f);
+			ribbon(b, ax, ay, az, bx, by, bz, beamW * 0.75, beamW * 1.35, COL_CORE, ba * 0.96f, ba * 0.72f);
 		}
 
 		// 2) Portal cósmico en el cielo (B): 3 capas concéntricas + brazos espirales girando
@@ -408,18 +430,126 @@ public final class GravityFxClient {
 			drawCylinder(b, ax, ay, az, topY * 1.05 - ay * 0.05, r * 0.48, COL_NEON, ca * 0.35f);
 		}
 
-		// 4 arcos de energía brotando del cráter
-		if (!calm && t < 0.65) {
-			float ba = (float) ((1.0 - t / 0.65) * 0.92);
+		// 8 arcos colosales de energía brotando del cráter hacia el cielo
+		if (!calm && t < 0.72) {
+			float ba = (float) ((1.0 - t / 0.72) * 0.95);
 			int flicker = (int) (now * 18.0);
-			for (int k = 0; k < 4; k++) {
-				double ang = k * (Math.PI * 0.5) + seed * 0.7;
-				double ox = Math.cos(ang) * r * 0.85;
-				double oz = Math.sin(ang) * r * 0.85;
-				drawJaggedBolt(b, ax, ay + 0.3, az, ax + ox, ay + 8.5 * (0.5 + t), az + oz,
-					0.24, 0.08, COL_NEON, COL_HOT, ba, seed + k * 59 + flicker * 9, 8, 0.9);
+			double boltW = Math.min(0.85, 0.24 + r * 0.012);
+			for (int k = 0; k < 8; k++) {
+				double ang = k * (Math.PI * 0.25) + seed * 0.7;
+				double ox = Math.cos(ang) * r * 0.90;
+				double oz = Math.sin(ang) * r * 0.90;
+				drawJaggedBolt(b, ax, ay + 0.4, az, ax + ox, ay + (12.0 + r * 0.65) * (0.5 + t), az + oz,
+					boltW, boltW * 0.34, k % 2 == 0 ? COL_NEON : COL_FIRE, COL_HOT, ba, seed + k * 59 + flicker * 9, 9, Math.min(2.6, 0.8 + r * 0.04));
 			}
 		}
+	}
+
+	/**
+	 * Reentrada atmosférica real en 3D para cada meteorito cayendo del cielo:
+	 * onda de choque frontal blanco-incandescente (Mach bow shock), cola de plasma ardiente de hasta 145 m,
+	 * cintas de fuego-violeta azotando hacia atrás y anillos sónicos expandiéndose por la estela.
+	 */
+	private static void drawFallingMeteors(BufferBuilder b, List<PieceEntity> meteors, Vec3d cam, float td, double now, boolean calm) {
+		int flicker = (int) (now * 24.0);
+		for (PieceEntity pe : meteors) {
+			float sc = Math.max(1.0f, pe.meteorScale());
+			double r = 5.4 * sc;
+			Vec3d cWorld = pe.getLerpedPos(td).add(0.0, (pe.blocks != null ? pe.blocks.sy : 10) * 0.5, 0.0);
+			double cx = cWorld.x - cam.x, cy = cWorld.y - cam.y, cz = cWorld.z - cam.z;
+
+			Vec3d vel = pe.getVelocity();
+			Vec3d fwd = vel.lengthSquared() > 1e-4 ? vel.normalize() : new Vec3d(0.0, -1.0, 0.0);
+			Vec3d back = fwd.multiply(-1.0);
+			axesFrom(fwd.x, fwd.y, fwd.z);
+
+			// 1) Frente de choque térmico (bow shock blanco-oro-naranja abrazando la cara frontal del asteroide)
+			double[][] bowLayers = {
+				{r * 1.05, r * 0.15, r * 0.62, COL_HOT,  0.96},
+				{r * 0.82, r * 0.48, r * 1.08, COL_FIRE, 0.90},
+				{r * 0.45, r * 0.82, r * 1.32, COL_FIRE, 0.72},
+				{r * 0.12, r * 0.95, r * 1.52, COL_NEON, 0.56}
+			};
+			for (double[] l : bowLayers) {
+				double lx = cx + fwd.x * l[0], ly = cy + fwd.y * l[0], lz = cz + fwd.z * l[0];
+				ringBand(b, lx, ly, lz, l[1], l[2], (int) l[3], (float) l[4], 0.06f);
+			}
+
+			// 2) Cola colosal de fuego y plasma gravitatorio (35 m .. 145 m de largo hacia la grieta del cielo!)
+			double tailLen = Math.min(150.0, r * 3.8 + 28.0);
+			double tx = cx + back.x * tailLen, ty = cy + back.y * tailLen, tz = cz + back.z * tailLen;
+			double mx = cx + back.x * (tailLen * 0.45), my = cy + back.y * (tailLen * 0.45), mz = cz + back.z * (tailLen * 0.45);
+			// Núcleo cegador blanco-amarillo + llama naranja exterior + estela violeta gravitatoria
+			ribbon(b, cx + fwd.x * r * 0.4, cy + fwd.y * r * 0.4, cz + fwd.z * r * 0.4, mx, my, mz, r * 0.55, r * 0.20, COL_HOT, 0.95f, 0.35f);
+			ribbon(b, cx, cy, cz, tx, ty, tz, r * 1.15, r * 0.25, COL_FIRE, 0.85f, 0.05f);
+			ribbon(b, cx, cy, cz, tx, ty, tz, r * 1.55, r * 0.42, COL_NEON, 0.45f, 0.02f);
+
+			// 3) 5 anillos de compresión sónica deslizándose hacia atrás por la cola ardiente
+			int rings = calm ? 3 : 5;
+			for (int k = 0; k < rings; k++) {
+				double phase = ((now * 2.8 + k / (double) rings) % 1.0);
+				double dist = phase * tailLen * 0.72;
+				double rx = cx + back.x * dist, ry = cy + back.y * dist, rz = cz + back.z * dist;
+				double rr = r * (0.95 + phase * 0.75);
+				float ra = (float) ((1.0 - phase) * 0.75);
+				ringBand(b, rx, ry, rz, rr * 0.72, rr, k % 2 == 0 ? COL_FIRE : COL_NEON, ra, 0f);
+			}
+
+			// 4) 6 lenguas de fuego y rayos violeta desprendiéndose de los costados del asteroide
+			if (!calm) {
+				for (int s = 0; s < 6; s++) {
+					double ang = s * (Math.PI / 3.0) + now * 3.2 + pe.getId();
+					double ox = (ax1x * Math.cos(ang) + ax2x * Math.sin(ang)) * r * 0.82;
+					double oy = (ax1y * Math.cos(ang) + ax2y * Math.sin(ang)) * r * 0.82;
+					double oz = (ax1z * Math.cos(ang) + ax2z * Math.sin(ang)) * r * 0.82;
+					double ex = cx + ox * 0.35 + back.x * (tailLen * (0.55 + 0.12 * (s % 3)));
+					double ey = cy + oy * 0.35 + back.y * (tailLen * (0.55 + 0.12 * (s % 3)));
+					double ez = cz + oz * 0.35 + back.z * (tailLen * (0.55 + 0.12 * (s % 3)));
+					double bw = Math.min(1.4, 0.28 + sc * 0.14);
+					drawJaggedBolt(b, cx + ox, cy + oy, cz + oz, ex, ey, ez,
+						bw, bw * 0.35, s % 2 == 0 ? COL_FIRE : COL_NEON, COL_HOT, 0.82f,
+						pe.getId() * 17 + s * 43 + flicker * 7, 7, Math.min(3.5, r * 0.12));
+				}
+			}
+		}
+	}
+
+	/**
+	 * Vista previa en vivo mientras mantienes Z: muestra el radio EXACTO del cráter (hasta 116 m de ancho!),
+	 * un haz vertical al cielo y la grieta cósmica abriéndose en las alturas al agrandar el meteorito.
+	 */
+	private static void drawLiveMeteorCharge(BufferBuilder b, MinecraftClient mc, Vec3d cam, float td, double now, boolean calm) {
+		Vec3d eye = mc.player.getEyePos();
+		Vec3d look = mc.player.getRotationVec(td);
+		HitResult hr = mc.player.raycast(160.0, td, false);
+		Vec3d hit = hr != null && hr.getType() != HitResult.Type.MISS ? hr.getPos() : eye.add(look.multiply(85.0));
+
+		int tier = ClientState.gravityMeteorTier();
+		double craterR = dev.opeope.power.GravityPowers.METEOR_CRATERS[tier];
+		double dropH = Math.min(190.0, dev.opeope.power.GravityPowers.METEOR_HEIGHTS[tier] * 0.78);
+		double sc = dev.opeope.power.GravityPowers.METEOR_SCALES[tier];
+
+		double cx = hit.x - cam.x, cy = hit.y - cam.y + 0.15, cz = hit.z - cam.z;
+		double pulse = calm ? 1.0 : 0.96 + 0.04 * Math.sin(now * 8.0);
+		double r = craterR * pulse;
+		double thick = Math.max(0.55, r * 0.055);
+
+		// Anillo colosal en tierra marcando exactamente lo que va a borrar el cráter
+		axesFrom(0, 1, 0);
+		ringBand(b, cx, cy, cz, Math.max(0.5, r - thick * 1.8), r, COL_FIRE, 0.88f, 0.06f);
+		ringBand(b, cx, cy + 0.06, cz, Math.max(0.5, r - thick * 0.55), r - thick * 0.12, COL_HOT, 0.95f, 0.15f);
+		ringBand(b, cx, cy + 0.12, cz, Math.max(0.4, r * 0.52 - thick), r * 0.52, COL_NEON, 0.72f, 0.05f);
+		ringBand(b, cx, cy + 0.18, cz, 0.4, Math.max(2.0, r * 0.14), COL_CORE, 0.80f, 0f);
+
+		// Haz vertical apuntando al cielo + grieta cósmica creciendo arriba según el nivel elegido
+		double skyY = cy + dropH;
+		ribbon(b, cx, cy, cz, cx, skyY, cz, Math.max(0.4, sc * 0.45), Math.max(0.9, sc * 0.95), COL_NEON, 0.55f, 0.25f);
+		ribbon(b, cx, cy, cz, cx, skyY, cz, Math.max(0.16, sc * 0.18), Math.max(0.32, sc * 0.36), COL_HOT, 0.85f, 0.45f);
+
+		double riftR = 9.0 * sc * pulse;
+		ringBand(b, cx, skyY, cz, riftR * 0.68, riftR * 1.15, COL_NEON, 0.88f, 0f);
+		ringBand(b, cx, skyY - 0.3, cz, riftR * 0.35, riftR * 0.72, COL_FIRE, 0.78f, 0.15f);
+		ringBand(b, cx, skyY + 0.2, cz, riftR * 0.82, riftR * 0.95, COL_HOT, 0.92f, 0.1f);
 	}
 
 	/** Anillos ascendentes en espiral (Antigravedad -G, levitación libre, despegue en roca, Escombros de Dressrosa). */

@@ -86,7 +86,41 @@ public final class GravityPowers {
 		"🌀 Vórtice (Atraer)"
 	};
 
-	private record ActiveMeteor(RegistryKey<World> dim, int entityId, UUID ownerId, Vec3d target, Vec3d portalPos, int age) {}
+	public static final String[] METEOR_NAMES = {
+		"Meteorito (12 m)",
+		"Asteroide (24 m)",
+		"Coloso de Dressrosa (40 m)",
+		"Cataclismo (60 m)",
+		"EXTINCIÓN PLANETARIA (85 m)"
+	};
+	public static final float[] METEOR_SCALES = {1.15f, 2.25f, 3.70f, 5.50f, 7.80f};
+	public static final float[] METEOR_CRATERS = {10.5f, 18.5f, 28.0f, 42.0f, 58.0f};
+	public static final double[] METEOR_HEIGHTS = {145.0, 175.0, 205.0, 235.0, 265.0};
+	public static final double[] METEOR_SPEEDS = {2.35, 2.55, 2.75, 2.90, 3.05};
+
+	private record ActiveMeteor(RegistryKey<World> dim, int entityId, UUID ownerId, Vec3d target, Vec3d portalPos, int tier, int age) {}
+
+	/** Cráter progresivo por ondas concéntricas: abre cráteres colosales de hasta 116 m de ancho sin congelar el servidor. */
+	private static final class PendingCrater {
+		final RegistryKey<World> dim;
+		final UUID ownerId;
+		final BlockPos center;
+		final BlockPos safeCenter;
+		final double maxR;
+		final int tier;
+		double curR;
+		int oresRewarded;
+
+		PendingCrater(RegistryKey<World> dim, UUID ownerId, BlockPos center, BlockPos safeCenter, double maxR, int tier) {
+			this.dim = dim;
+			this.ownerId = ownerId;
+			this.center = center;
+			this.safeCenter = safeCenter;
+			this.maxR = maxR;
+			this.tier = tier;
+			this.curR = 0.0;
+		}
+	}
 
 	/** Pozo localizado y temporal de gravedad (no es un ROOM esférico): aplasta, eleva o atrae durante unos segundos. */
 	private static final class ActiveZone {
@@ -108,18 +142,20 @@ public final class GravityPowers {
 	}
 
 	private static final List<ActiveMeteor> METEORS = new ArrayList<>();
+	private static final List<PendingCrater> CRATERS = new ArrayList<>();
 	private static final List<ActiveZone> ZONES = new ArrayList<>();
 	private static List<Block> cachedRareModOres = null;
 
 	public static void clearAll() {
 		METEORS.clear();
+		CRATERS.clear();
 		ZONES.clear();
 	}
 
 	public static void sendFx(ServerWorld w, int kind, int userId, Vec3d a, Vec3d b, float radius, float power, int ticks) {
 		Payloads.GravityFx fx = new Payloads.GravityFx(kind, userId, a.x, a.y, a.z, b.x, b.y, b.z, radius, power, ticks);
 		for (ServerPlayerEntity sp : w.getPlayers()) {
-			if (sp.squaredDistanceTo(a) <= 180 * 180 || sp.squaredDistanceTo(b) <= 180 * 180) {
+			if (sp.squaredDistanceTo(a) <= 420 * 420 || sp.squaredDistanceTo(b) <= 420 * 420) {
 				ServerPlayNetworking.send(sp, fx);
 			}
 		}
@@ -454,6 +490,21 @@ public final class GravityPowers {
 			}
 		}
 
+		// 1b) Carga y selección de tamaño de meteorito (mantener Z: sube de nivel o usa la rueda para elegir 12 m .. 85 m)
+		if (pw.meteorCharging) {
+			pw.meteorChargeTicks++;
+			pw.meteorAimPos = PowerManager.aimPoint(p, 160.0);
+			if (pw.meteorChargeTicks > 12 && pw.meteorChargeTicks % 18 == 0 && pw.meteorTier < METEOR_NAMES.length - 1) {
+				pw.meteorTier++;
+				pw.dirty = true;
+				playSound(w, p.getPos(), SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 0.5f + pw.meteorTier * 0.12f);
+			}
+			if (pw.meteorChargeTicks % 6 == 0) {
+				int t = MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1);
+				p.sendMessage(Text.literal("§5☄ TENGAI SHINSEI · §6[" + METEOR_NAMES[t] + "] §7(Cráter " + Math.round(METEOR_CRATERS[t] * 2) + "m · Rueda o mantén Z · Suelta para desplomar)"), true);
+			}
+		}
+
 		// 2) Entidades y rocas levitadas libremente con R (pw.gravityHeld)
 		if (!pw.gravityHeld.isEmpty()) {
 			cleanHeld(w, pw);
@@ -542,6 +593,7 @@ public final class GravityPowers {
 	public static void tickServer(MinecraftServer server) {
 		tickZones(server);
 		tickMeteors(server);
+		tickCraters(server);
 	}
 
 	private static void tickZones(MinecraftServer server) {
@@ -621,110 +673,244 @@ public final class GravityPowers {
 				continue;
 			}
 
+			int tier = MathHelper.clamp(am.tier, 0, METEOR_SCALES.length - 1);
+			double radVis = 4.5 * METEOR_SCALES[tier];
 			Vec3d mc = pe.center();
-			w.spawnParticles(ParticleTypes.FLAME, mc.x, mc.y, mc.z, 22, 1.5, 1.5, 1.5, 0.10);
-			w.spawnParticles(ParticleTypes.LARGE_SMOKE, mc.x, mc.y, mc.z, 12, 1.3, 1.3, 1.3, 0.05);
-			w.spawnParticles(GRAVITY_DUST, mc.x, mc.y, mc.z, 14, 1.8, 1.8, 1.8, 0.02);
+			double spread = Math.min(18.0, radVis * 0.45);
+			w.spawnParticles(ParticleTypes.FLAME, mc.x, mc.y, mc.z, 18 + tier * 8, spread, spread, spread, 0.14);
+			w.spawnParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, mc.x, mc.y + radVis * 0.3, mc.z, 10 + tier * 5, spread, spread, spread, 0.04);
+			w.spawnParticles(ParticleTypes.LAVA, mc.x, mc.y, mc.z, 6 + tier * 4, spread * 0.7, spread * 0.7, spread * 0.7, 0.12);
+			w.spawnParticles(GRAVITY_DUST, mc.x, mc.y, mc.z, 10 + tier * 4, spread, spread, spread, 0.02);
 
-			boolean closeToTarget = mc.y <= am.target.y + 3.0;
-			boolean hitGround = pe.isOnGround() || pe.getVelocity().lengthSquared() < 0.12 || closeToTarget;
-			if ((am.age >= 6 && hitGround) || am.age > 120) {
+			// Rugido atmosférico descendente que se vuelve ensordecedor al acercarse a la tierra
+			if (am.age % 12 == 0) {
+				playGlobalSound(w, mc, 360.0, SoundEvents.ENTITY_ENDER_DRAGON_GROWL, 1.4f + tier * 0.35f, 0.45f);
+			}
+
+			// Detecta llegada al objetivo o colisión real con el terreno sólido bajo el asteroide
+			double distToTarget = mc.distanceTo(am.target);
+			boolean reachedY = mc.y <= am.target.y + Math.max(3.0, radVis * 0.35);
+			boolean hitSolidGround = mc.y < w.getTopY() - 2 && !w.getBlockState(BlockPos.ofFloored(mc.x, mc.y - Math.min(8.0, radVis * 0.3), mc.z)).isAir();
+			if ((am.age >= 12 && (reachedY || distToTarget <= Math.max(4.5, radVis * 0.45) || (hitSolidGround && mc.y <= am.target.y + 18.0))) || am.age > 240) {
 				ServerPlayerEntity owner = server.getPlayerManager().getPlayer(am.ownerId);
-				detonateMeteor(w, owner, pe, am.target);
+				detonateMeteor(w, owner, pe, am.target, tier);
 				it.remove();
 			} else {
 				int idx = METEORS.indexOf(am);
 				if (idx >= 0) {
-					METEORS.set(idx, new ActiveMeteor(am.dim, am.entityId, am.ownerId, am.target, am.portalPos, am.age + 1));
+					METEORS.set(idx, new ActiveMeteor(am.dim, am.entityId, am.ownerId, am.target, am.portalPos, am.tier, am.age + 1));
 				}
 			}
 		}
 	}
 
-	private static void detonateMeteor(ServerWorld w, ServerPlayerEntity owner, PieceEntity meteor, Vec3d impact) {
+	private static void detonateMeteor(ServerWorld w, ServerPlayerEntity owner, PieceEntity meteor, Vec3d impact, int tier) {
 		Vec3d center = meteor.center();
-		if (center.distanceTo(impact) > 10.0) impact = center;
+		if (center.distanceTo(impact) > 22.0) impact = new Vec3d(center.x, impact.y, center.z);
 		meteor.discard();
 
+		double R = METEOR_CRATERS[MathHelper.clamp(tier, 0, METEOR_CRATERS.length - 1)];
 		BlockPos cb = BlockPos.ofFloored(impact);
-		double R = 6.5;
-		int ri = (int) Math.ceil(R);
 		BlockPos safeCenter = owner != null ? owner.getBlockPos() : null;
 
-		for (int dx = -ri; dx <= ri; dx++) {
-			for (int dy = 3; dy >= -4; dy--) {
-				for (int dz = -ri; dz <= ri; dz++) {
-					double d2 = dx * dx + dy * dy * 1.35 + dz * dz;
-					if (d2 > R * R) continue;
-					BlockPos bp = cb.add(dx, dy, dz);
-					if (bp.getY() < w.getBottomY() + 2 || bp.getY() >= w.getTopY()) continue;
-					// Cono de repulsión protector de Fujitora
-					if (safeCenter != null && Math.abs(bp.getX() - safeCenter.getX()) <= 1
-						&& Math.abs(bp.getZ() - safeCenter.getZ()) <= 1 && bp.getY() <= safeCenter.getY()) {
-						continue;
-					}
-					BlockState st = w.getBlockState(bp);
-					if (st.isAir() || st.hasBlockEntity() || st.getHardness(w, bp) < 0) continue;
-
-					if (SurgicalSurvival.isOre(st) && owner != null) {
-						PlayerPower pw = PowerManager.get(owner);
-						SurgicalSurvival.givePerfectOreYield(owner, w, pw, bp, st,
-							SurgicalSurvival.createPickaxe(w, Math.max(1, pw.masteryTier())), false, true, false, null);
-					}
-					if (dy >= 1 && w.random.nextInt(14) == 0) {
-						FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(w, bp.toImmutable(), st);
-						Vec3d out = new Vec3d(dx, 2.5, dz).normalize().multiply(0.95);
-						fb.setVelocity(out);
-						fb.velocityModified = true;
-					} else {
-						w.setBlockState(bp, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
-					}
-				}
-			}
+		// Cola de excavación progresiva por ondas expansivas (cero congelación incluso en cráteres de 116 metros)
+		PendingCrater crater = new PendingCrater(w.getRegistryKey(), owner != null ? owner.getUuid() : null, cb, safeCenter, R, tier);
+		stepCraterShell(w, owner, crater, Math.min(R, 11.0));
+		if (crater.curR < crater.maxR) {
+			CRATERS.add(crater);
+		} else {
+			placeSpatialCore(w, cb, tier, R);
 		}
 
-		// Núcleo espacial rico en menas raras en el fondo del cráter
-		BlockPos craterFloor = cb.down(3);
-		List<Block> rareOres = rareModOres();
-		BlockPos[] coreOffsets = {
-			craterFloor, craterFloor.east(), craterFloor.west(), craterFloor.north(), craterFloor.south(), craterFloor.up()
+		// Corona volcánica de rocas ardientes catapultadas al cielo
+		int debrisCount = 24 + tier * 14;
+		BlockState[] debrisPalette = {
+			Blocks.MAGMA_BLOCK.getDefaultState(), Blocks.BLACKSTONE.getDefaultState(),
+			Blocks.BASALT.getDefaultState(), Blocks.CRYING_OBSIDIAN.getDefaultState()
 		};
-		BlockState[] spatialCore = {
-			Blocks.ANCIENT_DEBRIS.getDefaultState(),
-			Blocks.DEEPSLATE_DIAMOND_ORE.getDefaultState(),
-			Blocks.RAW_GOLD_BLOCK.getDefaultState(),
-			Blocks.RAW_IRON_BLOCK.getDefaultState(),
-			rareOres.isEmpty() ? Blocks.DEEPSLATE_EMERALD_ORE.getDefaultState() : rareOres.get(w.random.nextInt(rareOres.size())).getDefaultState(),
-			Blocks.MAGMA_BLOCK.getDefaultState()
-		};
-		for (int i = 0; i < coreOffsets.length; i++) {
-			BlockPos op = coreOffsets[i];
-			if (op.getY() > w.getBottomY() + 1 && w.getBlockState(op).isAir()) {
-				w.setBlockState(op, spatialCore[i], Block.NOTIFY_LISTENERS);
-			}
+		for (int i = 0; i < debrisCount; i++) {
+			double ang = (Math.PI * 2.0 * i / debrisCount) + w.random.nextDouble() * 0.35;
+			double rad = 2.0 + w.random.nextDouble() * Math.min(12.0, R * 0.4);
+			BlockPos sp = cb.add((int) Math.round(Math.cos(ang) * rad), 2 + w.random.nextInt(4), (int) Math.round(Math.sin(ang) * rad));
+			if (sp.getY() >= w.getTopY() - 2) continue;
+			BlockState st = debrisPalette[w.random.nextInt(debrisPalette.length)];
+			FallingBlockEntity fb = FallingBlockEntity.spawnFromBlock(w, sp, st);
+			double spd = 1.05 + tier * 0.32 + w.random.nextDouble() * 0.5;
+			fb.setVelocity(Math.cos(ang) * spd, 0.95 + tier * 0.25 + w.random.nextDouble() * 0.6, Math.sin(ang) * spd);
+			fb.velocityModified = true;
 		}
 
-		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(impact, impact).expand(13.0), Entity::isAlive)) {
+		// Daño y onda expansiva masiva escalada al tamaño del meteorito
+		double dmgRad = R * 1.65;
+		float baseDmg = (60f + tier * 42f) + (owner != null ? PowerManager.get(owner).masteryTier() * 12f : 0f);
+		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(impact, impact).expand(dmgRad), Entity::isAlive)) {
 			if (le == owner) continue;
-			float amt = owner != null ? 55f + PowerManager.get(owner).masteryTier() * 10f : 50f;
-			le.damage(ModDamage.of(w, ModDamage.BURN, owner), amt);
-			le.setOnFireFor(6);
+			double d = le.getPos().distanceTo(impact);
+			if (d > dmgRad) continue;
+			float falloff = (float) MathHelper.clamp(1.2 - (d / dmgRad) * 0.75, 0.35, 1.0);
+			le.damage(ModDamage.of(w, ModDamage.BURN, owner), baseDmg * falloff);
+			le.setOnFireFor(8 + tier * 4);
 			Vec3d away = le.getPos().subtract(impact);
 			if (away.lengthSquared() < 0.1) away = new Vec3d(0, 1, 0);
-			Vec3d push = away.normalize().multiply(2.2).add(0, 0.95, 0);
+			double kb = (2.2 + tier * 0.75) * falloff;
+			Vec3d push = away.normalize().multiply(kb).add(0, 1.1 + tier * 0.32, 0);
 			le.addVelocity(push.x, push.y, push.z);
 			le.velocityModified = true;
 		}
 
+		// Explosión 3D colosal (anillos fuego + púrpura + columna de plasma hasta las nubes) + audio sísmico a 400 m
+		float fxRadius = (float) (R * 1.85);
+		double pillarH = 26.0 + R * 2.1;
 		sendFx(w, Payloads.GravityFx.KIND_METEOR_IMPACT, owner != null ? owner.getId() : -1,
-			impact, impact.add(0, 16, 0), 11.5f, 2.2f, 40);
-		w.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, impact.x, impact.y, impact.z, 4, 2.0, 1.0, 2.0, 0);
-		w.spawnParticles(ParticleTypes.LAVA, impact.x, impact.y, impact.z, 70, 3.2, 1.2, 3.2, 0.2);
-		playSound(w, impact, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 2.4f, 0.55f);
-		playSound(w, impact, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, 2.0f, 0.48f);
+			impact, impact.add(0, pillarH, 0), fxRadius, 1.8f + tier * 0.75f, 52 + tier * 14);
+		w.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, impact.x, impact.y + 2, impact.z, 8 + tier * 5, R * 0.35, 4.0 + tier * 1.5, R * 0.35, 0);
+		w.spawnParticles(ParticleTypes.LAVA, impact.x, impact.y + 1, impact.z, 90 + tier * 45, R * 0.45, 3.0, R * 0.45, 0.25);
+		playGlobalSound(w, impact, 420.0, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 3.2f + tier * 0.5f, 0.42f);
+		playGlobalSound(w, impact, 420.0, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, 2.8f + tier * 0.4f, 0.38f);
+		playGlobalSound(w, impact, 420.0, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 2.4f + tier * 0.4f, 0.45f);
+		playGlobalSound(w, impact, 420.0, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 2.6f, 0.48f);
+
 		if (owner != null) {
-			PowerManager.addBounty(owner, 900_000L);
-			owner.sendMessage(Text.literal("§5☄ ¡Impacto de Tengai Shinsei! §7(Núcleo espacial depositado en el cráter)"), true);
+			PowerManager.addBounty(owner, 900_000L + tier * 650_000L);
+			owner.sendMessage(Text.literal("§5☄ ¡IMPACTO DE " + METEOR_NAMES[tier].toUpperCase() + "! §7(Cráter de " + Math.round(R * 2) + " m · Núcleo espacial formado)"), true);
+		}
+	}
+
+	private static void tickCraters(MinecraftServer server) {
+		if (CRATERS.isEmpty()) return;
+		Iterator<PendingCrater> it = CRATERS.iterator();
+		while (it.hasNext()) {
+			PendingCrater c = it.next();
+			ServerWorld w = server.getWorld(c.dim);
+			if (w == null) {
+				it.remove();
+				continue;
+			}
+			ServerPlayerEntity owner = c.ownerId == null ? null : server.getPlayerManager().getPlayer(c.ownerId);
+			// Paso adaptativo: ~3.5k-5k bloques por tick para excavación instantánea y fluida a 20 TPS
+			double step = c.curR < 16 ? 4.0 : (c.curR < 30 ? 2.6 : (c.curR < 45 ? 1.9 : 1.5));
+			double nextR = Math.min(c.maxR, c.curR + step);
+			stepCraterShell(w, owner, c, nextR);
+			if (c.curR >= c.maxR - 0.01) {
+				placeSpatialCore(w, c.center, c.tier, c.maxR);
+				it.remove();
+			}
+		}
+	}
+
+	private static void stepCraterShell(ServerWorld w, ServerPlayerEntity owner, PendingCrater c, double nextR) {
+		double minR2 = c.curR * c.curR;
+		double maxR2 = nextR * nextR;
+		double totalR = c.maxR;
+		double maxDepth = Math.min(34.0, totalR * 0.56);
+		double maxSkyClear = Math.min(44.0, totalR * 0.78);
+		int ri = (int) Math.ceil(nextR);
+		int minY = w.getBottomY() + 3;
+		int maxY = w.getTopY() - 1;
+		ItemStack pick = owner != null ? SurgicalSurvival.createPickaxe(w, Math.max(1, PowerManager.get(owner).masteryTier())) : ItemStack.EMPTY;
+		PlayerPower pw = owner != null ? PowerManager.get(owner) : null;
+		BlockPos.Mutable bp = new BlockPos.Mutable();
+		int flags = Block.NOTIFY_LISTENERS | Block.FORCE_STATE;
+
+		for (int dx = -ri; dx <= ri; dx++) {
+			for (int dz = -ri; dz <= ri; dz++) {
+				double h2 = dx * dx + dz * dz;
+				if (h2 < minR2 || h2 > maxR2) continue;
+				if (c.safeCenter != null && Math.abs(c.center.getX() + dx - c.safeCenter.getX()) <= 2
+					&& Math.abs(c.center.getZ() + dz - c.safeCenter.getZ()) <= 2) continue;
+
+				double frac = Math.sqrt(h2) / totalR;
+				// Perfil parabólico real de cráter planetario con bordes irregulares orgánicos
+				double noise = 0.08 * Math.sin((c.center.getX() + dx) * 0.35) * Math.cos((c.center.getZ() + dz) * 0.35);
+				double bowl = Math.max(0.0, 1.0 - frac * frac + noise);
+				int floorY = Math.max(minY, c.center.getY() - (int) Math.round(maxDepth * bowl));
+				int ceilY = Math.min(maxY, c.center.getY() + (int) Math.round(maxSkyClear * Math.sqrt(Math.max(0.0, 1.0 - frac * frac * 0.85))) + 4);
+				int x = c.center.getX() + dx;
+				int z = c.center.getZ() + dz;
+
+				for (int y = ceilY; y >= floorY; y--) {
+					bp.set(x, y, z);
+					BlockState st = w.getBlockState(bp);
+					if (st.isAir()) continue;
+					if (st.hasBlockEntity() || st.getHardness(w, bp) < 0f) continue;
+
+					if (owner != null && pw != null && c.oresRewarded < 96 && SurgicalSurvival.isOre(st)) {
+						SurgicalSurvival.givePerfectOreYield(owner, w, pw, bp.toImmutable(), st, pick, false, true, false, null);
+						c.oresRewarded++;
+					}
+					w.setBlockState(bp, Blocks.AIR.getDefaultState(), flags);
+				}
+
+				// Suelo calcinado del cráter: basalto, piedra negra, vetas de magma incandescente y fuego real
+				int crustY = floorY - 1;
+				if (crustY >= minY) {
+					bp.set(x, crustY, z);
+					BlockState floorSt = w.getBlockState(bp);
+					if (!floorSt.isAir() && !floorSt.hasBlockEntity() && floorSt.getHardness(w, bp) >= 0f) {
+						int roll = w.random.nextInt(16);
+						if (roll <= 2 && frac < 0.72) {
+							w.setBlockState(bp, Blocks.MAGMA_BLOCK.getDefaultState(), flags);
+						} else if (roll <= 5) {
+							w.setBlockState(bp, Blocks.BLACKSTONE.getDefaultState(), flags);
+						} else if (roll <= 8) {
+							w.setBlockState(bp, Blocks.BASALT.getDefaultState(), flags);
+						}
+						if (w.random.nextInt(14) == 0 && frac < 0.85) {
+							bp.set(x, floorY, z);
+							if (w.getBlockState(bp).isAir()) {
+								w.setBlockState(bp, Blocks.FIRE.getDefaultState(), flags);
+							}
+						}
+					}
+				}
+			}
+		}
+		c.curR = nextR;
+	}
+
+	/** Deposita el núcleo cósmico del asteroide incrustado en el epicentro del cráter (más rico cuanto más colosal). */
+	private static void placeSpatialCore(ServerWorld w, BlockPos cb, int tier, double maxR) {
+		int depth = (int) Math.round(Math.min(34.0, maxR * 0.56));
+		BlockPos floor = new BlockPos(cb.getX(), Math.max(w.getBottomY() + 4, cb.getY() - depth), cb.getZ());
+		List<Block> rareOres = rareModOres();
+		int coreR = Math.min(4, 1 + tier);
+		for (int dx = -coreR; dx <= coreR; dx++) {
+			for (int dy = 0; dy <= Math.max(1, coreR - 1); dy++) {
+				for (int dz = -coreR; dz <= coreR; dz++) {
+					double d2 = dx * dx + dy * dy * 1.5 + dz * dz;
+					if (d2 > coreR * coreR + 0.5) continue;
+					BlockPos op = floor.add(dx, dy, dz);
+					if (op.getY() <= w.getBottomY() + 2 || op.getY() >= w.getTopY() - 1) continue;
+					BlockState st;
+					if (d2 <= 1.2) {
+						st = Blocks.ANCIENT_DEBRIS.getDefaultState();
+					} else {
+						int r = w.random.nextInt(7);
+						st = switch (r) {
+							case 0 -> Blocks.DEEPSLATE_DIAMOND_ORE.getDefaultState();
+							case 1 -> Blocks.RAW_GOLD_BLOCK.getDefaultState();
+							case 2 -> Blocks.RAW_IRON_BLOCK.getDefaultState();
+							case 3 -> rareOres.isEmpty() ? Blocks.DEEPSLATE_EMERALD_ORE.getDefaultState() : rareOres.get(w.random.nextInt(rareOres.size())).getDefaultState();
+							case 4 -> Blocks.CRYING_OBSIDIAN.getDefaultState();
+							default -> Blocks.MAGMA_BLOCK.getDefaultState();
+						};
+					}
+					w.setBlockState(op, st, Block.NOTIFY_LISTENERS);
+				}
+			}
+		}
+	}
+
+	private static void playGlobalSound(ServerWorld w, Vec3d pos, double range, SoundEvent sound, float volume, float pitch) {
+		double r2 = range * range;
+		for (ServerPlayerEntity sp : w.getPlayers()) {
+			if (sp.squaredDistanceTo(pos) <= r2) {
+				// Sonido centrado hacia el jugador para que se oiga desde el cielo y a gran distancia
+				Vec3d dir = pos.subtract(sp.getPos());
+				double d = dir.length();
+				Vec3d at = d <= 18.0 ? pos : sp.getPos().add(dir.multiply(18.0 / d));
+				w.playSound(null, at.x, at.y, at.z, sound, SoundCategory.PLAYERS, volume, pitch);
+			}
 		}
 	}
 
@@ -1135,65 +1321,129 @@ public final class GravityPowers {
 		pw.cooldown(Tech.INJECTION);
 	}
 
-	// ------------------------------------------------------------------ Tengai Shinsei (Z — Meteorito Real desde el Espacio)
+	// ------------------------------------------------------------------ Tengai Shinsei (Z — Meteorito Colosal Real desde la Estratosfera)
+
+	public static void startMeteorCharge(ServerPlayerEntity p, PlayerPower pw) {
+		if (pw.onCooldown(Tech.RADIO_KNIFE)) return;
+		equipYakuzaKasenSafely(p);
+		pw.meteorCharging = true;
+		pw.meteorChargeTicks = 0;
+		pw.meteorAimPos = PowerManager.aimPoint(p, 160.0);
+		pw.dirty = true;
+		int t = MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1);
+		playSound(p.getServerWorld(), p.getPos(), SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.85f, 0.55f + t * 0.1f);
+		p.sendMessage(Text.literal("§5☄ TENGAI SHINSEI · §6[" + METEOR_NAMES[t] + "] §7(Rueda o mantén Z para agrandar hasta 85 m · Suelta para desplomar)"), true);
+	}
+
+	public static void adjustMeteorSize(ServerPlayerEntity p, PlayerPower pw, int dir) {
+		pw.meteorTier = MathHelper.clamp(pw.meteorTier + (dir >= 0 ? 1 : -1), 0, METEOR_NAMES.length - 1);
+		pw.meteorChargeTicks = 0; // reinicia auto-crecimiento si el jugador eligió manualmente con la rueda
+		pw.dirty = true;
+		int t = pw.meteorTier;
+		playSound(p.getServerWorld(), p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.0f, 0.55f + t * 0.18f);
+		p.sendMessage(Text.literal("§5☄ Tamaño del Meteorito: §6[" + METEOR_NAMES[t] + "] §7(Cráter " + Math.round(METEOR_CRATERS[t] * 2) + " m · Altura +" + Math.round(METEOR_HEIGHTS[t]) + " m)"), true);
+	}
+
+	public static void releaseMeteorCharge(ServerPlayerEntity p, PlayerPower pw, boolean triple) {
+		if (!pw.meteorCharging) return;
+		Vec3d aim = pw.meteorAimPos != null && pw.meteorAimPos.lengthSquared() > 1.0 ? pw.meteorAimPos : PowerManager.aimPoint(p, 160.0);
+		pw.meteorCharging = false;
+		pw.meteorChargeTicks = 0;
+		pw.dirty = true;
+		launchMeteor(p, pw, aim, MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1), triple);
+	}
 
 	public static void tengaiShinsei(ServerPlayerEntity p, PlayerPower pw, boolean triple) {
 		if (pw.onCooldown(Tech.RADIO_KNIFE)) return;
 		equipYakuzaKasenSafely(p);
+		launchMeteor(p, pw, PowerManager.aimPoint(p, 160.0), MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1), triple);
+	}
+
+	private static void launchMeteor(ServerPlayerEntity p, PlayerPower pw, Vec3d baseAim, int tier, boolean triple) {
+		if (pw.onCooldown(Tech.RADIO_KNIFE)) return;
 		ServerWorld w = p.getServerWorld();
-		Vec3d baseAim = PowerManager.aimPoint(p, 85.0);
 		int count = triple ? 3 : 1;
-
+		// En lluvia triple con Extinción, los 2 meteoritos laterales bajan 1 nivel para que sea apocalíptico y fluido
 		for (int m = 0; m < count; m++) {
-			double ox = m == 0 ? 0.0 : (m == 1 ? -10.0 : 10.0);
-			double oz = m == 0 ? 0.0 : (m == 1 ? 7.0 : -7.0);
+			int curTier = (triple && m > 0) ? Math.max(0, tier - 1) : tier;
+			float visScale = METEOR_SCALES[curTier];
+			double dropH = METEOR_HEIGHTS[curTier] + m * 28.0;
+			double speed = METEOR_SPEEDS[curTier];
+			double spread = Math.max(16.0, METEOR_CRATERS[curTier] * 0.9);
+			double ox = m == 0 ? 0.0 : (m == 1 ? -spread : spread);
+			double oz = m == 0 ? 0.0 : (m == 1 ? spread * 0.7 : -spread * 0.7);
 			Vec3d target = baseAim.add(ox, 0, oz);
-			Vec3d portalPos = new Vec3d(target.x + (w.random.nextDouble() - 0.5) * 6.0,
-				Math.min(w.getTopY() - 8.0, target.y + 52.0 + m * 6.0),
-				target.z + (w.random.nextDouble() - 0.5) * 6.0);
 
-			BlockSet set = buildMeteorBlockSet(w, m == 0 ? 2 : 1);
+			// Ángulo oblicuo de entrada atmosférica desde MUY ARRIBA en el cielo (atravesando las nubes!)
+			double slantAng = Math.toRadians(p.getYaw() + 180.0 + (m == 0 ? 18.0 : (m == 1 ? -28.0 : 35.0)));
+			double slantDist = 48.0 + curTier * 14.0;
+			Vec3d portalPos = new Vec3d(
+				target.x + Math.cos(slantAng) * slantDist,
+				target.y + dropH,
+				target.z + Math.sin(slantAng) * slantDist
+			);
+
+			BlockSet set = buildMeteorBlockSet(w, 5, (int) (w.getTime() + m * 97));
 			PieceEntity meteor = PieceEntity.spawn(w, set, portalPos.subtract(set.sx / 2.0, set.sy / 2.0, set.sz / 2.0), null, p.getUuid());
-			meteor.mode = PieceEntity.Mode.FREE;
+			meteor.setMeteorScale(visScale);
 			meteor.thrown = true;
-			meteor.ownerGraceTicks = 200;
-			Vec3d plunge = target.subtract(portalPos).normalize().multiply(2.25);
+			meteor.ownerGraceTicks = 300;
+			Vec3d plunge = target.subtract(portalPos).normalize().multiply(speed);
 			meteor.setVelocity(plunge);
 			meteor.velocityModified = true;
 
-			sendFx(w, Payloads.GravityFx.KIND_METEOR_RIFT, p.getId(), p.getEyePos().add(p.getRotationVector()), portalPos, 8.5f, 1.8f, 64);
-			METEORS.add(new ActiveMeteor(w.getRegistryKey(), meteor.getId(), p.getUuid(), target, portalPos, 0));
+			float riftRad = 9.5f * visScale;
+			sendFx(w, Payloads.GravityFx.KIND_METEOR_RIFT, p.getId(), p.getEyePos().add(p.getRotationVector()), portalPos,
+				riftRad, 1.6f + curTier * 0.6f, 110 + curTier * 20);
+			METEORS.add(new ActiveMeteor(w.getRegistryKey(), meteor.getId(), p.getUuid(), target, portalPos, curTier, 0));
 		}
 
-		playSound(w, baseAim.add(0, 20, 0), SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 2.2f, 0.52f);
-		playSound(w, p.getPos(), SoundEvents.BLOCK_RESPAWN_ANCHOR_DEPLETE.value(), 1.4f, 0.55f);
+		playGlobalSound(w, baseAim.add(0, 60, 0), 380.0, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 2.8f + tier * 0.4f, 0.44f);
+		playGlobalSound(w, p.getPos(), 260.0, SoundEvents.BLOCK_RESPAWN_ANCHOR_DEPLETE.value(), 1.8f, 0.48f);
+		playGlobalSound(w, baseAim.add(0, 80, 0), 380.0, SoundEvents.ENTITY_ENDER_DRAGON_GROWL, 2.0f, 0.42f);
 		p.sendMessage(Text.literal(triple
-			? "§5☄☄☄ ¡LLUVIA DE METEORITOS ESPACIALES!"
-			: "§5☄ ¡Tengai Shinsei: Grieta espacial abierta — meteorito cayendo!"), true);
+			? "§5☄☄☄ ¡LLUVIA DE " + METEOR_NAMES[tier].toUpperCase() + " CAYENDO DEL ESPACIO!"
+			: "§5☄ ¡TENGAI SHINSEI — " + METEOR_NAMES[tier].toUpperCase() + " CAYENDO DESDE LA ESTRATOSFERA!"), true);
 		pw.cooldown(Tech.RADIO_KNIFE);
 	}
 
-	private static BlockSet buildMeteorBlockSet(ServerWorld w, int r) {
+	/**
+	 * Esculpe un asteroide volcánico hueco e irregular (con grietas de magma, cráteres, basalto, piedra negra y menas).
+	 * Al ser hueco (~350 bloques), se sincroniza al instante y luego se escala hasta 85 m en 3D sin lag.
+	 */
+	private static BlockSet buildMeteorBlockSet(ServerWorld w, int r, int seed) {
 		BlockSet set = new BlockSet();
 		for (int dx = -r; dx <= r; dx++) {
 			for (int dy = -r; dy <= r; dy++) {
 				for (int dz = -r; dz <= r; dz++) {
-					double d2 = dx * dx + dy * dy + dz * dz;
-					if (d2 > r * r + 1.0) continue;
+					double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+					// Relieve rugoso e irregular con cráteres orgánicos de asteroide real (jamás un cubo ni esfera perfecta)
+					double bump = 0.72 * Math.sin(dx * 0.75 + seed) * Math.cos(dz * 0.72 - seed * 0.5)
+						+ 0.55 * Math.cos(dy * 0.90 + dx * 0.45)
+						- 0.35 * Math.sin((dx + dy + dz) * 0.65);
+					double outer = r + bump * 0.75;
+					double inner = outer - 1.55;
+					if (dist > outer || dist < inner) continue;
+
+					// Grietas de lava/magma ardiente cruzando el asteroide
+					double crack = Math.abs(Math.sin(dx * 0.55 + dy * 0.65) + Math.cos(dz * 0.60 - dy * 0.45));
 					BlockState st;
-					if (d2 <= 1.2) {
-						st = (dx == 0 && dy == 0 && dz == 0) ? Blocks.ANCIENT_DEBRIS.getDefaultState() : Blocks.RAW_GOLD_BLOCK.getDefaultState();
+					if (crack < 0.28) {
+						st = w.random.nextInt(5) == 0 ? Blocks.SHROOMLIGHT.getDefaultState() : Blocks.MAGMA_BLOCK.getDefaultState();
+					} else if (crack < 0.44) {
+						st = Blocks.CRYING_OBSIDIAN.getDefaultState();
 					} else {
-						int roll = Math.abs(dx * 17 + dy * 31 + dz * 13 + w.random.nextInt(5)) % 6;
+						int roll = Math.abs(dx * 17 + dy * 31 + dz * 13 + seed + w.random.nextInt(5)) % 9;
 						st = switch (roll) {
 							case 0 -> Blocks.MAGMA_BLOCK.getDefaultState();
-							case 1 -> Blocks.CRYING_OBSIDIAN.getDefaultState();
+							case 1 -> Blocks.ANCIENT_DEBRIS.getDefaultState();
 							case 2 -> Blocks.DEEPSLATE_DIAMOND_ORE.getDefaultState();
-							case 3 -> Blocks.BASALT.getDefaultState();
+							case 3, 4 -> Blocks.BASALT.getDefaultState();
+							case 5 -> Blocks.COBBLED_DEEPSLATE.getDefaultState();
 							default -> Blocks.BLACKSTONE.getDefaultState();
 						};
 					}
-					set.add(dx + r, dy + r, dz + r, st, null);
+					set.add(dx + r + 1, dy + r + 1, dz + r + 1, st, null);
 				}
 			}
 		}

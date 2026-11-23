@@ -379,6 +379,8 @@ public final class PowerManager {
 		GravityPowers.releaseGravityHeld(p, pw, from);
 		pw.gravityCharging = false;
 		pw.gravityChargeTicks = 0;
+		pw.meteorCharging = false;
+		pw.meteorChargeTicks = 0;
 		if (p.getVehicle() instanceof PieceEntity pe && pe.isGravitySurf()) {
 			p.stopRiding();
 			pe.release(Vec3d.ZERO, false);
@@ -442,6 +444,10 @@ public final class PowerManager {
 			if ((pw.gravityVector & 2) != 0) flags |= Payloads.State.GRAVITY_VEC_BIT1;
 			if (p.getVehicle() instanceof PieceEntity sr && sr.isGravitySurf()) flags |= Payloads.State.GRAVITY_RIDING;
 			if (pw.gravityCharging) flags |= Payloads.State.GRAVITY_CHARGING;
+			if (pw.meteorCharging) flags |= Payloads.State.GRAVITY_METEOR_CHARGING;
+			if ((pw.meteorTier & 1) != 0) flags |= Payloads.State.GRAVITY_METEOR_B0;
+			if ((pw.meteorTier & 2) != 0) flags |= Payloads.State.GRAVITY_METEOR_B1;
+			if ((pw.meteorTier & 4) != 0) flags |= Payloads.State.GRAVITY_METEOR_B2;
 		}
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
 		List<Integer> heldSrc = pw.isGravity() ? pw.gravityHeld : pw.takt;

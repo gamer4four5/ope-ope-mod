@@ -20,7 +20,7 @@ public final class ModEntities {
 	public static void init() {
 		PIECE = Registry.register(Registries.ENTITY_TYPE, OpeOpeMod.id("pieza"),
 			EntityType.Builder.<PieceEntity>create(PieceEntity::new, SpawnGroup.MISC)
-				.dimensions(1f, 1f).maxTrackingRange(16).trackingTickInterval(1).build("pieza"));
+				.dimensions(1f, 1f).maxTrackingRange(32).trackingTickInterval(1).build("pieza"));
 		MARKER_STONE = Registry.register(Registries.ENTITY_TYPE, OpeOpeMod.id("piedra_marcador"),
 			EntityType.Builder.<MarkerStoneEntity>create(MarkerStoneEntity::new, SpawnGroup.MISC)
 				.dimensions(0.3f, 0.3f).maxTrackingRange(16).trackingTickInterval(2).build("piedra_marcador"));

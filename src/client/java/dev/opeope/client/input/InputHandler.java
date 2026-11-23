@@ -84,6 +84,7 @@ public final class InputHandler {
 	public static long rDownAt;
 	private static boolean shamblesDown;
 	private static boolean gravityChargeDown;
+	private static boolean gravityMeteorDown;
 
 	public static boolean isShamblesDown() {
 		return shamblesDown;
@@ -275,6 +276,11 @@ public final class InputHandler {
 		int dir = vertical > 0 ? 1 : -1;
 		long now = System.currentTimeMillis();
 		if (ClientState.gravityFruit()) {
+			if (gravityMeteorDown) {
+				Send.action(Actions.GRAVITY_METEOR_SIZE, dir);
+				lastFruitInputAt = now;
+				return true;
+			}
 			if (gravityChargeDown) {
 				Send.action(Actions.GRAVITY_VECTOR, dir);
 				lastFruitInputAt = now;
@@ -659,9 +665,14 @@ public final class InputHandler {
 			}
 			case RADIO_KNIFE -> {
 				deny(Tech.RADIO_KNIFE);
-				Send.action(Actions.RADIO_KNIFE);
-				p.swingHand(Hand.MAIN_HAND);
-				return NOTHING;
+				gravityMeteorDown = true;
+				Send.action(Actions.GRAVITY_METEOR_START);
+				return () -> {
+					gravityMeteorDown = false;
+					ClientPlayerEntity pl = mc().player;
+					Send.action(Actions.GRAVITY_METEOR_RELEASE, pl != null && pl.isSneaking() ? 1 : 0);
+					if (pl != null) pl.swingHand(Hand.MAIN_HAND);
+				};
 			}
 			case INJECTION -> {
 				deny(Tech.INJECTION);
@@ -1363,12 +1374,16 @@ public final class InputHandler {
 			gravityChargeDown = false;
 			if (mc.player != null) Send.action(Actions.GRAVITY_HOLD_END);
 		}
+		if (mc.currentScreen != null && gravityMeteorDown) {
+			gravityMeteorDown = false;
+			if (mc.player != null) Send.action(Actions.GRAVITY_METEOR_RELEASE, 0);
+		}
 		if (mc.currentScreen != null && anyLatch()) clearLatches(mc.player != null);
 		if (dragging && (mc.currentScreen != null || ClientState.ownRoom() == null)) cancelDrag();
 		if (mc.player == null || !ClientState.hasFruit() || mc.player.isSpectator()) {
 			clearLatches(mc.player != null);
 			hidePlayerList();
-			row2Down = rDown = roomDown = leftHeld = dragging = shamblesDown = gravityChargeDown = false;
+			row2Down = rDown = roomDown = leftHeld = dragging = shamblesDown = gravityChargeDown = gravityMeteorDown = false;
 			sizeToastAt = 0;
 			if (Bisturi.active) Bisturi.cancel();
 			return;
@@ -1423,7 +1438,7 @@ public final class InputHandler {
 	public static void onDisconnect() {
 		clearLatches(false);
 		hidePlayerList();
-		row2Down = rDown = roomDown = leftHeld = shamblesDown = gravityChargeDown = false;
+		row2Down = rDown = roomDown = leftHeld = shamblesDown = gravityChargeDown = gravityMeteorDown = false;
 		rUsed = roomUsed = row2Used = false;
 		unionCHeld = surgeryOn = false;
 		lastRTapAt = lastRoomTapAt = 0;

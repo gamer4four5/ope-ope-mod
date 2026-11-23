@@ -104,6 +104,17 @@ public final class ClientState {
 		return has(Payloads.State.GRAVITY_CHARGING);
 	}
 
+	public static boolean gravityMeteorCharging() {
+		return has(Payloads.State.GRAVITY_METEOR_CHARGING);
+	}
+
+	public static int gravityMeteorTier() {
+		int t = (has(Payloads.State.GRAVITY_METEOR_B0) ? 1 : 0)
+			| (has(Payloads.State.GRAVITY_METEOR_B1) ? 2 : 0)
+			| (has(Payloads.State.GRAVITY_METEOR_B2) ? 4 : 0);
+		return Math.max(0, Math.min(4, t));
+	}
+
 	public static int shamblesMode() {
 		if (has(Payloads.State.SHAMBLES_MODE_ENTITIES)) return 2;
 		if (has(Payloads.State.SHAMBLES_MODE_SWAP)) return 1;

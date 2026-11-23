@@ -82,7 +82,7 @@ public final class Hints {
 			rows.add(row(key(Keys.ROOM), "mantén: Gravito · Mayús: vector"));
 			rows.add(row(key(Keys.TAKT), "levitar roca/mob · Mayús: prensa"));
 			rows.add(row(key(Keys.SHAMBLES), "surfear en roca · Mayús: veta"));
-			rows.add(row(key(Keys.RADIO_KNIFE), "Tengai Shinsei (meteorito)"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "mantén + Rueda: Meteorito (12–85m)"));
 			rows.add(row(key(Keys.INJECTION), "Moko · " + KeyLabels.text(Keys.GAMMA.key) + " Jigoku Tabi"));
 			rows.add(row(key(Keys.SCAN), "Haki Ciego · " + KeyLabels.text(Keys.CURTAIN.key) + " Repulsión"));
 			rows.add(row(key(Keys.ROW2), "Tab: Dressrosa / Cristalizar"));

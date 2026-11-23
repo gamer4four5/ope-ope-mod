@@ -46,6 +46,10 @@ public final class RoomPill {
 			line.text("GRAVITY ", Theme.ROOM).text(vec, Theme.HI);
 			if (ClientState.gravityRiding()) line.text(" · Roca", Theme.SOFT);
 			if (ClientState.gravityCharging()) line.text(" · Cargando", Theme.GOLD);
+			if (ClientState.gravityMeteorCharging()) {
+				String[] mTags = {"12m", "24m", "40m", "60m", "85m"};
+				line.text(" · ☄ " + mTags[ClientState.gravityMeteorTier()], Theme.FORGE);
+			}
 		} else {
 			if (RoomHudState.casting()) {
 				line.text("ROOM → ", Theme.TEXT).text(Txt.meters(RoomHudState.castDistance()), Theme.HI);

@@ -82,6 +82,7 @@ public class PieceEntity extends Entity {
 	private static final TrackedData<Long> FX_TIME = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.LONG);
 	private static final TrackedData<Byte> TRAIT = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BYTE);
 	private static final TrackedData<Boolean> GRAVITY_SURF = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
+	private static final TrackedData<Float> METEOR_SCALE = DataTracker.registerData(PieceEntity.class, TrackedDataHandlerRegistry.FLOAT);
 
 	/** Gancho solo-cliente para pilotar la roca flotante de Fujitora sin lag ni vuelo creativo. */
 	@Nullable public static Consumer<PieceEntity> CLIENT_SURF_TICK;
@@ -95,8 +96,8 @@ public class PieceEntity extends Entity {
 	public static final int F_LANDED = 64;    // posándose o ya posada: no se coge, sin borde, se dibuja a 0,998
 	public static final int F_CHUNK = 128;    // arrancada del suelo con Takt
 
-	/** SLIDING: resbala por el plano del corte. HOVER: queda separada un momento. LANDING: se posa. CHIMERA: parte cosida. SURF: roca voladora que transporta a Fujitora. SUMMON_SURF: roca real acudiendo desde lejos hacia los pies de Fujitora. */
-	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA, SURF, SUMMON_SURF }
+	/** SLIDING: resbala por el plano del corte. HOVER: queda separada un momento. LANDING: se posa. CHIMERA: parte cosida. SURF: roca voladora que transporta a Fujitora. SUMMON_SURF: roca real acudiendo desde lejos. METEOR: asteroide cósmico cayendo del espacio. */
+	public enum Mode { FREE, CONTROLLED, RETURNING, SEWING, STUCK, SLIDING, HOVER, LANDING, CHIMERA, SURF, SUMMON_SURF, METEOR }
 
 	public enum Weapon { LANCE, BLADE, HAMMER, STAKE, WALL }
 
@@ -218,6 +219,29 @@ public class PieceEntity extends Entity {
 		builder.add(FX_TIME, 0L);
 		builder.add(TRAIT, MaterialTrait.NONE.id);
 		builder.add(GRAVITY_SURF, false);
+		builder.add(METEOR_SCALE, 0f);
+	}
+
+	public boolean isMeteor() {
+		return this.dataTracker != null && this.dataTracker.get(METEOR_SCALE) > 0.01f;
+	}
+
+	public float meteorScale() {
+		return this.dataTracker == null ? 0f : this.dataTracker.get(METEOR_SCALE);
+	}
+
+	public void setMeteorScale(float scale) {
+		if (this.dataTracker != null) {
+			this.dataTracker.set(METEOR_SCALE, Math.max(0f, scale));
+		}
+		if (scale > 0.01f) {
+			this.mode = Mode.METEOR;
+			this.solid = false;
+			this.noClip = true;
+			this.ignoreCameraFrustum = true;
+			setNoGravity(true);
+		}
+		setPosition(getX(), getY(), getZ());
 	}
 
 	public boolean isGravitySurf() {
@@ -441,7 +465,8 @@ public class PieceEntity extends Entity {
 			blocks = BlockSet.fromSyncNbt(this.dataTracker.get(BLOCKS));
 			refreshTrait();
 			setPosition(getX(), getY(), getZ());
-		} else if (FLAGS.equals(data) || GRAVITY_SURF.equals(data)) {
+		} else if (FLAGS.equals(data) || GRAVITY_SURF.equals(data) || METEOR_SCALE.equals(data)) {
+			if (isMeteor()) this.ignoreCameraFrustum = true;
 			setPosition(getX(), getY(), getZ());
 		}
 	}
@@ -582,6 +607,7 @@ public class PieceEntity extends Entity {
 
 	@Override
 	public boolean shouldRender(double distance) {
+		if (isMeteor()) return distance < 720.0 * 720.0;
 		double d = Math.max(getBoundingBox().getAverageSideLength(), 1.5) * 128.0;
 		return distance < d * d;
 	}
@@ -641,6 +667,19 @@ public class PieceEntity extends Entity {
 			case CHIMERA -> chimeraTick();
 			case SURF -> surfTick();
 			case SUMMON_SURF -> summonSurfTick();
+			case METEOR -> meteorTick();
+		}
+	}
+
+	/** Descenso cósmico directo desde la estratosfera sin frenarse en árboles o techos del mundo. */
+	private void meteorTick() {
+		setNoGravity(true);
+		noClip = true;
+		solid = false;
+		fallDistance = 0f;
+		Vec3d v = getVelocity();
+		if (v.lengthSquared() > 1e-6) {
+			setPosition(getX() + v.x, getY() + v.y, getZ() + v.z);
 		}
 	}
 

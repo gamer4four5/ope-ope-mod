@@ -63,9 +63,14 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 		if (set == null || set.isEmpty()) return;
 		MinecraftClient mc = MinecraftClient.getInstance();
 		BlockRenderManager brm = mc.getBlockRenderManager();
-		int lit = brighter(e, light);
+		int lit = e.isMeteor() ? LightmapTextureManager.MAX_LIGHT_COORDINATE : brighter(e, light);
 		if (e.isWeaponShape()) {
 			renderWeapon(e, set, tickDelta, ms, vcp, lit, brm);
+			super.render(e, yaw, tickDelta, ms, vcp, lit);
+			return;
+		}
+		if (e.isMeteor()) {
+			renderMeteor(e, set, tickDelta, ms, vcp, lit, brm, mc.getBlockColors());
 			super.render(e, yaw, tickDelta, ms, vcp, lit);
 			return;
 		}
@@ -257,6 +262,47 @@ public class PieceRenderer extends EntityRenderer<PieceEntity> {
 		ms.translate(0.5f, 0.5f, 0.5f);
 		ms.scale(0.998f, 0.998f, 0.998f);
 		ms.translate(-0.5f, -0.5f, -0.5f);
+	}
+
+	/** Asteroide volcánico colosal girando en 3D con escala libre (hasta 85 m de diámetro) y malla cacheada a altos FPS. */
+	private static void renderMeteor(PieceEntity e, BlockSet set, float tickDelta, MatrixStack ms, VertexConsumerProvider vcp,
+									 int light, BlockRenderManager brm, BlockColors colors) {
+		CachedMesh mesh = MESH_CACHE.computeIfAbsent(set, s -> buildMesh(s, brm, colors));
+		float sc = Math.max(1.0f, e.meteorScale());
+		float t = e.age + tickDelta;
+		float spinX = t * (3.2f / Math.max(1f, sc * 0.45f)) + (e.getId() * 37 % 360);
+		float spinY = t * (4.1f / Math.max(1f, sc * 0.45f)) + (e.getId() * 53 % 360);
+		float spinZ = t * (2.3f / Math.max(1f, sc * 0.45f));
+
+		ms.push();
+		ms.translate(0.0, set.sy * 0.5, 0.0);
+		ms.scale(sc, sc, sc);
+		ms.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(spinY));
+		ms.multiply(RotationAxis.POSITIVE_X.rotationDegrees(spinX));
+		ms.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(spinZ));
+		ms.translate(-set.sx / 2.0, -set.sy / 2.0, -set.sz / 2.0);
+
+		int px = 0, py = 0, pz = 0;
+		for (BakedBlock bb : mesh.blocks) {
+			int dx = bb.x - px, dy = bb.y - py, dz = bb.z - pz;
+			if (dx != 0 || dy != 0 || dz != 0) {
+				ms.translate(dx, dy, dz);
+				px = bb.x; py = bb.y; pz = bb.z;
+			}
+			MatrixStack.Entry entry = ms.peek();
+			VertexConsumer vc = vcp.getBuffer(bb.layer);
+			for (CulledQuad q : bb.quads) {
+				vc.quad(entry, q.quad, q.r, q.g, q.b, 1.0f, light, OverlayTexture.DEFAULT_UV);
+			}
+		}
+		if (px != 0 || py != 0 || pz != 0) ms.translate(-px, -py, -pz);
+		for (BlockSet.Entry b : mesh.fallback) {
+			ms.push();
+			ms.translate(b.x(), b.y(), b.z());
+			brm.renderBlockAsEntity(b.state(), ms, vcp, light, OverlayTexture.DEFAULT_UV);
+			ms.pop();
+		}
+		ms.pop();
 	}
 
 	/** Un arma forjada: girada como la lleva quien la usa, bloque a bloque (como siempre). */

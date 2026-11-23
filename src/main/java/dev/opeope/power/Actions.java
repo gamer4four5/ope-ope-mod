@@ -24,7 +24,8 @@ public final class Actions {
 	public static final int STYLE_SWITCH = 100, FIGHT_COMBO = 101, ROOM_MOVE = 102, ISLAND_ACTION = 103;
 	// Acciones exclusivas de Gravity (Zushi Zushi no Mi — SIN ROOM ni Takt)
 	public static final int GRAVITY_HOLD_START = 110, GRAVITY_HOLD_END = 111, GRAVITY_VECTOR = 112,
-		GRAVITY_LIFT = 113, GRAVITY_THROW = 114, GRAVITY_SLAM = 115, GRAVITY_SCROLL = 116;
+		GRAVITY_LIFT = 113, GRAVITY_THROW = 114, GRAVITY_SLAM = 115, GRAVITY_SCROLL = 116,
+		GRAVITY_METEOR_START = 117, GRAVITY_METEOR_RELEASE = 118, GRAVITY_METEOR_SIZE = 119;
 
 	// Órdenes de Takt (R mantenida + tecla)
 	public static final int ORDER_ORBIT = 1, ORDER_PARK = 2, ORDER_SETDOWN = 3, ORDER_DROP = 4, ORDER_ZONE = 5,
@@ -36,7 +37,8 @@ public final class Actions {
 		}
 		if (!ModAttachments.hasFruit(p)) return;
 		PlayerPower pw = PowerManager.get(p);
-		boolean release = (action == ROOM_RELEASE) || (action == GRAVITY_HOLD_END) || ((action == FLOOR || action == BISTURI || action == SURGERY
+		boolean release = (action == ROOM_RELEASE) || (action == GRAVITY_HOLD_END) || (action == GRAVITY_METEOR_RELEASE)
+			|| ((action == FLOOR || action == BISTURI || action == SURGERY
 			|| action == ANESTHESIA || action == RROOM || action == SQUEEZE) && arg == 0);
 		if (!release && action != ISLAND_ACTION && !PowerManager.canUse(p)) {
 			p.sendMessage(Text.translatable("opeope.msg.sea"), true);
@@ -137,6 +139,9 @@ public final class Actions {
 
 			// Técnicas canon de Fujitora (Yakuza Kasen + Zushi Zushi no Mi)
 			case SHAMBLES -> GravityPowers.rockFlightToggle(p, pw);
+			case GRAVITY_METEOR_START -> GravityPowers.startMeteorCharge(p, pw);
+			case GRAVITY_METEOR_RELEASE -> GravityPowers.releaseMeteorCharge(p, pw, arg == 1 || p.isSneaking() || pw.awakened);
+			case GRAVITY_METEOR_SIZE -> GravityPowers.adjustMeteorSize(p, pw, arg >= 0 ? 1 : -1);
 			case RADIO_KNIFE, KROOM -> GravityPowers.tengaiShinsei(p, pw, p.isSneaking() || pw.awakened);
 			case INJECTION -> GravityPowers.moko(p, pw);
 			case ANESTHESIA -> {

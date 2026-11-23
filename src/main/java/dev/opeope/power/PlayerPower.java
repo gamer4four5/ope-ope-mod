@@ -150,6 +150,11 @@ public class PlayerPower {
 	public Vec3d gravityChargePos = Vec3d.ZERO;
 	public final List<Integer> gravityHeld = new ArrayList<>();
 	public double gravityHoldDist = 8.5;
+	// Tengai Shinsei: selección en vivo de tamaño de meteorito (0=12m, 1=24m, 2=40m, 3=60m, 4=85m)
+	public int meteorTier = 1;
+	public boolean meteorCharging = false;
+	public int meteorChargeTicks = 0;
+	public Vec3d meteorAimPos = Vec3d.ZERO;
 
 	public boolean isGravity() {
 		return fruitKind == 2;
