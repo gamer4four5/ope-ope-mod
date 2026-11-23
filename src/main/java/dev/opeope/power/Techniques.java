@@ -461,9 +461,12 @@ public final class Techniques {
 		pw.scanTicks = OpeConfig.SCAN_TICKS;
 		pw.cooldown(Tech.SCAN);
 		if (pw.room != null && pw.room.dim == p.getWorld().getRegistryKey()) {
+			pw.scanCenter = null;
 			LawFx.send(p, Payloads.LawFx.SCAN, null, pw.room.center, pw.room.center, (float) pw.room.radius, 1f, 30);
 		} else {
-			LawFx.send(p, Payloads.LawFx.SCAN, null, p.getPos().add(0, 1, 0), p.getPos().add(0, 1, 0), 8f, 1f, 30);
+			// sin ROOM, el Scan barre una esfera fija donde se lanzó; el Shambles de después roba en esa misma esfera
+			pw.scanCenter = p.getPos().add(0, 1, 0);
+			LawFx.send(p, Payloads.LawFx.SCAN, null, pw.scanCenter, pw.scanCenter, (float) ScanSteal.RANGE, 1f, 30);
 		}
 		sound(p, p.getPos(), SoundEvents.BLOCK_BEACON_POWER_SELECT, 1f, 2f);
 		p.sendMessage(Text.translatable("opeope.msg.scan"), true);
@@ -1318,18 +1321,9 @@ public final class Techniques {
 	/** Mantiene activa la hoja colosal de 26 metros de K-ROOM, electrificando y paralizando lo que atraviesa. */
 	static void kroomBladeTick(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.kroomBladeTicks <= 0) return;
-		if (--pw.kroomBladeTicks == 0) {
-			pw.dirty = true;
-			return;
-		}
-		if (pw.kroomBladeTicks % 4 != 0) return;
-		ServerWorld w = p.getServerWorld();
-		Vec3d eye = p.getEyePos();
-		Vec3d look = p.getRotationVector();
-		for (int d = 3; d <= 25; d += 4) {
-			Vec3d pt = eye.add(look.multiply(d));
-			w.spawnParticles(KROOM_DUST, pt.x, pt.y, pt.z, 1, 0.08, 0.08, 0.08, 0);
-		}
+		if (--pw.kroomBladeTicks == 0) pw.dirty = true;
+		// el polvo de ROOM de la hoja lo suelta cada cliente a lo largo de la hoja que dibuja (KikokuBladeFx): vista
+		// desde fuera va en guardia, no siguiendo la mirada, y aquí no coincidiría
 	}
 
 	/** Anesthesia (mantener): la hoja K-ROOM de 26m atraviesa al objetivo sin resistencia y lo anestesia desde dentro. */

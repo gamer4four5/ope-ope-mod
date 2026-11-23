@@ -21,6 +21,8 @@ import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.passive.MerchantEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
@@ -29,8 +31,10 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Map;
 
 /**
  * Los efectos 3D de las técnicas de Law, sacados del anime: el tajo eléctrico del Radio Knife, la retícula y el
@@ -93,6 +97,8 @@ public final class LawFxClient {
 	static final int SCAN_XRAY_MAX = 48;
 	/** El último Anesthesia propio (el servidor lo reenvía cada segundo mientras se mantiene: un solo rótulo). */
 	static double lastAnesthesia = -100;
+	/** Cuándo llegó la última Anesthesia de cada otro Law (el servidor la reenvía cada segundo mientras la mantiene). */
+	static final Map<Integer, Double> ANESTHESIA_SEEN = new HashMap<>();
 	/** Lo larga que es la hoja de Gamma Knife (en bloques). */
 	static final double GAMMA_LEN = 1.0;
 
@@ -118,6 +124,7 @@ public final class LawFxClient {
 		scanXrayRadius = 0;
 		scanXrayCenter = Vec3d.ZERO;
 		lastAnesthesia = -100;
+		ANESTHESIA_SEEN.clear();
 		KikokuBladeFx.clear();
 		LawHudFx.clear();
 		LawBodyFx.clear();
@@ -324,7 +331,14 @@ public final class LawFxClient {
 		if (!mine && p.userId() >= 0) {
 			double secs = switch (kind) {
 				case LawFx.KROOM -> 14.0;
-				case LawFx.ANESTHESIA, LawFx.SHOCK_WILLE -> 10.0;
+				case LawFx.ANESTHESIA -> {
+					// solo la primera trae los 10 s de hoja; los reenvíos (cada segundo mientras la mantiene) solo la
+					// sostienen un poco más, como el servidor, que la deja fuera mientras dura la Anesthesia
+					ANESTHESIA_SEEN.values().removeIf(t -> now - t > 5.0);
+					Double last = ANESTHESIA_SEEN.put(p.userId(), now);
+					yield last != null && now - last < 1.6 ? 1.6 : 10.0;
+				}
+				case LawFx.SHOCK_WILLE -> 10.0;
 				case LawFx.PUNCTURE -> 12.0;
 				default -> 0.0;
 			};
@@ -477,7 +491,8 @@ public final class LawFxClient {
 
 	/**
 	 * Scan: los seres vivos dentro del barrido se ven por dentro (esqueleto celeste y corazón) a través de las paredes,
-	 * con una marca dorada en lo que llevan en la mano, lo que luego se les puede quitar con Shambles.
+	 * con una marca dorada en lo que llevan en la mano, lo que luego se les puede quitar con Shambles (solo a los mobs
+	 * que no comercian, como ScanSteal: ni a jugadores ni a aldeanos).
 	 */
 	static void scanXray(BufferBuilder b, MinecraftClient mc, double now, float a) {
 		if (mc.world == null) return;
@@ -494,7 +509,7 @@ public final class LawFxClient {
 		for (int i = 0; i < n; i++) {
 			LivingEntity being = list.get(i);
 			XRayFx.anatomy(b, being, ROOM, a, HEART, 0.35f, now);
-			XRayFx.heldMarker(b, being, GOLD, a, now);
+			if (being instanceof MobEntity && !(being instanceof MerchantEntity)) XRayFx.heldMarker(b, being, GOLD, a, now);
 		}
 	}
 
@@ -1210,7 +1225,8 @@ public final class LawFxClient {
 	static void kroom(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity user = entity(mc, e.userId);
 		Vec3d hand = user != null ? handOf(user) : e.a;
-		Vec3d dir = user != null ? user.getRotationVec(td) : e.b.subtract(e.a).normalize();
+		// los anillos van por donde se dibuja la hoja (a la mira en primera persona; vista desde fuera, en guardia)
+		Vec3d dir = user != null ? KikokuBladeFx.dirOf(mc, user) : e.b.subtract(e.a).normalize();
 		float a = (float) (t < 0.8 ? 1.0 : (1.0 - t) / 0.2);
 		if (t < 0.45) {
 			// la esfera de ROOM en la palma, que no crece: se apaga al pasar a revestir la hoja
@@ -1247,8 +1263,10 @@ public final class LawFxClient {
 		Vec3d dn = d.multiply(1.0 / dist);
 		Vec3d past = tc.add(dn.multiply(3.0));   // la hoja sigue por detrás: lo ha atravesado
 		float a = (float) (t < 0.85 ? 1.0 : (1.0 - t) / 0.15);
-		// la Kikoku revestida de K-ROOM lo atraviesa entero y sale 3 bloques por detrás
+		// la Kikoku revestida de K-ROOM lo atraviesa entero y sale 3 bloques por detrás (es la misma hoja: la de reposo
+		// se aparta mientras tanto)
 		KikokuBladeFx.blade(b, hand, dn, dist + 3.0, 1.0, a * 0.9f, now, calm);
+		KikokuBladeFx.inUse(e.userId, a);
 		axes(dn);
 		for (int i = 0; i < 3; i++) {
 			double ph = ((now * 1.4 + i / 3.0) % 1.0);
@@ -1277,6 +1295,7 @@ public final class LawFxClient {
 		if (t < 0.55) {
 			float a = (float) (t < 0.4 ? 1.0 : (0.55 - t) / 0.15);
 			KikokuBladeFx.blade(b, a0, dn, dist + 2.5, 1.0, a, now, calm);
+			KikokuBladeFx.inUse(e.userId, a);
 		}
 		// 2) el pulso que viaja por la hoja
 		if (t > 0.05 && t < 0.3) {
@@ -1321,6 +1340,7 @@ public final class LawFxClient {
 		if (t < 0.55) {
 			float a = (float) (t < 0.4 ? 1.0 : (0.55 - t) / 0.15);
 			KikokuBladeFx.blade(b, sky, new Vec3d(0, -1, 0), 40.0 + depth, Math.min(1.0, t / 0.16), a, now, calm);
+			KikokuBladeFx.inUse(e.userId, a);
 		}
 		axes(new Vec3d(0, 1, 0));   // los anillos de abajo van en horizontal (la hoja puede haber cambiado la base)
 		// 2) la implosión bajo tierra: anillos que se cierran a distintas profundidades

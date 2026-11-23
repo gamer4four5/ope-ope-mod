@@ -6,8 +6,10 @@ import dev.opeope.client.room.RoomFxClient;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.entity.Entity;
+import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import org.joml.Vector3f;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -61,6 +63,21 @@ public final class KikokuBladeFx {
 	private static double ownStart = -100, ownEnd = -100;
 	// las hojas de otros jugadores: id → {cuándo empezó a crecer, hasta cuándo dura}
 	private static final Map<Integer, double[]> NOTED = new HashMap<>();
+	/** Cuánta luz de la hoja de cada uno se llevan ahora sus técnicas (Anesthesia, Shock Wille, Puncture Wille). */
+	private static final Map<Integer, Float> IN_USE = new HashMap<>();
+
+	/**
+	 * Vista desde fuera (tercera persona, o la de otro), la hoja va en guardia: alzada GUARD_RAISE sobre la mirada y
+	 * abierta GUARD_OPEN hacia su derecha. Apuntando justo a donde mira se vería de punta: un palito desde detrás y un
+	 * fogonazo blanco desde delante. En primera persona sí apunta a la mira: así se ve hasta dónde llega.
+	 */
+	static final double GUARD_RAISE = Math.toRadians(26.0);
+	static final double GUARD_OPEN = Math.toRadians(6.0);
+	static final double GUARD_MAX = Math.toRadians(72.0);
+
+	/** El polvo de ROOM que va soltando la hoja (el color del K-ROOM), cada 4 ticks, a lo largo de la hoja que se ve. */
+	private static final DustParticleEffect DUST = new DustParticleEffect(new Vector3f(0.65f, 0.96f, 1.0f), 1.4f);
+	private static long dustSlot = Long.MIN_VALUE;
 
 	// la hoja que se está dibujando ahora (el render va en un solo hilo)
 	private static double hx, hy, hz;          // la tsuba
@@ -99,8 +116,19 @@ public final class KikokuBladeFx {
 		s[1] = until;
 	}
 
+	/**
+	 * Una técnica de {@code userId} dibuja ahora su Kikoku con la luz {@code a}: es la misma hoja, así que la de reposo
+	 * se apaga en esa medida (nunca dos hojas a la vez, y sin saltos cuando la técnica acaba). Vale para un fotograma:
+	 * las técnicas se dibujan antes que {@link #draw}.
+	 */
+	public static void inUse(int userId, float a) {
+		if (userId < 0 || !(a > 0f)) return;
+		IN_USE.merge(userId, Math.min(1f, a), Math::max);
+	}
+
 	public static void clear() {
 		NOTED.clear();
+		IN_USE.clear();
 		ownOn = false;
 		ownStart = -100;
 		ownEnd = -100;
@@ -118,28 +146,76 @@ public final class KikokuBladeFx {
 
 	/** Dibuja la hoja propia (mientras dure K-ROOM) y la de cada jugador anotado, con su crecer y su recogerse. */
 	public static void draw(BufferBuilder b, MinecraftClient mc, double now, boolean calm) {
-		if (b == null || mc == null || mc.world == null || mc.player == null) return;
-		trackOwn(mc, now);
-		double own = ownExtend(now);
-		if (own > 0.002) bladeOf(b, mc.player, own, now, calm);
-		purge(now);
-		if (NOTED.isEmpty()) return;
-		int self = mc.player.getId();
-		for (Map.Entry<Integer, double[]> en : NOTED.entrySet()) {
-			int id = en.getKey();
-			if (id == self) continue;   // la propia la manda ClientState
-			double[] s = en.getValue();
-			double ext = extendOf(s[0], s[1], now);
-			if (ext <= 0.002) continue;
-			Entity user = LawFxClient.entity(mc, id);
-			if (user != null) bladeOf(b, user, ext, now, calm);
+		try {
+			if (b == null || mc == null || mc.world == null || mc.player == null) return;
+			trackOwn(mc, now);
+			boolean dust = dustDue(mc);
+			double own = ownExtend(now);
+			if (own > 0.002) bladeOf(b, mc, mc.player, own, now, calm, dust);
+			purge(now);
+			if (NOTED.isEmpty()) return;
+			int self = mc.player.getId();
+			for (Map.Entry<Integer, double[]> en : NOTED.entrySet()) {
+				int id = en.getKey();
+				if (id == self) continue;   // la propia la manda ClientState
+				double[] s = en.getValue();
+				double ext = extendOf(s[0], s[1], now);
+				if (ext <= 0.002) continue;
+				Entity user = LawFxClient.entity(mc, id);
+				if (user != null) bladeOf(b, mc, user, ext, now, calm, dust);
+			}
+		} finally {
+			IN_USE.clear();
 		}
 	}
 
-	private static void bladeOf(BufferBuilder b, Entity user, double ext, double now, boolean calm) {
+	private static void bladeOf(BufferBuilder b, MinecraftClient mc, Entity user, double ext, double now, boolean calm, boolean dust) {
+		float a = 1f - IN_USE.getOrDefault(user.getId(), 0f);
+		if (!(a > 0.01f)) return;
 		Vec3d hilt = LawFxClient.handOf(user);
-		Vec3d dir = user.getRotationVec(LawFxClient.td);
-		blade(b, hilt, dir, LEN, ext, 1f, now, calm);
+		Vec3d dir = dirOf(mc, user);
+		blade(b, hilt, dir, LEN, ext, a, now, calm);
+		if (dust && ext > 0.6 && a > 0.5f) dust(mc, hilt, dir, LEN * ext);
+	}
+
+	/** Hacia dónde va la hoja de reposo de {@code user}: a la mira en la primera persona propia; si no, en guardia. */
+	static Vec3d dirOf(MinecraftClient mc, Entity user) {
+		boolean aim = user == mc.player && mc.options.getPerspective().isFirstPerson();
+		return aim ? user.getRotationVec(LawFxClient.td) : guardDir(user);
+	}
+
+	/** La dirección de la hoja en guardia (ver {@link #GUARD_RAISE}); mirando en vertical, la mirada tal cual. */
+	static Vec3d guardDir(Entity user) {
+		Vec3d look = user.getRotationVec(LawFxClient.td);
+		double h = Math.sqrt(look.x * look.x + look.z * look.z);
+		if (h < 1e-3) return look;
+		double fx = look.x / h, fz = look.z / h;   // adelante, en horizontal
+		double rx = -fz, rz = fx;                   // su derecha
+		double co = Math.cos(GUARD_OPEN), so = Math.sin(GUARD_OPEN);
+		double ox = fx * co + rx * so, oz = fz * co + rz * so;
+		double pitch = Math.min(GUARD_MAX, Math.atan2(look.y, h) + GUARD_RAISE);
+		double cp = Math.cos(pitch);
+		return new Vec3d(ox * cp, Math.sin(pitch), oz * cp);
+	}
+
+	/** Una vez cada 4 ticks del mundo (como lo soltaba el servidor), sea cual sea la velocidad de fotogramas. */
+	private static boolean dustDue(MinecraftClient mc) {
+		long slot = mc.world.getTime() >> 2;
+		if (slot == dustSlot) return false;
+		dustSlot = slot;
+		return true;
+	}
+
+	/** Polvo de ROOM cada 4 bloques de la hoja, desde los 3 primeros hasta casi la punta. */
+	private static void dust(MinecraftClient mc, Vec3d hilt, Vec3d dir, double len) {
+		double l = dir.length();
+		if (!(l > 1e-6)) return;
+		double ux = dir.x / l, uy = dir.y / l, uz = dir.z / l;
+		var rnd = mc.world.random;
+		for (double s = 3.0; s <= len - 1.0; s += 4.0) {
+			mc.world.addParticle(DUST, hilt.x + ux * s + rnd.nextGaussian() * 0.08, hilt.y + uy * s + rnd.nextGaussian() * 0.08,
+				hilt.z + uz * s + rnd.nextGaussian() * 0.08, 0.0, 0.0, 0.0);
+		}
 	}
 
 	private static void trackOwn(MinecraftClient mc, double now) {

@@ -4478,6 +4478,47 @@ public final class AutoTest {
 					}
 					pw.scanTicks = 0;
 
+					// L2b: sin ROOM, el Shambles roba en la esfera donde se lanzó el Scan (la de los rayos X), aunque Law
+					// se haya ido andando: el de cerca de ese sitio, sí; el de cerca de Law pero fuera de la esfera, no
+					Room keepRoom = pw.room, keepR = pw.rroom;
+					pw.room = null;
+					pw.rroom = null;
+					ZombieEntity zn = spawnDummyZombie(w, ax0 + 10.5, ay0 + 1, az0 - 26.5);
+					ZombieEntity zf = spawnDummyZombie(w, ax0 + 10.5, ay0 + 1, az0 - 14.5);
+					if (zn != null && zf != null) {
+						spawned.add(zn);
+						spawned.add(zf);
+						zn.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.GOLDEN_SWORD));
+						zf.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.STONE_SWORD));
+						sp.setPosition(ax0 + 10.5, ay0 + 1, az0 - 30.5);
+						pw.cooldowns[Tech.SCAN.ordinal()] = 0;
+						pw.scanTicks = 0;
+						Techniques.scan(sp, pw);
+						boolean centred = pw.scanCenter != null;
+						sp.setPosition(ax0 + 10.5, ay0 + 1, az0 - 17.5);
+						pw.scanTicks = OpeConfig.SCAN_TICKS - 10;
+						Techniques.scan(sp, pw);
+						boolean gotGold = false, gotStone = false;
+						for (int i = 0; i < inv.size(); i++) {
+							if (inv.getStack(i).isOf(Items.GOLDEN_SWORD)) gotGold = true;
+							if (inv.getStack(i).isOf(Items.STONE_SWORD)) gotStone = true;
+						}
+						boolean nearRobbed = zn.getMainHandStack().isOf(Items.COBBLESTONE);
+						boolean farKeeps = zf.getMainHandStack().isOf(Items.STONE_SWORD);
+						dres("L2b Scan sin ROOM: roba en su esfera, no alrededor de donde va Law",
+							centred && gotGold && !gotStone && nearRobbed && farKeeps && pw.scanCenter == null ? null
+								: "centro=" + centred + " oro=" + gotGold + " piedraEspada=" + gotStone + " cercaRobado=" + nearRobbed
+								+ " lejosConserva=" + farKeeps + " centroDespués=" + pw.scanCenter);
+						zn.discard();
+						zf.discard();
+					} else {
+						dres("L2b Scan sin ROOM: roba en su esfera, no alrededor de donde va Law", "no se pudieron crear los zombis");
+					}
+					pw.scanTicks = 0;
+					pw.scanCenter = null;
+					pw.room = keepRoom;
+					pw.rroom = keepR;
+
 					// L3: cirugía (Tab + C mantenido) sobre un aldeano zombi: a los 2 s es aldeano otra vez
 					net.minecraft.entity.mob.ZombieVillagerEntity zv = EntityType.ZOMBIE_VILLAGER.create(w);
 					if (zv != null) {

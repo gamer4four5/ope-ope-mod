@@ -6,6 +6,8 @@ import dev.opeope.client.config.OpeSettings;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.util.Arm;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
@@ -85,13 +87,18 @@ public final class XRayFx {
 	 */
 	static void heldMarker(BufferBuilder b, LivingEntity e, int rgb, float a, double now) {
 		if (e == null || a <= 0.01f) return;
-		boolean main = !e.getMainHandStack().isEmpty(), off = !e.getOffHandStack().isEmpty();
+		boolean main = stealable(e.getMainHandStack()), off = stealable(e.getOffHandStack());
 		if (!main && !off) return;
 		frame(e);
 		boolean calm = OpeSettings.reducedMotion();
 		double side = e.getMainArm() == Arm.LEFT ? -1.0 : 1.0;
 		if (main) mark(b, side, rgb, a, now, calm, 1.0);
 		if (off) mark(b, -side, rgb, a * 0.85f, now + 0.35, calm, 0.8);
+	}
+
+	/** Lo que un Shambles le puede quitar (ScanSteal): ni la mano vacía ni la piedra que ya le dejó otro. */
+	private static boolean stealable(ItemStack s) {
+		return !s.isEmpty() && !s.isOf(Items.COBBLESTONE);
 	}
 
 	/**

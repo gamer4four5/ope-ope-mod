@@ -87,6 +87,8 @@ public class PlayerPower {
 	// Técnicas con duración
 	public final int[] cooldowns = new int[Tech.values().length];
 	public int scanTicks;
+	/** Dónde se lanzó el Scan sin ROOM (el centro de sus rayos X y de su Shambles); no se guarda. */
+	public Vec3d scanCenter;
 	public int curtainTicks;
 	public int rainTicks;
 	public int silentTicks;
@@ -191,6 +193,8 @@ public class PlayerPower {
 	public void cooldown(Tech t) {
 		if (freeMode) {
 			cooldowns[t.ordinal()] = 0;
+			// sin recarga también hay que avisar al cliente: lleva el estado de la técnica (Curtain, Scan…) recién lanzada
+			dirty = true;
 			return;
 		}
 		double mul = Math.max(0.55, 1.0 - 0.10 * masteryTier());

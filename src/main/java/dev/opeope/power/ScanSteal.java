@@ -25,14 +25,14 @@ import java.util.List;
  * una piedra en su lugar. Así dejó a los marines del G-5 sin sus Den Den Mushi.
  * <p>
  * Escaneados son los mobs (no los jugadores) dentro del ROOM propio en esta dimensión o, sin ROOM, a menos de
- * {@link #RANGE} bloques; no cuentan los que controla Law ni los comerciantes. La piedra no se suelta al morir
- * (probabilidad 0), para que no salgan piedras de la nada.
+ * {@link #RANGE} bloques de donde se lanzó el Scan (la esfera que se ve con rayos X); no cuentan los que controla Law
+ * ni los comerciantes. La piedra no se suelta al morir (probabilidad 0), para que no salgan piedras de la nada.
  */
 public final class ScanSteal {
 	private ScanSteal() {}
 
-	/** Sin ROOM, hasta dónde llega el Scan (en bloques). */
-	private static final double RANGE = 12.0;
+	/** Sin ROOM, el radio de la esfera del Scan (en bloques): la de sus rayos X y la de este robo. */
+	public static final double RANGE = 8.0;
 	/** Lo más que se roba de una vez. */
 	private static final int MAX_ITEMS = 24;
 	/** Cuántos seres suenan a la vez como mucho (que no sea una ametralladora de sonidos). */
@@ -47,13 +47,16 @@ public final class ScanSteal {
 		ServerWorld w = p.getServerWorld();
 		Room room = pw.room != null && pw.room.dim == w.getRegistryKey() ? pw.room
 			: pw.rroom != null && pw.rroom.dim == w.getRegistryKey() ? pw.rroom : null;
-		Box area = room != null ? new Box(room.center, room.center).expand(room.radius) : p.getBoundingBox().expand(RANGE);
 		Vec3d me = p.getPos();
+		// sin ROOM, la esfera donde se lanzó el Scan (si no se sabe, alrededor de Law)
+		Vec3d at = pw.scanCenter != null ? pw.scanCenter : me.add(0, 1, 0);
+		Box area = room != null ? new Box(room.center, room.center).expand(room.radius) : new Box(at, at).expand(RANGE);
 		// ni a los suyos (Kokoro Shambles) ni a los comerciantes: lo que enseña un aldeano al comerciar es una copia
 		// de lo que vende, y robarlo sería comerciar gratis
 		List<MobEntity> mobs = w.getEntitiesByClass(MobEntity.class, area, m -> m.isAlive()
 			&& !(m instanceof MerchantEntity) && !pw.controlledMobs.contains(m.getUuid())
-			&& (room != null ? room.contains(m.getBoundingBox().getCenter()) : m.squaredDistanceTo(me) <= RANGE * RANGE));
+			&& (room != null ? room.contains(m.getBoundingBox().getCenter())
+				: m.getBoundingBox().getCenter().squaredDistanceTo(at) <= RANGE * RANGE));
 		mobs.sort(Comparator.comparingDouble(m -> m.squaredDistanceTo(me)));
 
 		Vec3d chest = me.add(0, p.getHeight() * 0.62, 0);
@@ -86,13 +89,15 @@ public final class ScanSteal {
 
 		// el Scan se gasta con el Shambles
 		pw.scanTicks = 0;
+		pw.scanCenter = null;
 		pw.dirty = true;
 		if (count > 0) {
 			w.playSound(null, me.x, me.y, me.z, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, SoundCategory.PLAYERS, 1.0f, 1.95f);
 			w.playSound(null, me.x, me.y, me.z, SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, SoundCategory.PLAYERS, 0.8f, 1.55f);
 			w.playSound(null, me.x, me.y, me.z, SoundEvents.BLOCK_NOTE_BLOCK_CHIME.value(), SoundCategory.PLAYERS, 0.7f, 1.88f);
 			w.playSound(null, me.x, me.y, me.z, SoundEvents.ENTITY_ITEM_PICKUP, SoundCategory.PLAYERS, 0.9f, 1.45f);
-			w.spawnParticles(ParticleTypes.REVERSE_PORTAL, chest.x, chest.y, chest.z, 16, 0.3, 0.4, 0.3, 0.05);
+			// lo robado llega como polvo de ROOM a la cintura (más arriba taparía la vista en primera persona)
+			w.spawnParticles(CutEngine.ROOM_DUST, me.x, me.y + 0.9, me.z, 8, 0.35, 0.25, 0.35, 0);
 			p.sendMessage(Text.literal("§bShambles: " + count + (count == 1 ? " cosa robada" : " cosas robadas")
 				+ " §7(cambiadas por piedras)"), true);
 		} else {
