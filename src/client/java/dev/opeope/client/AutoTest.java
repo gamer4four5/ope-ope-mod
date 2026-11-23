@@ -134,13 +134,17 @@ public final class AutoTest {
 			pw.awakened = false;
 			Techniques.toggleAwaken(sp, pw);
 		}, 10, new int[]{4, 10}, new int[]{7}));
-		l.add(new Shot("k-room", (sp, pw) -> Techniques.kroom(sp, pw), 8, new int[]{4, 9, 16}, th));
+		// K-ROOM: la Kikoku revestida al formarse y luego en reposo (la hoja sigue en la mano 14 s)
+		l.add(new Shot("k-room", (sp, pw) -> Techniques.kroom(sp, pw), 8, new int[]{4, 9, 16, 40}, new int[]{6, 30}));
 		l.add(new Shot("anesthesia", (sp, pw) -> Techniques.anesthesia(sp, pw, true), 8, new int[]{5, 14}, new int[]{9}));
 		l.add(new Shot("shock-wille", (sp, pw) -> {
 			pw.anesthesia = false;
 			Techniques.shockWille(sp, pw);
 		}, 8, new int[]{2, 6, 10, 16}, new int[]{}));
-		l.add(new Shot("silent", (sp, pw) -> Techniques.silent(sp, pw), 10, new int[]{6}, new int[]{12}));
+		// mirando al cielo no hay nadie a quien lanzárselo: el Silent propio
+		l.add(new Shot("silent", (sp, pw) -> Techniques.silent(sp, pw), -25, new int[]{6}, new int[]{12}));
+		// mirando al zombi: R-ROOM con Silent lanzado sobre él (la burbuja muda va pegada a su cuerpo)
+		l.add(new Shot("silent-objetivo", (sp, pw) -> Techniques.silent(sp, pw), 8, new int[]{3, 8, 30}, new int[]{18}));
 		l.add(new Shot("iai", (sp, pw) -> {
 			pw.combatStyle = 2;
 			Techniques.radioKnife(sp, pw);
@@ -163,15 +167,129 @@ public final class AutoTest {
 		}, 8, new int[]{3, 8, 26, 31, 38}, new int[]{}));
 		l.add(new Shot("sterben", (sp, pw) -> Techniques.sterben(sp, pw), 6, new int[]{3, 8}, new int[]{}));
 		l.add(new Shot("puncture", (sp, pw) -> Techniques.puncture(sp, pw), 7, new int[]{2, 5, 9, 15, 24, 36}, new int[]{12}));
+		// Shambles: Law cambia su sitio con el del zombi
+		l.add(new Shot("shambles", (sp, pw) -> {
+			pw.shamblesMode = Shambles.MODE_SELF_SWAP;
+			pw.shamblesMark = -1;
+			Shambles.use(sp, pw, false);
+		}, 8, new int[]{2, 5, 10}, new int[]{14}));
+		// Scan y, con el Scan aún activo, Scan otra vez: lo que llevan en las manos vuela a Law (y les quedan piedras)
+		l.add(new Shot("scan-robo", (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			if (galleryZombie != null) galleryZombie.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_SWORD));
+			ZombieEntity za = galleryExtra(w, gx0 - 2.5, gz0 + 6.5);
+			if (za != null) za.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.BELL));
+			ZombieEntity zb = galleryExtra(w, gx0 + 3.5, gz0 + 6.0);
+			if (zb != null) {
+				zb.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.SPYGLASS));
+				zb.equipStack(net.minecraft.entity.EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+			}
+			pw.scanTicks = 0;
+			Techniques.scan(sp, pw);
+		}, 6, new int[]{10, 15, 18, 24}, new int[]{32}));
+		// Cirugía sobre un aldeano envenenado: Law le saca la impureza del pecho
+		l.add(new Shot("cirugia", (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			net.minecraft.entity.passive.VillagerEntity v = EntityType.VILLAGER.create(w);
+			if (v != null) {
+				if (galleryZombie != null) galleryZombie.discard();
+				v.refreshPositionAndAngles(gx0 + 0.5, gfy + 1, gz0 + 3.5, 180f, 0f);
+				v.setAiDisabled(true);
+				v.setPersistent();
+				v.setInvulnerable(true);
+				w.spawnEntity(v);
+				v.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(StatusEffects.POISON, 400, 0));
+				v.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(StatusEffects.SLOWNESS, 400, 1));
+			}
+			dev.opeope.power.Union.surgery(sp, pw, true);
+		}, 12, new int[]{6, 10, 14, 22}, new int[]{}));
+		// Cirugía sobre un aldeano zombi: a los 2 s la infección sale y vuelve a ser aldeano
+		l.add(new Shot("cura-aldeano", (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			net.minecraft.entity.mob.ZombieVillagerEntity zv = EntityType.ZOMBIE_VILLAGER.create(w);
+			if (zv != null) {
+				if (galleryZombie != null) galleryZombie.discard();
+				zv.refreshPositionAndAngles(gx0 + 0.5, gfy + 1, gz0 + 3.5, 180f, 0f);
+				zv.setAiDisabled(true);
+				zv.setPersistent();
+				zv.equipStack(net.minecraft.entity.EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));   // que no arda al sol
+				w.spawnEntity(zv);
+			}
+			dev.opeope.power.Union.surgery(sp, pw, true);
+		}, 12, new int[]{12, 42, 45, 50}, new int[]{}));
 		return l;
 	}
 
+	/** Un zombi quieto más para la galería (en el suelo de la escena, mirando a Law). */
+	private static ZombieEntity galleryExtra(ServerWorld w, double x, double z) {
+		ZombieEntity zm = spawnDummyZombie(w, x, gfy + 1, z);
+		if (zm != null) {
+			zm.setInvulnerable(true);
+			zm.equipStack(net.minecraft.entity.EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));   // que no arda al sol
+			zm.refreshPositionAndAngles(x, gfy + 1, z, 180f, 0f);
+		}
+		return zm;
+	}
+
+	/** Fotogramas dibujados desde que empezó la galería (WorldRenderEvents.END). */
+	private static volatile int frames;
+	private static boolean framesHooked;
+
+	/**
+	 * Una captura en espera: sale en cuanto se haya dibujado un fotograma nuevo con su cámara. La CI dibuja a pocos FPS y
+	 * varios ticks caben en un fotograma: un cambio de cámara un tick antes no llegaba a verse en la captura.
+	 */
+	private static final class PendingShot {
+		final String name;
+		final net.minecraft.client.option.Perspective view;
+		final Runnable after;
+		int frame;
+
+		PendingShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
+			this.name = name;
+			this.view = view;
+			this.after = after;
+			this.frame = frames;
+		}
+	}
+
+	private static final java.util.ArrayDeque<PendingShot> PENDING = new java.util.ArrayDeque<>();
+
+	private static void queueShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
+		PENDING.add(new PendingShot(name, view, after));
+	}
+
+	/** Cada tick de la galería: saca la primera captura en espera si ya hay un fotograma dibujado después de pedirla. */
+	private static void pendingShots(MinecraftClient mc) {
+		PendingShot p = PENDING.peek();
+		if (p == null) return;
+		if (mc.options.getPerspective() != p.view) {
+			mc.options.setPerspective(p.view);
+			p.frame = frames;
+			return;
+		}
+		if (frames <= p.frame) return;
+		PENDING.poll();
+		shot(mc, p.name);
+		if (p.after != null) p.after.run();
+		if (PENDING.isEmpty() && mc.options.getPerspective() != net.minecraft.client.option.Perspective.FIRST_PERSON) {
+			mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+		}
+	}
+
 	private static List<Shot> gallery;
+
+	private static boolean galleryEnded;
+	private static int galleryFrames0;
 
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
 		if (gallery == null) gallery = galleryShots();
 		if (g == 0) {
 			mc.getWindow().setWindowedSize(1280, 720);
+			if (!framesHooked) {
+				framesHooked = true;
+				net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.END.register(ctx -> frames++);
+			}
 			srv.execute(() -> {
 				ServerPlayerEntity sp = srv.getPlayerManager().getPlayer(id);
 				if (sp == null) return;
@@ -179,20 +297,32 @@ public final class AutoTest {
 				if (galleryZombie != null) galleryZombie.setInvulnerable(true);
 			});
 		}
+		if (g < 20) return;
+		pendingShots(mc);
 		int idx = (g - 20) / GALLERY_STEP;
 		int r = (g - 20) % GALLERY_STEP;
-		if (g < 20) return;
 		if (idx >= gallery.size()) {
-			if (r == 10) {
+			// que salgan las capturas que aún esperan un fotograma antes de cerrar
+			if (!galleryEnded && r >= 10 && PENDING.isEmpty()) {
+				galleryEnded = true;
 				OpeOpeMod.LOG.info("AUTOTEST galería terminada");
 				mc.scheduleStop();
 			}
 			return;
 		}
 		Shot s = gallery.get(idx);
+		String base = "law-" + String.format("%02d", idx + 1) + "-" + s.name();
 		if (r == 0) {
 			// todo a su sitio, sin enfriamientos ni restos de la técnica anterior
+			if (!PENDING.isEmpty()) {
+				OpeOpeMod.LOG.warn("AUTOTEST galería: {} capturas sin sacar al pasar a {}", PENDING.size(), s.name());
+				PENDING.clear();
+			}
 			mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+			// los efectos de la técnica anterior fuera también en el cliente (el Curtain seguía en las capturas de Mes)
+			dev.opeope.client.render.LawFxClient.clear();
+			dev.opeope.client.render.ShamblesFxClient.clear();
+			galleryFrames0 = frames;
 			boolean north = s.name().equals("injection") || s.name().equals("iai") || s.name().equals("luna");
 			server(srv, id, (sp, pw) -> {
 				// la escena de nuevo (lo cortado por la técnica anterior fuera) y un zombi quieto delante
@@ -206,6 +336,12 @@ public final class AutoTest {
 				pw.silentTicks = 0;
 				pw.curtainTicks = 0;
 				pw.kroomBladeTicks = 0;
+				pw.scanTicks = 0;
+				pw.surgery = false;
+				pw.surgeryTicks = 0;
+				pw.shamblesMode = Shambles.MODE_SELF_TP;
+				pw.shamblesMark = -1;
+				pw.dirty = true;
 				sp.removeStatusEffect(StatusEffects.INVISIBILITY);
 				sp.setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
 				sp.changeGameMode(GameMode.SURVIVAL);
@@ -222,7 +358,8 @@ public final class AutoTest {
 			});
 		}
 		if (r == 8) {
-			OpeOpeMod.LOG.info("AUTOTEST galería {}", s.name());
+			// fotogramas del paso anterior: ~3,2 s por paso, para saber a cuántos FPS va la CI
+			OpeOpeMod.LOG.info("AUTOTEST galería {} (fotogramas en 8 ticks: {})", s.name(), frames - galleryFrames0);
 			server(srv, id, (sp, pw) -> {
 				try {
 					s.use().accept(sp, pw);
@@ -232,11 +369,21 @@ public final class AutoTest {
 			});
 		}
 		if (s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
+		// Scan otra vez con el Scan aún activo: Shambles a todo lo que llevan en las manos
+		if (s.name().equals("scan-robo") && r == 8 + 13) server(srv, id, (sp, pw) -> {
+			try {
+				Techniques.scan(sp, pw);
+			} catch (RuntimeException e) {
+				OpeOpeMod.LOG.error("AUTOTEST galería: falló el robo del Scan", e);
+			}
+		});
+		if (s.name().equals("cirugia") && r == 8 + 40) server(srv, id, (sp, pw) -> dev.opeope.power.Union.surgery(sp, pw, false));
 		for (int k = 0; k < s.at().length; k++) {
-			if (r == 8 + s.at()[k]) shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-" + (char) ('a' + k));
+			if (r == 8 + s.at()[k]) queueShot(base + "-" + (char) ('a' + k), net.minecraft.client.option.Perspective.FIRST_PERSON, null);
 		}
 		for (int k = 0; k < s.third().length; k++) {
 			int at = 8 + s.third()[k];
+			String suf = k == 0 ? "" : String.valueOf(k);
 			// de frente se ve el gesto de Law; de espaldas, el efecto delante de él
 			if (r == at - 2) {
 				// la cámara de frente queda a ~4 bloques delante de Law: el zombi se aparta un momento para no taparla
@@ -247,14 +394,14 @@ public final class AutoTest {
 					}
 				});
 			}
-			if (r == at - 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT);
 			if (r == at) {
-				shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-frente" + (k == 0 ? "" : String.valueOf(k)));
-				OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
-				mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK);
+				queueShot(base + "-frente" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT, () -> {
+					if (mc.player != null) {
+						OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+					}
+				});
+				queueShot(base + "-3p" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK, null);
 			}
-			if (r == at + 1) shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-3p" + (k == 0 ? "" : String.valueOf(k)));
-			if (r == at + 2) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
 		}
 	}
 
@@ -342,7 +489,8 @@ public final class AutoTest {
 		ServerPlayerEntity sp = srv.getPlayerManager().getPlayer(id);
 		if (sp == null) return;
 		ServerWorld w = sp.getServerWorld();
-		PowerManager.grantFruit(sp);
+		// si ya la tiene, nada (la galería llama a setup en cada técnica y llenaba el chat de «Ya comiste la Ope Ope no Mi»)
+		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != 1) PowerManager.grantFruit(sp);
 		sp.changeGameMode(GameMode.CREATIVE);
 		w.setTimeOfDay(6000);
 		w.setWeather(20 * 600, 0, false, false);
@@ -1419,6 +1567,8 @@ public final class AutoTest {
 		planEfectosElementales(mc, srv, id);
 
 		planDesmembramiento(mc, srv, id);
+
+		planLawFunciones(mc, srv, id);
 
 		// dejarlo como estaba para (l)
 		step(5, "suelo: fin", () -> server(srv, id, (sp, pw) -> {
@@ -4204,6 +4354,228 @@ public final class AutoTest {
 			eDone = 1;
 		}));
 		waitFor("E: fin", 40, "el servidor no terminó las pruebas E", () -> eDone == 1, AutoTest::drain);
+	}
+
+	// ------------------------------------------------------------------ (L) funciones nuevas, fieles a la serie
+
+	private static volatile int lDone = 0;
+	/** Los seres a los que se lanzó Silent en (L): quitados, el Silent se tiene que ir con ellos. */
+	private static final List<Entity> L_MUTED = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+	/**
+	 * (L) Lo que Law hace en la serie y ahora hace la fruta: R-ROOM con Silent lanzado sobre un ser (queda mudo; apuntando
+	 * a nadie sigue el Silent propio), Scan y Scan otra vez (lo que llevan en las manos pasa a Law y a ellos les quedan
+	 * piedras) y la cirugía que saca la impureza (el veneno fuera; un aldeano zombi vuelve a ser aldeano). En el campo de
+	 * las pruebas E, en un trozo allanado; al final todo queda como estaba (ROOM, sitio, inventario y enfriamientos).
+	 */
+	private static void planLawFunciones(MinecraftClient mc, IntegratedServer srv, UUID id) {
+		final int DX = 80, DZ = 50;
+		step(2, "L: preparar", () -> {
+			lDone = 0;
+			server(srv, id, (sp, pw) -> {
+				sp.networkHandler.requestTeleport(gx0 + DX + 0.5, gfy + 1, gz0 + DZ + 0.5, 180f, 10f);
+				lDone = 1;
+			});
+		});
+		waitFor("L: en el campo", 40, "no se llegó al campo de las pruebas L", () -> lDone == 1, null);
+		step(4, "L: Silent, Scan y cirugía", () -> {
+			lDone = 0;
+			DRES.clear();
+			L_MUTED.clear();
+			server(srv, id, (sp, pw) -> {
+				ServerWorld w = sp.getServerWorld();
+				int ax0 = gx0 + DX, ay0 = gfy, az0 = gz0 + DZ;
+				Room savedRoom = pw.room;
+				Vec3d prevPos = sp.getPos();
+				float prevYaw = sp.getYaw(), prevPitch = sp.getPitch();
+				int prevStyle = pw.combatStyle;
+				net.minecraft.entity.player.PlayerInventory inv = sp.getInventory();
+				List<ItemStack> savedInv = new ArrayList<>();
+				for (int i = 0; i < inv.size(); i++) savedInv.add(inv.getStack(i).copy());
+				List<Entity> spawned = new ArrayList<>();
+				Box lane = new Box(ax0 - 12, ay0 - 2, az0 - 32, ax0 + 15, ay0 + 8, az0 - 2);
+				try {
+					patch(w, ax0 - 12, ax0 + 14, az0 - 32, az0 - 2, ay0);
+					for (Entity e : w.getEntitiesByClass(Entity.class, lane, en -> en instanceof MobEntity || en instanceof ItemEntity)) e.discard();
+					pw.combatStyle = 1;
+					pw.room = new Room(w.getRegistryKey(), new Vec3d(ax0 + 0.5, ay0 + 2, az0 - 18.5), 7);
+					pw.room.state = Room.State.FIXED;
+					PowerManager.broadcastRoom(sp, 0, pw.room);
+
+					// L1: R-ROOM Silent lanzado sobre un zombi: queda mudo y la fruta lo sabe
+					ZombieEntity zs = spawnDummyZombie(w, ax0 - 8.5, ay0 + 1, az0 - 6.5);
+					if (zs != null) {
+						spawned.add(zs);
+						pw.cooldowns[Tech.SILENT.ordinal()] = 0;
+						boolean applied = dev.opeope.power.SilentRoom.apply(sp, pw, zs);
+						dres("L1 R-ROOM Silent sobre un ser: queda mudo",
+							applied && zs.isSilent() && dev.opeope.power.SilentRoom.isMuted(zs) && pw.onCooldown(Tech.SILENT) ? null
+								: "aplicado=" + applied + " silencioso=" + zs.isSilent() + " mudo=" + dev.opeope.power.SilentRoom.isMuted(zs)
+								+ " enfriamiento=" + pw.onCooldown(Tech.SILENT));
+						L_MUTED.add(zs);
+					} else {
+						dres("L1 R-ROOM Silent sobre un ser: queda mudo", "no se pudo crear el zombi");
+					}
+
+					// L1c: Silent (la tecla) mirando a un ser se lo lanza a él, sin volverte invisible
+					ZombieEntity zs2 = spawnDummyZombie(w, ax0 - 8.5, ay0 + 1, az0 - 26.5);
+					if (zs2 != null) {
+						spawned.add(zs2);
+						sp.setPosition(ax0 - 8.5, ay0 + 1, az0 - 30.5);
+						sp.setYaw(0f);
+						sp.setPitch(9f);
+						pw.cooldowns[Tech.SILENT.ordinal()] = 0;
+						pw.silentTicks = 0;
+						Techniques.silent(sp, pw);
+						dres("L1c Silent apuntando a un ser se lo lanza",
+							dev.opeope.power.SilentRoom.isMuted(zs2) && pw.silentTicks == 0 ? null
+								: "mudo=" + dev.opeope.power.SilentRoom.isMuted(zs2) + " silentPropio=" + pw.silentTicks);
+						L_MUTED.add(zs2);
+					}
+
+					// L1d: Silent mirando al cielo: el Silent de siempre, sobre Law
+					sp.setPitch(-70f);
+					pw.cooldowns[Tech.SILENT.ordinal()] = 0;
+					pw.silentTicks = 0;
+					Techniques.silent(sp, pw);
+					dres("L1d Silent sin nadie delante: el Silent propio de siempre", pw.silentTicks > 0 ? null : "silentTicks=" + pw.silentTicks);
+					pw.silentTicks = 0;
+					sp.removeStatusEffect(StatusEffects.INVISIBILITY);
+
+					// L2: Scan y, con el Scan activo, Scan otra vez: Shambles a lo que llevan en las manos los que están en el ROOM
+					ZombieEntity z1 = spawnDummyZombie(w, ax0 + 0.5, ay0 + 1, az0 - 16.5);
+					ZombieEntity z2 = spawnDummyZombie(w, ax0 - 2.5, ay0 + 1, az0 - 19.5);
+					ZombieEntity z3 = spawnDummyZombie(w, ax0 + 3.5, ay0 + 1, az0 - 20.5);
+					if (z1 != null && z2 != null && z3 != null) {
+						spawned.add(z1);
+						spawned.add(z2);
+						spawned.add(z3);
+						z1.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_SWORD));
+						z2.equipStack(net.minecraft.entity.EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+						sp.setPosition(ax0 + 0.5, ay0 + 1, az0 - 24.5);
+						sp.setYaw(0f);
+						sp.setPitch(10f);
+						pw.cooldowns[Tech.SCAN.ordinal()] = 0;
+						pw.scanTicks = 0;
+						Techniques.scan(sp, pw);
+						boolean scanned = pw.scanTicks == OpeConfig.SCAN_TICKS;
+						pw.scanTicks = OpeConfig.SCAN_TICKS - 10;   // medio segundo después, Scan otra vez
+						Techniques.scan(sp, pw);
+						boolean gotSword = false, gotShield = false;
+						for (int i = 0; i < inv.size(); i++) {
+							if (inv.getStack(i).isOf(Items.IRON_SWORD)) gotSword = true;
+							if (inv.getStack(i).isOf(Items.SHIELD)) gotShield = true;
+						}
+						boolean pebbles = z1.getMainHandStack().isOf(Items.COBBLESTONE) && z2.getOffHandStack().isOf(Items.COBBLESTONE);
+						boolean emptyStays = z3.getMainHandStack().isEmpty() && z3.getOffHandStack().isEmpty();
+						dres("L2 Scan dos veces: lo que llevan en las manos pasa a Law y les quedan piedras",
+							scanned && gotSword && gotShield && pebbles && emptyStays && pw.scanTicks == 0 ? null
+								: "scan=" + scanned + " espada=" + gotSword + " escudo=" + gotShield + " piedras=" + pebbles
+								+ " manosVacías=" + emptyStays + " scanTicks=" + pw.scanTicks
+								+ " z1=" + z1.getMainHandStack() + " z2=" + z2.getOffHandStack());
+					} else {
+						dres("L2 Scan dos veces: lo que llevan en las manos pasa a Law y les quedan piedras", "no se pudieron crear los zombis");
+					}
+					pw.scanTicks = 0;
+
+					// L3: cirugía (Tab + C mantenido) sobre un aldeano zombi: a los 2 s es aldeano otra vez
+					net.minecraft.entity.mob.ZombieVillagerEntity zv = EntityType.ZOMBIE_VILLAGER.create(w);
+					if (zv != null) {
+						zv.refreshPositionAndAngles(ax0 + 10.5, ay0 + 1, az0 - 8.5, 180f, 0f);
+						zv.setAiDisabled(true);
+						zv.setPersistent();
+						w.spawnEntity(zv);
+						spawned.add(zv);
+						sp.setPosition(ax0 + 10.5, ay0 + 1, az0 - 11.5);
+						sp.setYaw(0f);
+						sp.setPitch(12f);
+						dev.opeope.power.Union.surgery(sp, pw, true);
+						int n = 0;
+						while (pw.surgery && n < 60) {
+							dev.opeope.power.Union.surgeryTick(sp, pw);
+							n++;
+						}
+						List<net.minecraft.entity.passive.VillagerEntity> cured = w.getEntitiesByClass(net.minecraft.entity.passive.VillagerEntity.class,
+							new Box(ax0 + 8.5, ay0, az0 - 10.5, ax0 + 12.5, ay0 + 3, az0 - 6.5), v -> v.isAlive());
+						dres("L3 cirugía sobre un aldeano zombi: vuelve a ser aldeano",
+							zv.isRemoved() && !cured.isEmpty() && !pw.surgery && n >= 40 && n <= 41 ? null
+								: "quitado=" + zv.isRemoved() + " aldeanos=" + cured.size() + " cirugía=" + pw.surgery + " ticks=" + n);
+						spawned.addAll(cured);
+					}
+					dev.opeope.power.Union.surgery(sp, pw, false);
+
+					// L3b: la cura directa devuelve el aldeano nuevo
+					net.minecraft.entity.mob.ZombieVillagerEntity zv2 = EntityType.ZOMBIE_VILLAGER.create(w);
+					if (zv2 != null) {
+						zv2.refreshPositionAndAngles(ax0 + 10.5, ay0 + 1, az0 - 24.5, 0f, 0f);
+						zv2.setAiDisabled(true);
+						zv2.setPersistent();
+						w.spawnEntity(zv2);
+						spawned.add(zv2);
+						net.minecraft.entity.passive.VillagerEntity v2 = dev.opeope.power.SurgicalCure.cureZombieVillager(sp, zv2);
+						if (v2 != null) spawned.add(v2);
+						dres("L3b la cura del aldeano zombi da un aldeano vivo", v2 != null && v2.isAlive() && zv2.isRemoved() ? null
+							: "aldeano=" + v2 + " quitado=" + zv2.isRemoved());
+					}
+
+					// L4: cirugía sobre un aldeano envenenado: el veneno sale (y se ve salir)
+					net.minecraft.entity.passive.VillagerEntity v4 = EntityType.VILLAGER.create(w);
+					if (v4 != null) {
+						v4.refreshPositionAndAngles(ax0 + 13.5, ay0 + 1, az0 - 16.5, 180f, 0f);
+						v4.setAiDisabled(true);
+						v4.setPersistent();
+						w.spawnEntity(v4);
+						spawned.add(v4);
+						v4.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(StatusEffects.POISON, 400, 0));
+						boolean poisoned = v4.hasStatusEffect(StatusEffects.POISON);
+						sp.setPosition(ax0 + 13.5, ay0 + 1, az0 - 19.5);
+						sp.setYaw(0f);
+						sp.setPitch(12f);
+						dev.opeope.power.Union.surgery(sp, pw, true);
+						for (int i = 0; i < 8; i++) dev.opeope.power.Union.surgeryTick(sp, pw);
+						dres("L4 cirugía sobre un aldeano envenenado: el veneno sale",
+							poisoned && !v4.hasStatusEffect(StatusEffects.POISON) && v4.isAlive() ? null
+								: "envenenado=" + poisoned + " sigue=" + v4.hasStatusEffect(StatusEffects.POISON) + " vivo=" + v4.isAlive());
+					}
+					dev.opeope.power.Union.surgery(sp, pw, false);
+				} catch (RuntimeException e) {
+					OpeOpeMod.LOG.error("AUTOTEST L: excepción en el servidor", e);
+					dres("L sin excepciones en el servidor", e.toString());
+				} finally {
+					for (Entity e : spawned) e.discard();
+					for (Entity e : w.getEntitiesByClass(Entity.class, lane, en -> en instanceof MobEntity || en instanceof ItemEntity)) e.discard();
+					for (int i = 0; i < inv.size() && i < savedInv.size(); i++) inv.setStack(i, savedInv.get(i));
+					pw.room = savedRoom;
+					PowerManager.broadcastRoom(sp, 0, savedRoom);
+					sp.setPosition(prevPos.x, prevPos.y, prevPos.z);
+					sp.setYaw(prevYaw);
+					sp.setPitch(prevPitch);
+					pw.combatStyle = prevStyle;
+					pw.scanTicks = 0;
+					pw.silentTicks = 0;
+					pw.surgery = false;
+					pw.surgeryTicks = 0;
+					pw.cooldowns[Tech.SCAN.ordinal()] = 0;
+					pw.cooldowns[Tech.SILENT.ordinal()] = 0;
+					sp.removeStatusEffect(StatusEffects.INVISIBILITY);
+					pw.dirty = true;
+					lDone = 1;
+				}
+			});
+		});
+		waitFor("L: servidor listo", 60, "el servidor no terminó las pruebas L", () -> lDone == 1, AutoTest::drain);
+		// L1b: quitado el ser, el Silent se va con él (SilentRoom.tick lo olvida en los ticks siguientes)
+		step(6, "L1b el Silent se va con el ser", () -> {
+			lDone = 0;
+			server(srv, id, (sp, pw) -> {
+				boolean any = false;
+				for (Entity e : L_MUTED) any |= dev.opeope.power.SilentRoom.isMuted(e);
+				dres("L1b quitado el ser, el Silent se va con él", L_MUTED.isEmpty() || !any ? null : "sigue mudo uno de " + L_MUTED.size());
+				L_MUTED.clear();
+				lDone = 1;
+			});
+		});
+		waitFor("L1b: servidor listo", 40, "el servidor no terminó L1b", () -> lDone == 1, AutoTest::drain);
 	}
 
 	/** En el hilo del servidor: el terreno de setup en x0..x1 × z0..z1 (piedra, tres de tierra, hierba en fy y aire encima). */

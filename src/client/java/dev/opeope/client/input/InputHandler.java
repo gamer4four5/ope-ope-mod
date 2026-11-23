@@ -591,7 +591,8 @@ public final class InputHandler {
 					Send.action(Actions.RROOM, 1);
 					return () -> Send.action(Actions.RROOM, 0);
 				}
-				deny(Tech.SCAN);
+				// con el Scan activo, otra vez es el robo (Shambles a lo que llevan en las manos): no es un «aún se enfría»
+				if (ClientState.scanTicks <= 0) deny(Tech.SCAN);
 				Send.action(Actions.SCAN);
 				return NOTHING;
 			}

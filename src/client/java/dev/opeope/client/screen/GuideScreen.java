@@ -145,6 +145,7 @@ public class GuideScreen extends Screen {
 		row("agachado: cambia bloques de sitio (marca uno y luego el otro)", may, "+", alt);
 		row("piedra marcador: lánzala y haz Shambles con ella", g(Keys.MARKER));
 		row("Scan y luego robar lo que lleva en la mano", g(Keys.SCAN), "y", alt);
+		row("Scan y, mientras dura, Scan otra vez: robas lo que llevan en las manos todos los del ROOM (les dejas piedras)", g(Keys.SCAN), g(Keys.SCAN));
 
 		title("Takt");
 		row("toque: coger lo que miras (seres, objetos o piezas); sobre el suelo, arranca un trozo que sigue tus cortes", r);
@@ -207,6 +208,7 @@ public class GuideScreen extends Screen {
 		} else {
 			row("mantener: Cirugía; te curas o curas a quien miras, y recompone lo cortado", tab, "+", g(Keys.T_UNION));
 		}
+		note("La Cirugía saca lo que enferma: venenos y males salen del pecho como una mancha. Mantenida 2 s sobre un aldeano zombi, le sacas la infección y vuelve a ser aldeano.");
 		row("con Takt: lo que llevas se cose a lo que toca", tab, "+", g(Keys.T_UNION));
 
 		title("El suelo del ROOM");
@@ -236,7 +238,7 @@ public class GuideScreen extends Screen {
 		row("Shock Wille", g(Keys.GAMMA));
 		row("mantener: R-ROOM; crece donde miras y al soltar estalla en cortes", g(Keys.SCAN));
 		row("Puncture Wille", tab, "+", g(Keys.T_COUNTER));
-		row("Silent", g(Keys.CURTAIN));
+		row("Silent: nadie te oye; mirando a alguien, R-ROOM: se lo lanzas y queda mudo 12 s", g(Keys.CURTAIN));
 
 		title("Minecraft y la fruta");
 		row("agachado, los clics son los de Minecraft (abrir, colocar, golpear)", may, "+", clic);
