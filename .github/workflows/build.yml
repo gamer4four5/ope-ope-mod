@@ -77,11 +77,30 @@ jobs:
           grep -q 'AUTOTEST terminado' cliente.log
           if grep -q 'AUTOTEST FALLO' cliente.log; then grep 'AUTOTEST FALLO' cliente.log; exit 1; fi
           [ "$rc" = "0" ] || [ "$rc" = "124" ]
+      - name: Galería de técnicas de Law (capturas de cada técnica)
+        if: startsWith(github.ref_name, 'law-') || contains(github.event.head_commit.message, '[galeria]')
+        continue-on-error: true
+        run: |
+          export DISPLAY=:99
+          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
+          sleep 2
+          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-law-*.png
+          mkdir -p capturas/galeria
+          set +e
+          timeout 540 ./gradlew runGalleryClient --console=plain > galeria.log 2>&1
+          echo "exit=$?"
+          set -e
+          for f in run/screenshots/autotest-law-*.png; do
+            [ -f "$f" ] || continue
+            convert "$f" -quality 88 "capturas/galeria/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/galeria/
+          done
+          ls capturas/galeria | wc -l
+          grep -E "AUTOTEST galería" galeria.log | tail -90 || true
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          cp -f compilar.log servidor.log cliente.log /tmp/ci-logs/ 2>/dev/null || true
+          cp -f compilar.log servidor.log cliente.log galeria.log /tmp/ci-logs/ 2>/dev/null || true
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
           cd /tmp/ci-logs && git init -q -b ci-logs
           git config user.name "github-actions[bot]"
