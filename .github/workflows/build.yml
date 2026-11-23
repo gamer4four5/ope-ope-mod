@@ -102,6 +102,13 @@ jobs:
           mkdir -p /tmp/ci-logs
           cp -f compilar.log servidor.log cliente.log galeria.log /tmp/ci-logs/ 2>/dev/null || true
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
+          # el jar de esta ejecución, para instalarlo sin iniciar sesión en GitHub (los artefactos la piden)
+          JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v -- '-sources' | head -1 || true)
+          if [ -n "$JAR" ]; then
+            cp -f "$JAR" /tmp/ci-logs/OpeOpeNoMi-1.21.1.jar
+            (cd /tmp/ci-logs && sha256sum OpeOpeNoMi-1.21.1.jar > OpeOpeNoMi-1.21.1.jar.sha256)
+          fi
+          echo "${{ github.sha }} ${{ github.ref_name }} ejecución ${{ github.run_id }}" > /tmp/ci-logs/commit.txt
           cd /tmp/ci-logs && git init -q -b ci-logs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
