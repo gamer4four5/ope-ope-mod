@@ -710,6 +710,55 @@ public final class Payloads {
 		}
 	}
 
+	/**
+	 * Servidor → cliente: efectos 3D de las técnicas de Law (Ope Ope no Mi) que antes eran solo partículas vanilla.
+	 * userId = quien la usa (para el gesto y para seguirle), targetId = el ser al que se pega el efecto (−1 = ninguno).
+	 */
+	public record LawFx(
+		int kind, int userId, int targetId,
+		double ax, double ay, double az,
+		double bx, double by, double bz,
+		float radius, float power, int ticks
+	) implements CustomPayload {
+		public static final int RADIO_KNIFE = 0, INJECTION_DASH = 1, INJECTION_HIT = 2, GAMMA = 3, CURTAIN = 4, MES = 5,
+			COUNTER_SHOCK = 6, SCAN = 7, SOULS = 8, RAIN_SLASH = 9, AWAKEN = 10, KROOM = 11, ANESTHESIA = 12,
+			SHOCK_WILLE = 13, PUNCTURE = 14, SILENT = 15, SWORD = 16, RROOM_CAST = 17, RROOM_BURST = 18, STERBEN = 19,
+			HEART_SQUEEZE = 20, KINDS = 21;
+		/** SWORD: qué tajo (va en power). */
+		public static final int SWORD_IAI = 0, SWORD_MOON = 1, SWORD_WHIRL = 2, SWORD_THRUSTS = 3;
+		public static final Id<LawFx> ID = new Id<>(OpeOpeMod.id("law_fx"));
+		public static final PacketCodec<RegistryByteBuf, LawFx> CODEC = PacketCodec.of(LawFx::write, LawFx::read);
+
+		static LawFx read(RegistryByteBuf buf) {
+			return new LawFx(
+				buf.readVarInt(), buf.readVarInt(), buf.readVarInt(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(),
+				buf.readDouble(), buf.readDouble(), buf.readDouble(),
+				buf.readFloat(), buf.readFloat(), buf.readVarInt()
+			);
+		}
+
+		public void write(RegistryByteBuf buf) {
+			buf.writeVarInt(kind);
+			buf.writeVarInt(userId);
+			buf.writeVarInt(targetId);
+			buf.writeDouble(ax);
+			buf.writeDouble(ay);
+			buf.writeDouble(az);
+			buf.writeDouble(bx);
+			buf.writeDouble(by);
+			buf.writeDouble(bz);
+			buf.writeFloat(radius);
+			buf.writeFloat(power);
+			buf.writeVarInt(ticks);
+		}
+
+		@Override
+		public Id<? extends CustomPayload> getId() {
+			return ID;
+		}
+	}
+
 	/** Cuántos elementos leer de un array: el largo que llega, entre 0 y su tope (como Cut.read, sin negativos). */
 	private static int len(int n, int cap) {
 		return Math.max(0, Math.min(n, cap));

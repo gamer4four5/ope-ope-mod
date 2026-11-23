@@ -740,6 +740,7 @@ public final class InputHandler {
 		roomPressAt = now;
 		roomPressTick = clientTick;
 		Send.action(Actions.ROOM_PRESS);
+		if (!hadRoom) dev.opeope.client.render.PlayerAnimClient.triggerGestureSelf(dev.opeope.client.render.PlayerAnimClient.GESTURE_PALM);
 		return () -> onRoomRelease(hadRoom);
 	}
 
@@ -901,10 +902,12 @@ public final class InputHandler {
 		if (!rUsed && before(rDownAt, rDownTick, s.toqueR)) {
 			if (lastRTapAt != 0 && before(lastRTapAt, lastRTapTick, s.dobleToque)) {
 				Send.taktTap(Payloads.TaktTap.KIND_DOUBLE, 0);
+				dev.opeope.client.render.PlayerAnimClient.triggerGestureSelf(dev.opeope.client.render.PlayerAnimClient.GESTURE_INDEX);
 				lastRTapAt = 0;
 			} else {
 				// el arranque espera lo que dura el doble toque (y un tick más) por si llega el segundo
 				Send.taktTap(Payloads.TaktTap.KIND_TAP, (int) Math.ceil(s.dobleToque / 50.0) + 1);
+				dev.opeope.client.render.PlayerAnimClient.triggerGestureSelf(dev.opeope.client.render.PlayerAnimClient.GESTURE_INDEX);
 				lastRTapAt = now;
 				lastRTapTick = clientTick;
 			}
@@ -1322,6 +1325,7 @@ public final class InputHandler {
 		Send.cut(0, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) pt.x, (float) pt.y, (float) pt.z});
 		CutFx.slashFlash(s[0], s[1]);
 		p.swingHand(Hand.MAIN_HAND);
+		dev.opeope.client.render.PlayerAnimClient.triggerGestureSelf(dev.opeope.client.render.PlayerAnimClient.GESTURE_SLASH);
 		Onboarding.mark(Onboarding.STEP_CUT);
 	}
 
@@ -1344,6 +1348,7 @@ public final class InputHandler {
 		Vec3d eye = p.getEyePos();
 		Send.cut(2, new float[]{(float) n.x, (float) n.y, (float) n.z, (float) eye.x, (float) eye.y, (float) eye.z});
 		CutFx.slashFlash(Math.cos(a), Math.sin(a));
+		dev.opeope.client.render.PlayerAnimClient.triggerGestureSelf(dev.opeope.client.render.PlayerAnimClient.GESTURE_SLASH);
 		Onboarding.mark(Onboarding.STEP_CUT);
 	}
 

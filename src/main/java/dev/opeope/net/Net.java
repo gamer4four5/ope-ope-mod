@@ -27,6 +27,7 @@ public final class Net {
 		PayloadTypeRegistry.playS2C().register(Payloads.AerialWindow.ID, Payloads.AerialWindow.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.ShamblesFx.ID, Payloads.ShamblesFx.CODEC);
 		PayloadTypeRegistry.playS2C().register(Payloads.GravityFx.ID, Payloads.GravityFx.CODEC);
+		PayloadTypeRegistry.playS2C().register(Payloads.LawFx.ID, Payloads.LawFx.CODEC);
 
 		ServerPlayNetworking.registerGlobalReceiver(Payloads.Action.ID, (payload, ctx) ->
 			ctx.server().execute(() -> Actions.handle(ctx.player(), payload.action(), payload.arg())));

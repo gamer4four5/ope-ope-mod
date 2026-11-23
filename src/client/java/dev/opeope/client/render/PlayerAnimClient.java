@@ -43,12 +43,71 @@ public final class PlayerAnimClient {
 		float lastLeanDeg;
 		float lastBankDeg;
 		float stridePhase;
+		/** Gesto de técnica de Law en curso (GESTURE_*), su avance 0→1 y cuánto dura en segundos. */
+		int gestureKind = -1;
+		float gestureT = 1f;
+		float gestureDur = 0.5f;
+		long gestureStartNanos;
+		int lastApplyKind = -9;
 	}
 
 	private static final Map<Integer, State> STATES = new HashMap<>();
 
+	/**
+	 * Gestos de Law sacados del anime: la palma abierta del ROOM, el índice alzado de Takt, la estocada (Gamma Knife,
+	 * Injection Shot, Mes), las dos palmas del Counter Shock, el tajo diagonal con Kikoku, el barrido del Curtain y la
+	 * estocada hacia abajo de Puncture Wille.
+	 */
+	public static final int GESTURE_PALM = 0, GESTURE_INDEX = 1, GESTURE_THRUST = 2, GESTURE_TWO_PALMS = 3,
+		GESTURE_SLASH = 4, GESTURE_SWEEP = 5, GESTURE_OVERHEAD = 6;
+	private static final float[] GESTURE_SECONDS = {0.75f, 0.6f, 0.45f, 0.55f, 0.42f, 0.6f, 0.85f};
+
 	public static void clear() {
 		STATES.clear();
+	}
+
+	/** Arranca un gesto en cualquier jugador (también en los demás: el servidor manda quién usó la técnica). */
+	public static void triggerGesture(int entityId, int kind) {
+		if (kind < 0 || kind >= GESTURE_SECONDS.length) return;
+		State st = STATES.computeIfAbsent(entityId, k -> new State());
+		st.gestureKind = kind;
+		st.gestureT = 0f;
+		st.gestureDur = GESTURE_SECONDS[kind];
+		st.gestureStartNanos = System.nanoTime();
+	}
+
+	/** El gesto avanza con el reloj (no con los fotogramas en que se dibuja el modelo: en 1.ª persona no se dibuja). */
+	private static void advanceGesture(State st) {
+		if (st.gestureKind < 0) return;
+		st.gestureT = (float) Math.min(1.0, (System.nanoTime() - st.gestureStartNanos) / 1e9 / Math.max(0.1f, st.gestureDur));
+		if (st.gestureT >= 1f) st.gestureKind = -1;
+	}
+
+	/** Para las pruebas: el gesto de un jugador ahora («tipo t peso» o «-»). */
+	public static String gestureDebug(int entityId) {
+		State st = STATES.get(entityId);
+		if (st == null) return "sin estado";
+		advanceGesture(st);
+		return st.gestureKind < 0 ? "-" : st.gestureKind + " t=" + st.gestureT + " w=" + gestureWeight(st) + " lastApply=" + st.lastApplyKind;
+	}
+
+	public static void triggerGestureSelf(int kind) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player != null) triggerGesture(mc.player.getId(), kind);
+	}
+
+	/** Cuánto pesa el gesto ahora (sube rápido, se sostiene y baja), 0 si no hay. */
+	private static float gestureWeight(State st) {
+		if (st.gestureKind < 0 || st.gestureT >= 1f) return 0f;
+		float t = st.gestureT;
+		if (t < 0.18f) return smooth(t / 0.18f);
+		if (t > 0.72f) return smooth((1f - t) / 0.28f);
+		return 1f;
+	}
+
+	private static float smooth(float x) {
+		x = MathHelper.clamp(x, 0f, 1f);
+		return x * x * (3f - 2f * x);
 	}
 
 	public static void triggerShamblesGesture() {
@@ -120,6 +179,7 @@ public final class PlayerAnimClient {
 		if (st.shamblesGesture > 0f) {
 			st.shamblesGesture = Math.max(0f, st.shamblesGesture - (float) (dt / 0.36));
 		}
+		advanceGesture(st);
 
 		float runFrac = MathHelper.clamp(horiz / 0.26f, 0f, 1.35f);
 		if (p.isOnGround() && horiz > 0.02f) {
@@ -256,7 +316,129 @@ public final class PlayerAnimClient {
 			snapArm.roll = MathHelper.lerp(snap, snapArm.roll, 0.42f * sgn * (1f - g));
 		}
 
+		// 6) Gestos de las técnicas de Law
+		applyLawGesture(st, model, p.getMainArm());
+
 		model.hat.copyTransform(model.head);
+	}
+
+	private static void applyLawGesture(State st, BipedEntityModel<?> model, Arm mainArm) {
+		advanceGesture(st);
+		float w = gestureWeight(st);
+		if (w <= 0.001f) return;
+		st.lastApplyKind = st.gestureKind;
+		float t = st.gestureT;
+		var arm = mainArm == Arm.RIGHT ? model.rightArm : model.leftArm;
+		var other = mainArm == Arm.RIGHT ? model.leftArm : model.rightArm;
+		float sgn = mainArm == Arm.RIGHT ? 1f : -1f;
+		switch (st.gestureKind) {
+			case GESTURE_PALM -> {
+				// ROOM: brazo extendido hacia delante y arriba, palma abierta hacia el cielo
+				arm.pitch = MathHelper.lerp(w, arm.pitch, -1.62f);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, -0.22f * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, 0.10f * sgn);
+				model.body.yaw = MathHelper.lerp(w, model.body.yaw, -0.12f * sgn);
+			}
+			case GESTURE_INDEX -> {
+				// Takt: el índice hacia arriba, el brazo casi vertical
+				arm.pitch = MathHelper.lerp(w, arm.pitch, -2.72f);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, 0.08f * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, -0.18f * sgn);
+			}
+			case GESTURE_THRUST -> {
+				// Estocada: atrás un instante y disparo hacia delante con el torso
+				float wind = t < 0.28f ? smooth(t / 0.28f) : 0f;
+				float drive = t >= 0.22f ? smooth((t - 0.22f) / 0.18f) : 0f;
+				float pitch = MathHelper.lerp(drive, -0.35f + 0.45f * wind, -1.60f);
+				arm.pitch = MathHelper.lerp(w, arm.pitch, pitch);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, -0.05f * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, 0f);
+				model.body.yaw = MathHelper.lerp(w, model.body.yaw, (-0.32f * drive + 0.20f * wind) * sgn);
+				other.pitch = MathHelper.lerp(w, other.pitch, 0.35f);
+			}
+			case GESTURE_TWO_PALMS -> {
+				// Counter Shock: las dos palmas al frente, como las palas de un desfibrilador
+				arm.pitch = MathHelper.lerp(w, arm.pitch, -1.48f);
+				other.pitch = MathHelper.lerp(w, other.pitch, -1.48f);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, 0.30f * sgn);
+				other.yaw = MathHelper.lerp(w, other.yaw, -0.30f * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, 0f);
+				other.roll = MathHelper.lerp(w, other.roll, 0f);
+			}
+			case GESTURE_SLASH -> {
+				// Tajo diagonal con Kikoku: de arriba-atrás a abajo-cruzado
+				float s = smooth(MathHelper.clamp((t - 0.08f) / 0.30f, 0f, 1f));
+				arm.pitch = MathHelper.lerp(w, arm.pitch, MathHelper.lerp(s, -2.75f, -0.55f));
+				arm.yaw = MathHelper.lerp(w, arm.yaw, MathHelper.lerp(s, -0.55f, 0.75f) * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, MathHelper.lerp(s, 0.35f, -0.15f) * sgn);
+				model.body.yaw = MathHelper.lerp(w, model.body.yaw, MathHelper.lerp(s, -0.30f, 0.38f) * sgn);
+			}
+			case GESTURE_SWEEP -> {
+				// Curtain: el brazo horizontal barre el aire y tira del velo
+				float s = smooth(MathHelper.clamp((t - 0.1f) / 0.45f, 0f, 1f));
+				arm.pitch = MathHelper.lerp(w, arm.pitch, -1.52f);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, MathHelper.lerp(s, -1.05f, 0.85f) * sgn);
+				arm.roll = MathHelper.lerp(w, arm.roll, 0f);
+				model.body.yaw = MathHelper.lerp(w, model.body.yaw, MathHelper.lerp(s, -0.25f, 0.22f) * sgn);
+			}
+			case GESTURE_OVERHEAD -> {
+				// Puncture Wille: la Kikoku alzada con las dos manos y clavada hacia abajo
+				float s = smooth(MathHelper.clamp((t - 0.30f) / 0.18f, 0f, 1f));
+				float pitch = MathHelper.lerp(s, -3.05f, -0.55f);
+				arm.pitch = MathHelper.lerp(w, arm.pitch, pitch);
+				other.pitch = MathHelper.lerp(w, other.pitch, pitch);
+				arm.yaw = MathHelper.lerp(w, arm.yaw, 0.18f * sgn);
+				other.yaw = MathHelper.lerp(w, other.yaw, -0.18f * sgn);
+				model.head.pitch = MathHelper.lerp(w * s, model.head.pitch, 0.45f);
+			}
+			default -> {}
+		}
+	}
+
+	private static void applyLawGestureFirstPerson(State st, float side, boolean mainHand, MatrixStack matrices) {
+		advanceGesture(st);
+		float w = gestureWeight(st);
+		if (w <= 0.001f) return;
+		float t = st.gestureT;
+		boolean both = st.gestureKind == GESTURE_TWO_PALMS || st.gestureKind == GESTURE_OVERHEAD;
+		if (!mainHand && !both) return;
+		switch (st.gestureKind) {
+			case GESTURE_PALM -> {
+				matrices.translate(-0.06f * side * w, 0.16f * w, -0.10f * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(32f * w));
+				matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(-10f * side * w));
+			}
+			case GESTURE_INDEX -> {
+				matrices.translate(0.02f * side * w, 0.30f * w, -0.06f * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(55f * w));
+			}
+			case GESTURE_THRUST -> {
+				float drive = t >= 0.22f ? smooth((t - 0.22f) / 0.18f) : 0f;
+				float wind = t < 0.28f ? smooth(t / 0.28f) : 0f;
+				matrices.translate(-0.10f * side * drive * w, 0.04f * w, (0.10f * wind - 0.34f * drive) * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(12f * drive * w));
+			}
+			case GESTURE_TWO_PALMS -> {
+				matrices.translate(-0.12f * side * w, 0.14f * w, -0.22f * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(28f * w));
+			}
+			case GESTURE_SLASH -> {
+				float s = smooth(MathHelper.clamp((t - 0.08f) / 0.30f, 0f, 1f));
+				matrices.translate(MathHelper.lerp(s, 0.10f, -0.22f) * side * w, MathHelper.lerp(s, 0.22f, -0.10f) * w, -0.08f * w);
+				matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(MathHelper.lerp(s, -35f, 40f) * side * w));
+			}
+			case GESTURE_SWEEP -> {
+				float s = smooth(MathHelper.clamp((t - 0.1f) / 0.45f, 0f, 1f));
+				matrices.translate(MathHelper.lerp(s, 0.18f, -0.30f) * side * w, 0.10f * w, -0.06f * w);
+				matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(MathHelper.lerp(s, -30f, 30f) * side * w));
+			}
+			case GESTURE_OVERHEAD -> {
+				float s = smooth(MathHelper.clamp((t - 0.30f) / 0.18f, 0f, 1f));
+				matrices.translate(-0.08f * side * w, MathHelper.lerp(s, 0.36f, -0.18f) * w, -0.10f * w);
+				matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(MathHelper.lerp(s, 60f, -25f) * w));
+			}
+			default -> {}
+		}
 	}
 
 	/** Dinámica táctil en 1.ª persona: balanceo de carrera, inercia al girar la mira, amortiguación y gesto Shambles. */
@@ -286,6 +468,9 @@ public final class PlayerAnimClient {
 			matrices.translate(lagX, lagY, 0f);
 			matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(MathHelper.clamp(-st.turnRate * 0.035f, -5.5f, 5.5f)));
 		}
+
+		// Gestos de las técnicas de Law en 1.ª persona
+		applyLawGestureFirstPerson(st, side, main, matrices);
 
 		// Gesto de Shambles en 1.ª persona
 		if (st.shamblesGesture > 0.01f) {

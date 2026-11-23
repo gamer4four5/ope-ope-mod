@@ -20,6 +20,14 @@ loom {
 			vmArgs "-Xmx3G", "-Dopeope.autotest=true"
 			runDir "run"
 		}
+		// Galería de las técnicas de Law: las lanza una a una y deja capturas en run/screenshots/autotest-law-*.png
+		galleryClient {
+			client()
+			name "Gallery Client"
+			programArgs "--quickPlaySingleplayer=Prueba"
+			vmArgs "-Xmx3G", "-Dopeope.autotest=true", "-Dopeope.gallery=true"
+			runDir "run"
+		}
 	}
 	mods {
 		"opeope" {

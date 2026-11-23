@@ -104,7 +104,147 @@ public final class AutoTest {
 	private AutoTest() {}
 
 	public static final boolean ON = Boolean.getBoolean("opeope.autotest");
+	/** Con -Dopeope.gallery=true (./gradlew runGalleryClient): solo la galería de técnicas de Law, con capturas. */
+	public static final boolean GALLERY = Boolean.getBoolean("opeope.gallery");
 	private static int t = -1;
+
+	// ------------------------------------------------------------------ galería de técnicas de Law (efectos LawFx)
+
+	/** Una técnica de la galería: qué hacer en el servidor y en qué ticks (desde que empieza) sacar capturas. */
+	private record Shot(String name, BiConsumer<ServerPlayerEntity, PlayerPower> use, float pitch, int[] at, int[] third) {}
+
+	private static final int GALLERY_STEP = 64;
+	private static ZombieEntity galleryZombie;
+
+	private static List<Shot> galleryShots() {
+		List<Shot> l = new ArrayList<>();
+		int[] std = {3, 9, 18};
+		int[] th = {6};
+		l.add(new Shot("radio-knife", (sp, pw) -> Techniques.radioKnife(sp, pw), 8, std, th));
+		l.add(new Shot("injection", (sp, pw) -> Techniques.injection(sp, pw), 8, new int[]{2, 5, 9, 14}, new int[]{}));
+		l.add(new Shot("gamma", (sp, pw) -> Techniques.gamma(sp, pw), 8, new int[]{2, 6, 12}, th));
+		l.add(new Shot("curtain", (sp, pw) -> Techniques.curtain(sp, pw), 0, new int[]{4, 14}, new int[]{9}));
+		l.add(new Shot("mes", (sp, pw) -> Techniques.mes(sp, pw), 8, new int[]{3, 8, 14}, th));
+		l.add(new Shot("counter-shock", (sp, pw) -> Techniques.counterShock(sp, pw), 8, new int[]{2, 6, 11}, new int[]{4}));
+		l.add(new Shot("scan", (sp, pw) -> Techniques.scan(sp, pw), 4, new int[]{6, 14, 24}, new int[]{}));
+		l.add(new Shot("souls", (sp, pw) -> Techniques.souls(sp, pw), 8, new int[]{5, 11, 17}, new int[]{}));
+		l.add(new Shot("rain", (sp, pw) -> Techniques.rain(sp, pw), 0, new int[]{10, 16, 22}, new int[]{}));
+		l.add(new Shot("awaken", (sp, pw) -> {
+			sp.setAttached(dev.opeope.registry.ModAttachments.AWAKENING, true);
+			pw.awakened = false;
+			Techniques.toggleAwaken(sp, pw);
+		}, 10, new int[]{4, 10}, new int[]{7}));
+		l.add(new Shot("k-room", (sp, pw) -> Techniques.kroom(sp, pw), 8, new int[]{4, 9, 16}, th));
+		l.add(new Shot("anesthesia", (sp, pw) -> Techniques.anesthesia(sp, pw, true), 8, new int[]{5, 14}, new int[]{9}));
+		l.add(new Shot("shock-wille", (sp, pw) -> {
+			pw.anesthesia = false;
+			Techniques.shockWille(sp, pw);
+		}, 8, new int[]{2, 6, 10, 16}, new int[]{}));
+		l.add(new Shot("silent", (sp, pw) -> Techniques.silent(sp, pw), 10, new int[]{6}, new int[]{12}));
+		l.add(new Shot("iai", (sp, pw) -> {
+			pw.combatStyle = 2;
+			Techniques.radioKnife(sp, pw);
+		}, 4, new int[]{2, 5}, new int[]{}));
+		l.add(new Shot("luna", (sp, pw) -> {
+			pw.combatStyle = 2;
+			Techniques.injection(sp, pw);
+		}, 4, new int[]{2, 5, 8}, new int[]{}));
+		l.add(new Shot("torbellino", (sp, pw) -> {
+			pw.combatStyle = 2;
+			Techniques.gamma(sp, pw);
+		}, 10, new int[]{3, 7}, new int[]{5}));
+		l.add(new Shot("mil-puntadas", (sp, pw) -> {
+			pw.combatStyle = 2;
+			Techniques.toggleAwaken(sp, pw);
+		}, 8, new int[]{3, 7, 12}, new int[]{}));
+		l.add(new Shot("r-room", (sp, pw) -> {
+			pw.combatStyle = 1;
+			RoomOps.rroom(sp, pw, true);
+		}, 8, new int[]{3, 8, 26, 31, 38}, new int[]{}));
+		l.add(new Shot("sterben", (sp, pw) -> Techniques.sterben(sp, pw), 6, new int[]{3, 8}, new int[]{}));
+		l.add(new Shot("puncture", (sp, pw) -> Techniques.puncture(sp, pw), 7, new int[]{2, 5, 9, 15, 24, 36}, new int[]{12}));
+		return l;
+	}
+
+	private static List<Shot> gallery;
+
+	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
+		if (gallery == null) gallery = galleryShots();
+		if (g == 0) {
+			mc.getWindow().setWindowedSize(1280, 720);
+			srv.execute(() -> {
+				ServerPlayerEntity sp = srv.getPlayerManager().getPlayer(id);
+				if (sp == null) return;
+				galleryZombie = spawnDummyZombie(sp.getServerWorld(), gx0 + 0.5, gfy + 1, gz0 + 4.5);
+				if (galleryZombie != null) galleryZombie.setInvulnerable(true);
+			});
+		}
+		int idx = (g - 20) / GALLERY_STEP;
+		int r = (g - 20) % GALLERY_STEP;
+		if (g < 20) return;
+		if (idx >= gallery.size()) {
+			if (r == 10) {
+				OpeOpeMod.LOG.info("AUTOTEST galería terminada");
+				mc.scheduleStop();
+			}
+			return;
+		}
+		Shot s = gallery.get(idx);
+		if (r == 0) {
+			// todo a su sitio, sin enfriamientos ni restos de la técnica anterior
+			mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+			boolean north = s.name().equals("injection") || s.name().equals("iai") || s.name().equals("luna");
+			server(srv, id, (sp, pw) -> {
+				// la escena de nuevo (lo cortado por la técnica anterior fuera) y un zombi quieto delante
+				ServerWorld w = sp.getServerWorld();
+				Box area = new Box(gx0 - 40, gfy - 30, gz0 - 40, gx0 + 40, gfy + 60, gz0 + 50);
+				for (Entity e : w.getOtherEntities(sp, area, e -> !(e instanceof ServerPlayerEntity))) e.discard();
+				setup(srv, id);
+				java.util.Arrays.fill(pw.cooldowns, 0);
+				pw.anesthesia = false;
+				pw.combatStyle = 1;
+				pw.silentTicks = 0;
+				pw.curtainTicks = 0;
+				pw.kroomBladeTicks = 0;
+				sp.removeStatusEffect(StatusEffects.INVISIBILITY);
+				sp.setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
+				sp.changeGameMode(GameMode.SURVIVAL);
+				sp.getAbilities().invulnerable = true;
+				double zz = north ? gz0 - 4.5 : gz0 + 4.5;
+				galleryZombie = spawnDummyZombie(w, gx0 + 0.5, gfy + 1, zz);
+				if (galleryZombie != null) {
+					galleryZombie.setInvulnerable(true);
+					galleryZombie.equipStack(net.minecraft.entity.EquipmentSlot.HEAD, new ItemStack(Items.LEATHER_HELMET));   // que no arda al sol
+					galleryZombie.refreshPositionAndAngles(gx0 + 0.5, gfy + 1, zz, north ? 0f : 180f, 0f);
+				}
+				sp.networkHandler.requestTeleport(gx0 + 0.5, gfy + 1, gz0 + 0.5, north ? 180f : 0f, s.pitch());
+				sp.setVelocity(Vec3d.ZERO);
+			});
+		}
+		if (r == 8) {
+			OpeOpeMod.LOG.info("AUTOTEST galería {}", s.name());
+			server(srv, id, (sp, pw) -> {
+				try {
+					s.use().accept(sp, pw);
+				} catch (RuntimeException e) {
+					OpeOpeMod.LOG.error("AUTOTEST galería: falló {}", s.name(), e);
+				}
+			});
+		}
+		if (s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
+		for (int k = 0; k < s.at().length; k++) {
+			if (r == 8 + s.at()[k]) shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-" + (char) ('a' + k));
+		}
+		for (int k = 0; k < s.third().length; k++) {
+			int at = 8 + s.third()[k];
+			if (r == at - 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.THIRD_PERSON_BACK);
+			if (r == at) {
+				shot(mc, "law-" + String.format("%02d", idx + 1) + "-" + s.name() + "-3p" + (k == 0 ? "" : String.valueOf(k)));
+				OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+			}
+			if (r == at + 1) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
+		}
+	}
 
 	/** Un tajo: en qué tick empieza, hacia dónde mira, cómo se arrastra el ratón y cómo se llama. */
 	private record Slash(int at, float yaw, float pitch, double dx, double dy, String name) {}
@@ -126,6 +266,11 @@ public final class AutoTest {
 		t++;
 		UUID id = mc.player.getUuid();
 		if (t == 60) srv.execute(() -> setup(srv, id));
+		if (GALLERY) {
+			if (t == 101) Onboarding.suppressForTest(true);
+			if (t >= 110) gallery(mc, srv, id, t - 110);
+			return;
+		}
 		if (t == 100) shot(mc, "0a-primeros-pasos");
 		if (t == 101) Onboarding.suppressForTest(true);   // que las pruebas no marquen los primeros pasos (salvo en la fase B, paso o)
 		if (t == 140) shot(mc, "0-escena");

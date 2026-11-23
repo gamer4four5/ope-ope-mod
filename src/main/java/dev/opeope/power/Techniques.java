@@ -201,7 +201,7 @@ public final class Techniques {
 		Vec3d start = p.getPos();
 		Vec3d look = p.getRotationVector();
 		Vec3d end = start.add(look.multiply(8.5));
-		beam(p, start.add(0, 1, 0), end.add(0, 1, 0), CutEngine.ROOM_DUST);
+		LawFx.send(p, Payloads.LawFx.SWORD, null, start, end, 3f, Payloads.LawFx.SWORD_IAI, 14);
 		Shambles.teleport(p, end);
 		Vec3d mid = start.lerp(end, 0.5).add(0, 1.0, 0);
 		Room room = PowerManager.roomAt(p, mid);
@@ -239,7 +239,7 @@ public final class Techniques {
 			? CutEngine.Region.of(room).withEye(eye, look)
 			: CutEngine.Region.sphere(point, 5.0);
 		CutEngine.cut(p, planes, region, pw.suspend, 0, dmg(32), room != null);
-		beam(p, eye.add(look), point, ParticleTypes.SWEEP_ATTACK);
+		LawFx.send(p, Payloads.LawFx.SWORD, null, eye.add(look.multiply(2.5)), point, 2.6f, Payloads.LawFx.SWORD_MOON, 16);
 		sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.4f, 0.7f);
 		p.sendMessage(Text.literal("§bKikoku: Luna de Acero"), true);
 		pw.cooldown(Tech.INJECTION);
@@ -258,7 +258,8 @@ public final class Techniques {
 			? CutEngine.Region.of(room).withLimit(center, Math.min(room.radius, 11.0))
 			: CutEngine.Region.sphere(center, 6.5);
 		CutEngine.cut(p, planes, region, pw.suspend, 0, dmg(40), room != null);
-		p.getServerWorld().spawnParticles(ParticleTypes.SWEEP_ATTACK, center.x, center.y, center.z, 12, 2.5, 0.5, 2.5, 0);
+		p.getServerWorld().spawnParticles(ParticleTypes.SWEEP_ATTACK, center.x, center.y, center.z, 4, 2.5, 0.5, 2.5, 0);
+		LawFx.send(p, Payloads.LawFx.SWORD, null, center, center.add(p.getRotationVector()), 6f, Payloads.LawFx.SWORD_WHIRL, 14);
 		sound(p, center, SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.5f, 0.6f);
 		p.sendMessage(Text.literal("§bKikoku: Torbellino Cortante 360°"), true);
 		pw.cooldown(Tech.GAMMA);
@@ -279,6 +280,7 @@ public final class Techniques {
 		List<CutEngine.Plane> planes = Patterns.expand(p, new CutEngine.Plane(up, eye), 3); // 3 = Dados 3D
 		CutEngine.Region region = CutEngine.Region.of(pw.room).withEye(eye, look);
 		CutEngine.cut(p, planes, region, pw.suspend, 0, dmg(38), true);
+		LawFx.send(p, Payloads.LawFx.SWORD, null, eye, PowerManager.aimPoint(p, 30), 3f, Payloads.LawFx.SWORD_THRUSTS, 16);
 		sound(p, eye, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 1.0f, 1.5f);
 		p.sendMessage(Text.literal("§bKikoku: ¡Mil Puntadas (Dados 3D)!"), true);
 	}
@@ -453,6 +455,11 @@ public final class Techniques {
 		if (pw.onCooldown(Tech.SCAN)) return;
 		pw.scanTicks = OpeConfig.SCAN_TICKS;
 		pw.cooldown(Tech.SCAN);
+		if (pw.room != null && pw.room.dim == p.getWorld().getRegistryKey()) {
+			LawFx.send(p, Payloads.LawFx.SCAN, null, pw.room.center, pw.room.center, (float) pw.room.radius, 1f, 30);
+		} else {
+			LawFx.send(p, Payloads.LawFx.SCAN, null, p.getPos().add(0, 1, 0), p.getPos().add(0, 1, 0), 8f, 1f, 30);
+		}
 		sound(p, p.getPos(), SoundEvents.BLOCK_BEACON_POWER_SELECT, 1f, 2f);
 		p.sendMessage(Text.translatable("opeope.msg.scan"), true);
 		SurgicalSurvival.scanRoomReport(p, pw);
@@ -488,12 +495,8 @@ public final class Techniques {
 			: CutEngine.Region.sphere(point, 4.5);
 		CutEngine.cut(p, planes, region, pw.suspend, OpeConfig.RADIO_KNIFE_NO_REATTACH, dmg(22 * aerialMult), room != null);
 		ServerWorld w = p.getServerWorld();
-		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, point.x, point.y, point.z, 80, 1.5, 1.5, 1.5, 0.4);
-		w.spawnParticles(ParticleTypes.SWEEP_ATTACK, point.x, point.y, point.z, 3, 0.8, 0.8, 0.8, 0);
-		beam(p, p.getEyePos().add(look), point, ParticleTypes.ELECTRIC_SPARK);
-		helix(w, p.getEyePos().add(look), point, 0.35, 4.0, CutEngine.ROOM_DUST);
-		ring(w, point, 2.4, 24, ParticleTypes.ELECTRIC_SPARK);
-		ring(w, point, 3.6, 30, CutEngine.ROOM_DUST);
+		LawFx.send(p, Payloads.LawFx.RADIO_KNIFE, t, LawFx.hand(p), point, 4.5f, 1f, 15);
+		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, point.x, point.y, point.z, 40, 1.5, 1.5, 1.5, 0.4);
 		sound(p, point, SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.1f, 1.65f);
 		sound(p, point, SoundEvents.ITEM_TRIDENT_THROW.value(), 1.0f, 1.85f);
 		sound(p, point, SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, 1f, 1.6f);
@@ -526,7 +529,8 @@ public final class Techniques {
 		if (p.networkHandler != null) {
 			p.networkHandler.sendPacket(new EntityVelocityUpdateS2CPacket(p.getId(), p.getVelocity()));
 		}
-		ring(p.getServerWorld(), p.getPos().add(0, 1.0, 0), 1.4, 20, CutEngine.ROOM_DUST);
+		LawFx.send(p, Payloads.LawFx.INJECTION_DASH, aimTarget != null ? aimTarget : livingInSight(p, 14), p.getEyePos(),
+			p.getEyePos().add(dashDir.multiply(10)), 0.6f, 1f, 9);
 		sound(p, p.getPos(), SoundEvents.ITEM_TRIDENT_RIPTIDE_3.value(), 1.0f, 1.45f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_BREEZE_WIND_BURST.value(), 1.0f, 1.25f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_KNOCKBACK, 1f, 0.7f);
@@ -540,8 +544,7 @@ public final class Techniques {
 		p.velocityModified = true;
 		p.fallDistance = 0;
 		ServerWorld w = p.getServerWorld();
-		w.spawnParticles(CutEngine.ROOM_DUST, p.getX(), p.getY() + 1, p.getZ(), 5, 0.25, 0.4, 0.25, 0);
-		w.spawnParticles(ParticleTypes.END_ROD, p.getX(), p.getY() + 1, p.getZ(), 2, 0.15, 0.3, 0.15, 0.03);
+		w.spawnParticles(CutEngine.ROOM_DUST, p.getX(), p.getY() + 1, p.getZ(), 2, 0.25, 0.4, 0.25, 0);
 		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, p.getBoundingBox().expand(0.9), e -> e != p && e.isAlive())) {
 			le.damage(w.getDamageSources().playerAttack(p), dmg(45 * pw.aerialFinisherMult));
 			pw.aerialFinisherMult = 1.0f;
@@ -549,16 +552,14 @@ public final class Techniques {
 			le.addVelocity(push.x, push.y, push.z);
 			le.velocityModified = true;
 			Vec3d c = le.getBoundingBox().getCenter();
-			w.spawnParticles(ParticleTypes.EXPLOSION, c.x, c.y, c.z, 2, 0.3, 0.3, 0.3, 0);
-			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 40, 0.5, 0.5, 0.5, 0.3);
+			LawFx.send(p, Payloads.LawFx.INJECTION_HIT, le, c, c.add(pw.dashDir), 3f, 1f, 12);
+			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 20, 0.5, 0.5, 0.5, 0.3);
 			for (LivingEntity near : w.getEntitiesByClass(LivingEntity.class, le.getBoundingBox().expand(3), e -> e != p && e != le && e.isAlive())) {
 				near.damage(w.getDamageSources().playerAttack(p), 3f);
 				Vec3d away = near.getPos().subtract(c).normalize().multiply(0.8).add(0, 0.3, 0);
 				near.addVelocity(away.x, away.y, away.z);
 				near.velocityModified = true;
 			}
-			ring(w, c, 2.2, 24, CutEngine.ROOM_DUST);
-			ring(w, c, 3.0, 28, ParticleTypes.ELECTRIC_SPARK);
 			sound(p, c, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 1.1f, 1.6f);
 			sound(p, c, SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.1f, 1.5f);
 			sound(p, c, SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, 1f, 1.2f);
@@ -610,11 +611,8 @@ public final class Techniques {
 		t.addStatusEffect(new StatusEffectInstance(StatusEffects.WITHER, 60, 0));
 		ServerWorld w = p.getServerWorld();
 		Box b = t.getBoundingBox();
-		w.spawnParticles(GAMMA_DUST, b.getCenter().x, b.getCenter().y, b.getCenter().z, 60, b.getLengthX() / 3, b.getLengthY() / 3, b.getLengthZ() / 3, 0);
-		w.spawnParticles(ParticleTypes.END_ROD, b.getCenter().x, b.getCenter().y, b.getCenter().z, 20, b.getLengthX() / 3, b.getLengthY() / 3, b.getLengthZ() / 3, 0.02);
-		beam(p, p.getEyePos().add(p.getRotationVector()), b.getCenter(), GAMMA_DUST);
-		helix(w, p.getEyePos().add(p.getRotationVector()), b.getCenter(), 0.28, 3.5, ParticleTypes.END_ROD);
-		ring(w, b.getCenter(), 1.8, 22, GAMMA_DUST);
+		LawFx.send(p, Payloads.LawFx.GAMMA, t, LawFx.hand(p), b.getCenter(), (float) b.getLengthY(), 1f, 20);
+		w.spawnParticles(GAMMA_DUST, b.getCenter().x, b.getCenter().y, b.getCenter().z, 20, b.getLengthX() / 3, b.getLengthY() / 3, b.getLengthZ() / 3, 0);
 		sound(p, b.getCenter(), SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.2f, 1.75f);
 		sound(p, b.getCenter(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.95f);
 		sound(p, b.getCenter(), SoundEvents.BLOCK_BEACON_DEACTIVATE, 1.2f, 1.8f);
@@ -634,9 +632,8 @@ public final class Techniques {
 		pw.awakened = !pw.awakened;
 		pw.dirty = true;
 		ServerWorld w = p.getServerWorld();
-		w.spawnParticles(CutEngine.ROOM_DUST, p.getX(), p.getY() + 1, p.getZ(), 80, 1.2, 1.2, 1.2, 0);
-		ring(w, p.getPos().add(0, 0.5, 0), 2.5, 28, CutEngine.ROOM_DUST);
-		ring(w, p.getPos().add(0, 1.2, 0), 1.8, 24, GOLD_DUST);
+		LawFx.send(p, Payloads.LawFx.AWAKEN, null, p.getPos(), p.getPos(), 4.5f, pw.awakened ? 1f : 0f, 24);
+		w.spawnParticles(CutEngine.ROOM_DUST, p.getX(), p.getY() + 1, p.getZ(), 30, 1.2, 1.2, 1.2, 0);
 		sound(p, p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.5f);
 		sound(p, p.getPos(), pw.awakened ? SoundEvents.BLOCK_CONDUIT_ACTIVATE : SoundEvents.BLOCK_CONDUIT_DEACTIVATE, 1.2f, 1.2f);
 		p.sendMessage(Text.translatable(pw.awakened ? "opeope.msg.awake_on" : "opeope.msg.awake_off"), true);
@@ -647,14 +644,16 @@ public final class Techniques {
 		if (pw.onCooldown(Tech.CURTAIN)) return;
 		pw.curtainTicks = OpeConfig.CURTAIN_TICKS;
 		p.addStatusEffect(new StatusEffectInstance(StatusEffects.RESISTANCE, OpeConfig.CURTAIN_TICKS, 2, false, false, true));
+		LawFx.send(p, Payloads.LawFx.CURTAIN, null, p.getPos(), p.getPos(), 1.4f, 1f, OpeConfig.CURTAIN_TICKS);
 		sound(p, p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_RESONATE, 1.2f, 0.8f);
+		sound(p, p.getPos(), SoundEvents.ITEM_ARMOR_EQUIP_ELYTRA.value(), 1.2f, 1.3f);
 		pw.cooldown(Tech.CURTAIN);
 	}
 
 	static void curtainTick(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.curtainTicks <= 0) return;
 		if (--pw.curtainTicks == 0) pw.dirty = true;
-		if (pw.curtainTicks % 2 != 0) return;
+		if (pw.curtainTicks % 6 != 0) return;   // el velo lo dibuja el cliente (LawFx.CURTAIN); aquí solo unas motas
 		Vec3d look = p.getRotationVector();
 		Vec3d flat = new Vec3d(look.x, 0, look.z);
 		if (flat.lengthSquared() < 1e-4) flat = new Vec3d(0, 0, 1);
@@ -662,7 +661,7 @@ public final class Techniques {
 		Vec3d side = new Vec3d(-flat.z, 0, flat.x);
 		Vec3d c = p.getPos().add(flat.multiply(1.4));
 		ServerWorld w = p.getServerWorld();
-		for (int i = 0; i < 6; i++) {
+		for (int i = 0; i < 2; i++) {
 			double a = (p.getRandom().nextDouble() - 0.5) * 2.4, h = p.getRandom().nextDouble() * 2.2;
 			Vec3d at = c.add(side.multiply(a)).add(0, h, 0);
 			w.spawnParticles(CURTAIN_DUST, at.x, at.y, at.z, 1, 0, 0, 0, 0);
@@ -677,7 +676,7 @@ public final class Techniques {
 		if (pw.onCooldown(Tech.STERBEN)) return;
 		SterbenEntity.launch(p);
 		sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.5f, 0.5f);
-		ring(p.getServerWorld(), p.getPos().add(0, 1.0, 0), 1.8, 22, CutEngine.ROOM_DUST);
+		LawFx.send(p, Payloads.LawFx.STERBEN, null, LawFx.hand(p), LawFx.hand(p).add(p.getRotationVector()), 1.4f, 1f, 12);
 		sound(p, p.getPos(), SoundEvents.ITEM_TRIDENT_RIPTIDE_3.value(), 1.2f, 1.3f);
 		sound(p, p.getPos(), SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.8f);
 		p.sendMessage(Text.literal("§b⚙ Sterben: ¡Hoja de la Muerte (Sierra Kikoku 3D)!"), true);
@@ -787,9 +786,7 @@ public final class Techniques {
 			Vec3d posA = a.getPos(), posB = b.getPos();
 			a.requestTeleport(posB.x, posB.y, posB.z);
 			b.requestTeleport(posA.x, posA.y, posA.z);
-			helix(w, posA.add(0, 1.0, 0), posB.add(0, 1.0, 0), 0.55, 3.0, ParticleTypes.SOUL_FIRE_FLAME);
-			ring(w, posA.add(0, 1.0, 0), 1.6, 20, ParticleTypes.END_ROD);
-			ring(w, posB.add(0, 1.0, 0), 1.6, 20, ParticleTypes.END_ROD);
+			LawFx.send(p, Payloads.LawFx.SOULS, b, posA.add(0, a.getHeight() * 0.6, 0), posB.add(0, b.getHeight() * 0.6, 0), 1f, 1f, 24);
 			sound(p, posA, SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.0f, 1.7f);
 			sound(p, posB, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.85f);
 			a.setHealth(Math.max(1f, fb * a.getMaxHealth()));
@@ -804,8 +801,6 @@ public final class Techniques {
 			}
 			if (a instanceof MobEntity ma) ma.setTarget(b);
 			if (b instanceof MobEntity mb) mb.setTarget(a);
-			beam(p, posA.add(0, 1.0, 0), posB.add(0, 1.0, 0), ParticleTypes.SOUL);
-			beam(p, posA.add(0, 1.2, 0), posB.add(0, 1.2, 0), YOUTH_DUST);
 			sound(p, posA, SoundEvents.ENTITY_EVOKER_CAST_SPELL, 1.2f, 1.4f);
 			sound(p, posB, SoundEvents.ENTITY_WARDEN_HEARTBEAT, 1.5f, 1.2f);
 		}
@@ -979,7 +974,7 @@ public final class Techniques {
 		Vec3d n = new Vec3d(p.getRandom().nextDouble() - 0.5, 0.6, p.getRandom().nextDouble() - 0.5).normalize();
 		CutStates.cutLiving(t, List.of(new CutEngine.Plane(n, c)), OpeConfig.CUT_LIVING_TICKS / 2, 0);
 		t.damage(w.getDamageSources().playerAttack(p), 2f);
-		for (int i = 0; i < 8; i++) w.spawnParticles(ParticleTypes.END_ROD, c.x, c.y + 6 - i * 0.7, c.z, 1, 0.05, 0.05, 0.05, 0);
+		LawFx.send(w, Payloads.LawFx.RAIN_SLASH, p, t, c, c, 1f, 1f, 9);
 		sound(p, c, SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 0.6f, 1.8f);
 	}
 
@@ -1056,10 +1051,9 @@ public final class Techniques {
 		t.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, 20 * 300, 0, false, true));
 		ServerWorld w = p.getServerWorld();
 		Vec3d c = t.getBoundingBox().getCenter();
-		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 30, 0.3, 0.3, 0.3, 0);
-		w.spawnParticles(ParticleTypes.HEART, c.x, c.y + 0.3, c.z, 3, 0.2, 0.2, 0.2, 0);
+		LawFx.send(p, Payloads.LawFx.MES, t, LawFx.hand(p), t.getPos().add(0, t.getHeight() * 0.66, 0), 1f, 1f, 23);
+		w.spawnParticles(ParticleTypes.HEART, c.x, c.y + 0.3, c.z, 2, 0.2, 0.2, 0.2, 0);
 		sound(p, c, SoundEvents.ENTITY_WARDEN_HEARTBEAT, 2f, 1.2f);
-		ring(w, c, 1.2, 18, YOUTH_DUST);
 		sound(p, c, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1.1f, 1.75f);
 		sound(p, c, SoundEvents.BLOCK_GLASS_BREAK, 0.7f, 1.8f);
 		sound(p, c, SoundEvents.BLOCK_AMETHYST_BLOCK_BREAK, 1f, 1.5f);
@@ -1084,6 +1078,7 @@ public final class Techniques {
 		le.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 40, 0, false, true));
 		if (le instanceof ServerPlayerEntity victim) victim.sendMessage(Text.translatable("opeope.msg.heart_squeezed"), true);
 		p.getServerWorld().spawnParticles(ParticleTypes.DAMAGE_INDICATOR, le.getX(), le.getY() + le.getHeight() / 2, le.getZ(), 4, 0.3, 0.3, 0.3, 0.1);
+		LawFx.send(p, Payloads.LawFx.HEART_SQUEEZE, le, p.getEyePos(), le.getPos().add(0, le.getHeight() * 0.66, 0), 1f, 1f, 12);
 		sound(p, p.getPos(), SoundEvents.ENTITY_WARDEN_HEARTBEAT, 1.5f, 1.6f);
 		sound(p, le.getPos(), SoundEvents.ENTITY_WARDEN_HEARTBEAT, 1.5f, 1.6f);
 	}
@@ -1195,13 +1190,13 @@ public final class Techniques {
 			le.addVelocity(push.x, push.y, push.z);
 			le.velocityModified = true;
 			Vec3d c = le.getBoundingBox().getCenter();
-			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 50, 0.4, 0.6, 0.4, 0.5);
+			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 20, 0.4, 0.6, 0.4, 0.5);
+			LawFx.send(p, Payloads.LawFx.COUNTER_SHOCK, le, p.getEyePos(), c, 2.5f, 1f, 15);
 		}
 		Vec3d hands = p.getEyePos().add(p.getRotationVector().multiply(0.8));
-		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, hands.x, hands.y, hands.z, 30, 0.2, 0.2, 0.2, 0.4);
+		if (hit.isEmpty()) LawFx.send(p, Payloads.LawFx.COUNTER_SHOCK, null, p.getEyePos(), hands.add(p.getRotationVector().multiply(2)), 2.5f, 1f, 15);
+		w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, hands.x, hands.y, hands.z, 12, 0.2, 0.2, 0.2, 0.4);
 		sound(p, p.getPos(), SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 0.4f, 2f);
-		ring(w, p.getPos().add(0, 1.0, 0), 2.8, 28, ParticleTypes.ELECTRIC_SPARK);
-		ring(w, p.getPos().add(0, 1.0, 0), 2.2, 22, CutEngine.ROOM_DUST);
 		sound(p, p.getPos(), SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.2f, 1.85f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_LIGHTNING_BOLT_IMPACT, 1f, 1.6f);
 
@@ -1285,9 +1280,7 @@ public final class Techniques {
 		Vec3d eye = p.getEyePos();
 		Vec3d look = p.getRotationVector();
 		Vec3d tip = eye.add(look.multiply(26.0));
-		beam(p, eye.add(look.multiply(1.2)), tip, KROOM_DUST);
-		helix(w, eye.add(look.multiply(1.2)), tip, 0.45, 5.0, ParticleTypes.ELECTRIC_SPARK);
-		ring(w, p.getPos().add(0, 0.8, 0), 2.4, 24, KROOM_DUST);
+		LawFx.send(p, Payloads.LawFx.KROOM, null, LawFx.hand(p), tip, 0.4f, 1f, 19);
 		sound(p, p.getPos(), SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.2f, 1.55f);
 		sound(p, p.getPos(), SoundEvents.ITEM_TRIDENT_RIPTIDE_3.value(), 1.1f, 1.35f);
 
@@ -1308,8 +1301,8 @@ public final class Techniques {
 			CutStates.cutLiving(t, planes, OpeConfig.CUT_LIVING_TICKS, 0);
 			t.damage(w.getDamageSources().playerAttack(p), dmg(55));
 			t.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 50, 0, false, true));
-			w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 50, 0.9, 0.9, 0.9, 0);
-			w.spawnParticles(ParticleTypes.SWEEP_ATTACK, c.x, c.y, c.z, 4, 0.5, 0.5, 0.5, 0);
+			w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 20, 0.9, 0.9, 0.9, 0);
+			LawFx.send(p, Payloads.LawFx.SWORD, t, eye, c, 1.8f, Payloads.LawFx.SWORD_THRUSTS, 10);
 		}
 		sound(p, p.getPos(), SoundEvents.BLOCK_BEACON_ACTIVATE, 1.3f, 1.9f);
 		sound(p, p.getPos(), SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, 1.3f, 0.6f);
@@ -1353,6 +1346,7 @@ public final class Techniques {
 		pw.anesthesia = true;
 		pw.anesthesiaTarget = t.getId();
 		pw.anesthesiaTicks = 0;
+		LawFx.send(p, Payloads.LawFx.ANESTHESIA, t, LawFx.hand(p), t.getBoundingBox().getCenter(), 1f, 1f, 22);
 		sound(p, t.getPos(), SoundEvents.ENTITY_ARROW_HIT_PLAYER, 1f, 0.5f);
 		p.sendMessage(Text.literal("§bK-ROOM Anesthesia: ¡Objetivo atravesado a " + (int) p.distanceTo(t) + "m!"), true);
 		pw.cooldown(Tech.ANESTHESIA);
@@ -1365,8 +1359,10 @@ public final class Techniques {
 			pw.anesthesia = false;
 			return;
 		}
-		Vec3d hand = p.getEyePos().add(p.getRotationVector().multiply(0.6)).subtract(0, 0.3, 0);
-		if (pw.anesthesiaTicks % 2 == 0) beam(p, hand, le.getBoundingBox().getCenter(), CutEngine.ROOM_DUST);
+		// el cliente dibuja la hoja que lo atraviesa (LawFx.ANESTHESIA); se renueva mientras dura
+		if (pw.anesthesiaTicks % 20 == 0) {
+			LawFx.send(p, Payloads.LawFx.ANESTHESIA, le, LawFx.hand(p), le.getBoundingBox().getCenter(), 1f, 1f, 22);
+		}
 		if (pw.anesthesiaTicks % 8 == 0) {
 			le.damage(p.getWorld().getDamageSources().indirectMagic(p, p), 2.5f);
 			le.addStatusEffect(new StatusEffectInstance(ModEffects.STUN, 25, 0, false, true));
@@ -1386,11 +1382,7 @@ public final class Techniques {
 		LivingEntity mainTarget = livingInSight(p, 60);
 		Vec3d endPoint = mainTarget != null ? mainTarget.getBoundingBox().getCenter() : eye.add(look.multiply(26.0));
 
-		beam(p, eye.add(look), endPoint, ParticleTypes.ELECTRIC_SPARK);
-		beam(p, eye.add(look), endPoint, GAMMA_DUST);
-		helix(w, eye.add(look), endPoint, 0.55, 4.5, ParticleTypes.ELECTRIC_SPARK);
-		ring(w, endPoint, 3.8, 34, GAMMA_DUST);
-		ring(w, endPoint, 5.2, 40, ParticleTypes.ELECTRIC_SPARK);
+		LawFx.send(p, Payloads.LawFx.SHOCK_WILLE, mainTarget, LawFx.hand(p), endPoint, 4.5f, 1f, 26);
 		sound(p, endPoint, SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.4f, 1.6f);
 		sound(p, endPoint, SoundEvents.ITEM_TRIDENT_RIPTIDE_3.value(), 1.2f, 0.8f);
 
@@ -1408,9 +1400,7 @@ public final class Techniques {
 			t.addVelocity(push.x, push.y, push.z);
 			t.velocityModified = true;
 			Vec3d c = t.getBoundingBox().getCenter();
-			w.spawnParticles(ParticleTypes.FLASH, c.x, c.y, c.z, 2, 0, 0, 0, 0);
-			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 150, 1.1, 1.3, 1.1, 0.9);
-			w.spawnParticles(GAMMA_DUST, c.x, c.y, c.z, 80, 0.9, 1.1, 0.9, 0.05);
+			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y, c.z, 50, 1.1, 1.3, 1.1, 0.9);
 			sound(p, c, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 1.6f, 1.3f);
 			sound(p, c, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 1.2f, 1.5f);
 		}
@@ -1441,11 +1431,10 @@ public final class Techniques {
 
 		ServerWorld w = p.getServerWorld();
 		Vec3d c = PowerManager.aimPoint(p, 45.0);
-		beam(p, p.getEyePos().add(p.getRotationVector()), c, KROOM_DUST);
-		beam(p, p.getEyePos().add(p.getRotationVector()), c, ParticleTypes.ELECTRIC_SPARK);
 
 		double R = 9.0;
 		int maxDepth = 16;
+		LawFx.send(p, Payloads.LawFx.PUNCTURE, null, LawFx.hand(p), c, (float) R, maxDepth, 48);
 		BlockPos cb = BlockPos.ofFloored(c);
 		int ri = (int) Math.ceil(R);
 
@@ -1474,12 +1463,11 @@ public final class Techniques {
 		}
 
 		// Columna vertical de luz quirúrgica y relámpagos desde el fondo del abismo
-		for (int h = -maxDepth; h <= 14; h++) {
-			w.spawnParticles(KROOM_DUST, c.x, c.y + h, c.z, 12, 1.2, 0.5, 1.2, 0.05);
-			w.spawnParticles(ParticleTypes.ELECTRIC_SPARK, c.x, c.y + h, c.z, 10, 0.9, 0.5, 0.9, 0.4);
+		for (int h = -maxDepth; h <= 14; h += 2) {
+			w.spawnParticles(KROOM_DUST, c.x, c.y + h, c.z, 4, 1.2, 0.5, 1.2, 0.05);
 		}
-		w.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, c.x, c.y, c.z, 3, 2.0, 1.0, 2.0, 0);
-		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 260, 5.5, 2.0, 5.5, 0.05);
+		w.spawnParticles(ParticleTypes.EXPLOSION_EMITTER, c.x, c.y, c.z, 2, 2.0, 1.0, 2.0, 0);
+		w.spawnParticles(CutEngine.ROOM_DUST, c.x, c.y, c.z, 90, 5.5, 2.0, 5.5, 0.05);
 
 		// Onda de choque masiva contra todos los enemigos en el radio del cráter
 		for (LivingEntity le : w.getEntitiesByClass(LivingEntity.class, new Box(c, c).expand(12.0), e -> e != p && e.isAlive())) {
@@ -1492,9 +1480,6 @@ public final class Techniques {
 
 		sound(p, c, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, 2.0f, 0.55f);
 		sound(p, c, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, 2.0f, 0.55f);
-		helix(w, c.add(0, -maxDepth, 0), c.add(0, 14, 0), 1.9, 5.0, ParticleTypes.END_ROD);
-		ring(w, c.add(0, 0.5, 0), 9.0, 56, KROOM_DUST);
-		ring(w, c.add(0, 1.5, 0), 11.5, 64, ParticleTypes.ELECTRIC_SPARK);
 		sound(p, c, SoundEvents.BLOCK_CONDUIT_ATTACK_TARGET, 1.8f, 0.7f);
 		sound(p, c, SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER, 2.0f, 0.8f);
 		p.sendMessage(Text.literal("§b⚡ K-ROOM: ¡PUNCTURE WILLE! (Cráter Abismal)"), true);
@@ -1506,6 +1491,7 @@ public final class Techniques {
 		if (pw.onCooldown(Tech.SILENT)) return;
 		pw.silentTicks = OpeConfig.SILENT_TICKS;
 		p.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, OpeConfig.SILENT_TICKS, 0, false, false, true));
+		LawFx.send(p, Payloads.LawFx.SILENT, null, p.getPos(), p.getPos(), 2.3f, 1f, OpeConfig.SILENT_TICKS);
 		sound(p, p.getPos(), SoundEvents.BLOCK_SCULK_SENSOR_CLICKING_STOP, 1f, 0.5f);
 		pw.cooldown(Tech.SILENT);
 		pw.dirty = true;

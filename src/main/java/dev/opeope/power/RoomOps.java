@@ -263,7 +263,7 @@ public final class RoomOps {
 			pw.rroom.state = Room.State.GROWING;
 			pw.rroomHeld = true;
 			pw.rroomTicks = 0;
-			Techniques.beam(p, p.getEyePos(), point, CutEngine.ROOM_DUST);
+			LawFx.send(p, dev.opeope.net.Payloads.LawFx.RROOM_CAST, null, LawFx.hand(p), point, 0.4f, 1f, 9);
 			p.getWorld().playSound(null, point.x, point.y, point.z, SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1.5f, 1.8f);
 			PowerManager.broadcastRoom(p, 1, pw.rroom);
 			return;
@@ -281,8 +281,9 @@ public final class RoomOps {
 		CutEngine.cut(p, planes, CutEngine.Region.sphere(rr.center, rr.radius), false, 0, 6f);
 		if (p.getWorld() instanceof ServerWorld sw) {
 			sw.spawnParticles(ParticleTypes.FLASH, rr.center.x, rr.center.y, rr.center.z, 1, 0, 0, 0, 0);
-			sw.spawnParticles(CutEngine.ROOM_DUST, rr.center.x, rr.center.y, rr.center.z, 200, rr.radius / 2, rr.radius / 2, rr.radius / 2, 0);
+			sw.spawnParticles(CutEngine.ROOM_DUST, rr.center.x, rr.center.y, rr.center.z, 70, rr.radius / 2, rr.radius / 2, rr.radius / 2, 0);
 		}
+		LawFx.send(p, dev.opeope.net.Payloads.LawFx.RROOM_BURST, null, rr.center, rr.center, (float) rr.radius, 1f, 18);
 		p.getWorld().playSound(null, rr.center.x, rr.center.y, rr.center.z, SoundEvents.ENTITY_WARDEN_SONIC_BOOM, SoundCategory.PLAYERS, 1.5f, 1.4f);
 		pw.cooldown(Tech.RROOM);
 		PowerManager.broadcastRoom(p, 1, rr);
