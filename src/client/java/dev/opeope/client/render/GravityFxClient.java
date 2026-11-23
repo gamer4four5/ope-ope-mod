@@ -521,8 +521,16 @@ public final class GravityFxClient {
 	private static void drawLiveMeteorCharge(BufferBuilder b, MinecraftClient mc, Vec3d cam, float td, double now, boolean calm) {
 		Vec3d eye = mc.player.getEyePos();
 		Vec3d look = mc.player.getRotationVec(td);
-		HitResult hr = mc.player.raycast(160.0, td, false);
-		Vec3d hit = hr != null && hr.getType() != HitResult.Type.MISS ? hr.getPos() : eye.add(look.multiply(85.0));
+		HitResult hr = mc.player.raycast(200.0, td, false);
+		Vec3d hit;
+		if (hr != null && hr.getType() != HitResult.Type.MISS) {
+			hit = hr.getPos();
+		} else {
+			Vec3d far = eye.add(look.multiply(115.0));
+			int topY = mc.world.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES,
+				MathHelper.floor(far.x), MathHelper.floor(far.z));
+			hit = new Vec3d(far.x, topY > mc.world.getBottomY() + 1 ? topY : mc.player.getY(), far.z);
+		}
 
 		int tier = ClientState.gravityMeteorTier();
 		double craterR = dev.opeope.power.GravityPowers.METEOR_CRATERS[tier];

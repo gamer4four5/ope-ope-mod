@@ -493,7 +493,7 @@ public final class GravityPowers {
 		// 1b) Carga y selección de tamaño de meteorito (mantener Z: sube de nivel o usa la rueda para elegir 12 m .. 85 m)
 		if (pw.meteorCharging) {
 			pw.meteorChargeTicks++;
-			pw.meteorAimPos = PowerManager.aimPoint(p, 160.0);
+			pw.meteorAimPos = meteorAimTarget(p, w);
 			if (pw.meteorChargeTicks > 12 && pw.meteorChargeTicks % 18 == 0 && pw.meteorTier < METEOR_NAMES.length - 1) {
 				pw.meteorTier++;
 				pw.dirty = true;
@@ -687,13 +687,19 @@ public final class GravityPowers {
 				playGlobalSound(w, mc, 360.0, SoundEvents.ENTITY_ENDER_DRAGON_GROWL, 1.4f + tier * 0.35f, 0.45f);
 			}
 
-			// Detecta llegada al objetivo o colisión real con el terreno sólido bajo el asteroide
-			double distToTarget = mc.distanceTo(am.target);
-			boolean reachedY = mc.y <= am.target.y + Math.max(3.0, radVis * 0.35);
-			boolean hitSolidGround = mc.y < w.getTopY() - 2 && !w.getBlockState(BlockPos.ofFloored(mc.x, mc.y - Math.min(8.0, radVis * 0.3), mc.z)).isAir();
-			if ((am.age >= 12 && (reachedY || distToTarget <= Math.max(4.5, radVis * 0.45) || (hitSolidGround && mc.y <= am.target.y + 18.0))) || am.age > 240) {
+			// Si cayó al vacío absoluto sin tocar jamás un bloque sólido, desaparece en el abismo sin explotar en el aire
+			if (mc.y < w.getBottomY() - 96 || am.age > 900) {
+				pe.discard();
+				it.remove();
+				continue;
+			}
+
+			// Impacto 100 % físico: el meteorito JAMÁS explota en el aire; solo detona cuando su roca frontal/inferior toca un bloque real
+			double surfaceR = 4.1 * METEOR_SCALES[tier];
+			Vec3d hitPos = am.age >= 6 ? findMeteorContact(w, mc, pe.getVelocity(), surfaceR) : null;
+			if (hitPos != null) {
 				ServerPlayerEntity owner = server.getPlayerManager().getPlayer(am.ownerId);
-				detonateMeteor(w, owner, pe, am.target, tier);
+				detonateMeteor(w, owner, pe, hitPos, tier);
 				it.remove();
 			} else {
 				int idx = METEORS.indexOf(am);
@@ -704,9 +710,62 @@ public final class GravityPowers {
 		}
 	}
 
+	/**
+	 * Comprueba colisión real de la superficie delantera/inferior del asteroide con bloques sólidos o agua del mundo.
+	 * Atraviesa aire, hojas y hierba sin detonar; devuelve null si no ha tocado nada todavía.
+	 */
+	private static Vec3d findMeteorContact(ServerWorld w, Vec3d center, Vec3d vel, double surfaceR) {
+		if (center.y - surfaceR > w.getTopY() + 2) return null;
+		Vec3d fwd = vel.lengthSquared() > 1e-4 ? vel.normalize() : new Vec3d(0.0, -1.0, 0.0);
+		Vec3d right = fwd.crossProduct(new Vec3d(0, 1, 0));
+		if (right.lengthSquared() < 1e-4) right = new Vec3d(1, 0, 0);
+		else right = right.normalize();
+		Vec3d sideUp = right.crossProduct(fwd).normalize();
+
+		// 5 sondas físicas sobre la nariz y panza del meteorito para detectar el primer bloque sólido real que choca
+		Vec3d[] dirs = {
+			fwd,
+			new Vec3d(0.0, -1.0, 0.0),
+			fwd.add(right.multiply(0.38)).normalize(),
+			fwd.add(right.multiply(-0.38)).normalize(),
+			fwd.add(sideUp.multiply(-0.38)).normalize()
+		};
+		BlockPos.Mutable bp = new BlockPos.Mutable();
+		double step = Math.max(1.0, Math.min(2.0, surfaceR * 0.14));
+		double bestDistSq = Double.MAX_VALUE;
+		Vec3d bestHit = null;
+
+		for (int dIdx = 0; dIdx < dirs.length; dIdx++) {
+			Vec3d dir = dirs[dIdx];
+			double maxLen = dIdx < 2 ? surfaceR : surfaceR * 0.85;
+			for (double d = 0.0; d <= maxLen; d += step) {
+				double px = center.x + dir.x * d;
+				double py = center.y + dir.y * d;
+				double pz = center.z + dir.z * d;
+				if (py >= w.getTopY() || py < w.getBottomY()) continue;
+				bp.set(MathHelper.floor(px), MathHelper.floor(py), MathHelper.floor(pz));
+				if (isMeteorImpactBlock(w, bp)) {
+					double d2 = d * d;
+					if (d2 < bestDistSq) {
+						bestDistSq = d2;
+						bestHit = new Vec3d(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
+					}
+					break;
+				}
+			}
+		}
+		return bestHit;
+	}
+
+	private static boolean isMeteorImpactBlock(ServerWorld w, BlockPos bp) {
+		BlockState st = w.getBlockState(bp);
+		if (st.isAir()) return false;
+		if (st.getBlock() instanceof FluidBlock) return true;
+		if (st.isIn(BlockTags.LEAVES) || st.isReplaceable()) return false;
+		return !st.getCollisionShape(w, bp).isEmpty();
+	}
+
 	private static void detonateMeteor(ServerWorld w, ServerPlayerEntity owner, PieceEntity meteor, Vec3d impact, int tier) {
-		Vec3d center = meteor.center();
-		if (center.distanceTo(impact) > 22.0) impact = new Vec3d(center.x, impact.y, center.z);
 		meteor.discard();
 
 		double R = METEOR_CRATERS[MathHelper.clamp(tier, 0, METEOR_CRATERS.length - 1)];
@@ -1328,7 +1387,7 @@ public final class GravityPowers {
 		equipYakuzaKasenSafely(p);
 		pw.meteorCharging = true;
 		pw.meteorChargeTicks = 0;
-		pw.meteorAimPos = PowerManager.aimPoint(p, 160.0);
+		pw.meteorAimPos = meteorAimTarget(p, p.getServerWorld());
 		pw.dirty = true;
 		int t = MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1);
 		playSound(p.getServerWorld(), p.getPos(), SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.85f, 0.55f + t * 0.1f);
@@ -1346,7 +1405,7 @@ public final class GravityPowers {
 
 	public static void releaseMeteorCharge(ServerPlayerEntity p, PlayerPower pw, boolean triple) {
 		if (!pw.meteorCharging) return;
-		Vec3d aim = pw.meteorAimPos != null && pw.meteorAimPos.lengthSquared() > 1.0 ? pw.meteorAimPos : PowerManager.aimPoint(p, 160.0);
+		Vec3d aim = meteorAimTarget(p, p.getServerWorld());
 		pw.meteorCharging = false;
 		pw.meteorChargeTicks = 0;
 		pw.dirty = true;
@@ -1356,7 +1415,20 @@ public final class GravityPowers {
 	public static void tengaiShinsei(ServerPlayerEntity p, PlayerPower pw, boolean triple) {
 		if (pw.onCooldown(Tech.RADIO_KNIFE)) return;
 		equipYakuzaKasenSafely(p);
-		launchMeteor(p, pw, PowerManager.aimPoint(p, 160.0), MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1), triple);
+		launchMeteor(p, pw, meteorAimTarget(p, p.getServerWorld()), MathHelper.clamp(pw.meteorTier, 0, METEOR_NAMES.length - 1), triple);
+	}
+
+	/** Punto real hacia el que apunta la trayectoria del meteorito (si miras al horizonte, proyecta al suelo de abajo). */
+	private static Vec3d meteorAimTarget(ServerPlayerEntity p, ServerWorld w) {
+		BlockHitResult hit = PowerManager.raycastBlock(p, 200.0);
+		if (hit.getType() == HitResult.Type.BLOCK) {
+			return hit.getPos();
+		}
+		Vec3d far = p.getEyePos().add(p.getRotationVector().multiply(115.0));
+		int fx = MathHelper.floor(far.x), fz = MathHelper.floor(far.z);
+		int topY = w.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, fx, fz);
+		double y = topY > w.getBottomY() + 1 ? topY : p.getY();
+		return new Vec3d(far.x, y, far.z);
 	}
 
 	private static void launchMeteor(ServerPlayerEntity p, PlayerPower pw, Vec3d baseAim, int tier, boolean triple) {
