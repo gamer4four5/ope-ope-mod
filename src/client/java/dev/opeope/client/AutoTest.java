@@ -343,7 +343,8 @@ public final class AutoTest {
 				pw.shamblesMark = -1;
 				pw.dirty = true;
 				sp.removeStatusEffect(StatusEffects.INVISIBILITY);
-				sp.setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
+				// el inventario vacío: ni lo robado con el Scan ni corazones de otras técnicas en la barra de las capturas
+				sp.getInventory().clear();
 				sp.changeGameMode(GameMode.SURVIVAL);
 				sp.getAbilities().invulnerable = true;
 				double zz = north ? gz0 - 4.5 : gz0 + 4.5;
@@ -4551,12 +4552,24 @@ public final class AutoTest {
 						zv2.refreshPositionAndAngles(ax0 + 10.5, ay0 + 1, az0 - 24.5, 0f, 0f);
 						zv2.setAiDisabled(true);
 						zv2.setPersistent();
+						// era bibliotecario con experiencia (lo que guarda el aldeano zombi de cuando era aldeano)
+						zv2.setVillagerData(zv2.getVillagerData().withProfession(net.minecraft.village.VillagerProfession.LIBRARIAN).withLevel(1));
+						net.minecraft.nbt.NbtCompound zn = new net.minecraft.nbt.NbtCompound();
+						zv2.writeCustomDataToNbt(zn);
+						zn.putInt("Xp", 37);
+						zv2.readCustomDataFromNbt(zn);
 						w.spawnEntity(zv2);
 						spawned.add(zv2);
 						net.minecraft.entity.passive.VillagerEntity v2 = dev.opeope.power.SurgicalCure.cureZombieVillager(sp, zv2);
 						if (v2 != null) spawned.add(v2);
 						dres("L3b la cura del aldeano zombi da un aldeano vivo", v2 != null && v2.isAlive() && zv2.isRemoved() ? null
 							: "aldeano=" + v2 + " quitado=" + zv2.isRemoved());
+						// L3c: como la cura normal, le devuelve su oficio y su experiencia, y vuelve a poder recoger comida
+						dres("L3c el aldeano curado conserva su oficio y su experiencia y recoge comida",
+							v2 != null && v2.getExperience() == 37 && v2.canPickUpLoot()
+								&& v2.getVillagerData().getProfession() == net.minecraft.village.VillagerProfession.LIBRARIAN ? null
+								: v2 == null ? "sin aldeano" : "xp=" + v2.getExperience() + " recoge=" + v2.canPickUpLoot()
+								+ " oficio=" + v2.getVillagerData().getProfession());
 					}
 
 					// L4: cirugía sobre un aldeano envenenado: el veneno sale (y se ve salir)
@@ -4610,7 +4623,7 @@ public final class AutoTest {
 			lDone = 0;
 			server(srv, id, (sp, pw) -> {
 				boolean any = false;
-				for (Entity e : L_MUTED) any |= dev.opeope.power.SilentRoom.isMuted(e);
+				for (Entity e : L_MUTED) any |= dev.opeope.power.SilentRoom.tracked(e.getUuid());
 				dres("L1b quitado el ser, el Silent se va con él", L_MUTED.isEmpty() || !any ? null : "sigue mudo uno de " + L_MUTED.size());
 				L_MUTED.clear();
 				lDone = 1;

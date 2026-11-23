@@ -1,6 +1,8 @@
 package dev.opeope.power;
 
 import dev.opeope.net.Payloads;
+import net.minecraft.advancement.criterion.Criteria;
+import net.minecraft.entity.EntityInteraction;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
@@ -9,6 +11,7 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.ZombieVillagerEntity;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.particle.DustParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -34,12 +37,16 @@ public final class SurgicalCure {
 	private static final DustParticleEffect CURE_GOLD = new DustParticleEffect(new Vector3f(1.0f, 0.85f, 0.4f), 1.2f);
 
 	/**
-	 * Le extrae la infección a un aldeano zombi: vuelve a ser aldeano (con su profesión, nivel y tipo), mareado un rato
-	 * como en la cura normal. Devuelve el aldeano nuevo, o null si no se pudo.
+	 * Le extrae la infección a un aldeano zombi: vuelve a ser aldeano con todo lo que tenía, como en la cura normal (su
+	 * profesión, nivel y tipo, sus tratos, su experiencia y lo que se cuenta de cada jugador), mareado un rato y
+	 * agradecido a Law. Devuelve el aldeano nuevo, o null si no se pudo (también si ya está muriendo: no se resucita).
 	 */
 	public static VillagerEntity cureZombieVillager(ServerPlayerEntity p, ZombieVillagerEntity zv) {
-		if (zv == null || zv.isRemoved()) return null;
+		if (zv == null || zv.isRemoved() || !zv.isAlive()) return null;
 		var data = zv.getVillagerData();
+		// lo que recuerda de cuando era aldeano (la cura normal también se lo devuelve)
+		NbtCompound before = new NbtCompound();
+		zv.writeCustomDataToNbt(before);
 		// lo que llevaba en las manos (lo que recogió del suelo, una herramienta…) cae al suelo en vez de perderse;
 		// la armadura pasa al aldeano con la conversión
 		for (Hand hand : new Hand[]{Hand.MAIN_HAND, Hand.OFF_HAND}) {
@@ -51,6 +58,18 @@ public final class SurgicalCure {
 		VillagerEntity villager = zv.convertTo(EntityType.VILLAGER, true);
 		if (villager == null) return null;
 		villager.setVillagerData(data);
+		// sus tratos, su experiencia y sus cotilleos vuelven con él; al leerlos, el aldeano vuelve a poder recoger comida
+		// y su cerebro se rehace con su profesión (si no, uno de nivel 1 sin experiencia la perdería al momento)
+		NbtCompound now = new NbtCompound();
+		villager.writeCustomDataToNbt(now);
+		for (String k : new String[]{"Offers", "Gossips", "Xp"}) {
+			if (before.contains(k)) now.put(k, before.get(k));
+		}
+		villager.readCustomDataFromNbt(now);
+		villager.setCanPickUpLoot(true);
+		// se lo agradece a Law como a quien lo cura con la manzana dorada (precios mejores) y cuenta para el logro
+		p.getServerWorld().handleInteraction(EntityInteraction.ZOMBIE_VILLAGER_CURED, p, villager);
+		Criteria.CURED_ZOMBIE_VILLAGER.trigger(p, zv, villager);
 		villager.addStatusEffect(new StatusEffectInstance(StatusEffects.NAUSEA, 200, 0));
 		villager.getWorld().playSound(null, villager.getX(), villager.getY(), villager.getZ(),
 			SoundEvents.ENTITY_ZOMBIE_VILLAGER_CONVERTED, SoundCategory.PLAYERS, 1.0f, 1.0f);

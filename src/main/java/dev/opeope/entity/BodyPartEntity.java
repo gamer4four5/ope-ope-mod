@@ -721,7 +721,7 @@ public class BodyPartEntity extends Entity {
 			if (hasVision() && --soundCd <= 0 && v instanceof net.minecraft.entity.mob.MobEntity mob) {
 				soundCd = 140 + random.nextInt(220);
 				net.minecraft.sound.SoundEvent snd = ((dev.opeope.mixin.MobEntityInvoker) mob).opeope$ambientSound();
-				if (snd != null) sw.playSound(null, getX(), getY(), getZ(), snd, mob.getSoundCategory(), 0.7f, 1.35f + random.nextFloat() * 0.2f);
+				if (snd != null && !mob.isSilent()) sw.playSound(null, getX(), getY(), getZ(), snd, mob.getSoundCategory(), 0.7f, 1.35f + random.nextFloat() * 0.2f);
 			}
 		} else if (!held && hasVision()) {
 			headLife(sw, v);
@@ -895,7 +895,7 @@ public class BodyPartEntity extends Entity {
 		if (--soundCd <= 0 && v instanceof net.minecraft.entity.mob.MobEntity mob) {
 			soundCd = 140 + random.nextInt(220);
 			net.minecraft.sound.SoundEvent snd = ((dev.opeope.mixin.MobEntityInvoker) mob).opeope$ambientSound();
-			if (snd != null) sw.playSound(null, getX(), getY(), getZ(), snd, mob.getSoundCategory(), 0.7f, 1.35f + random.nextFloat() * 0.2f);
+			if (snd != null && !mob.isSilent()) sw.playSound(null, getX(), getY(), getZ(), snd, mob.getSoundCategory(), 0.7f, 1.35f + random.nextFloat() * 0.2f);
 		}
 	}
 

@@ -336,7 +336,7 @@ public final class Union {
 
 		if (pw.surgeryTicks % 8 != 0) return;
 		// aldeano zombi: a los 2 s de cirugía la fruta le extrae la infección y vuelve a ser aldeano
-		if (target instanceof net.minecraft.entity.mob.ZombieVillagerEntity zv && pw.surgeryTicks >= 40) {
+		if (target instanceof net.minecraft.entity.mob.ZombieVillagerEntity zv && zv.isAlive() && pw.surgeryTicks >= 40) {
 			SurgicalCure.cureZombieVillager(p, zv);
 			pw.surgery = false;
 			return;

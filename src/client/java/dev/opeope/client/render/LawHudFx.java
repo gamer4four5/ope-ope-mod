@@ -233,7 +233,7 @@ public final class LawHudFx {
 		float fAge = (float) (now - focusStart);
 		boolean focusOn = !calm && level >= 1 && focusCount > 0 && fAge >= 0f && fAge < FOCUS_LIFE;
 		float sAge = (float) (now - slashStart);
-		boolean slashOn = !calm && slashStrength > 0f && sAge >= 0f && sAge < SLASH_WIPE + SLASH_FADE;
+		boolean slashOn = !calm && level >= 1 && slashStrength > 0f && sAge >= 0f && sAge < SLASH_WIPE + SLASH_FADE;
 		float bAge = (float) (now - bStart);
 		boolean bannerOn = !bName.isEmpty() && bAge >= 0f && bAge < B_LIFE && OpeSettings.get().avisoRoom;
 		float iAge = (float) (now - invertStart);
@@ -352,8 +352,10 @@ public final class LawHudFx {
 		float tail = 0.35f + 0.65f * wipe;
 		float core = (1f + 0.5f * k) * (0.5f + 0.5f * fade);   // medio grueso: 1 a 1,5 (2-3 en total)
 		float glow = (3f + 7f * k) * (0.7f + 0.3f * fade);
-		float aGlow = 0.5f * k * fade * fade * (level <= 0 ? 0.6f : 1f);
-		float aCore = Math.min(1f, 0.7f + 0.3f * k) * fade;
+		// como el tajo de CutFx: entero con destellos, apenas un rastro con «suaves»
+		float soft = level >= 2 ? 1f : 0.05f;
+		float aGlow = 0.5f * k * fade * fade * soft;
+		float aCore = Math.min(1f, 0.7f + 0.3f * k) * fade * soft;
 		// el halo celeste, del filo hacia fuera, a cada lado
 		strip(bb, m, x0, y0, x1, y1, nx, ny, core * 0.5f, core + glow, ROOM, aGlow, 0f, tail);
 		strip(bb, m, x0, y0, x1, y1, nx, ny, -core * 0.5f, -(core + glow), ROOM, aGlow, 0f, tail);

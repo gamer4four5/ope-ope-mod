@@ -70,6 +70,9 @@ public final class SilentRoom {
 	public static boolean apply(ServerPlayerEntity p, PlayerPower pw, LivingEntity t) {
 		if (pw.onCooldown(Tech.SILENT)) return false;
 		if (t == null || t == p || !t.isAlive()) return false;
+		// lo que se mete en un cubo (peces, ajolotes, renacuajos) saldría de él mudo para siempre: el cubo guarda el
+		// silencio pero no la marca que se lo quita
+		if (t instanceof net.minecraft.entity.Bucketable) return false;
 		hook();
 		UUID id = t.getUuid();
 		Muted prev = MUTED.get(id);
@@ -126,6 +129,11 @@ public final class SilentRoom {
 				warden.getBrain().remember(MemoryModuleType.SONIC_BOOM_COOLDOWN, Unit.INSTANCE, 40L);
 			}
 		}
+	}
+
+	/** Si se sigue llevando la cuenta de ese ser (aunque ya no esté en el mundo): para las pruebas. */
+	public static boolean tracked(UUID id) {
+		return MUTED.containsKey(id);
 	}
 
 	/** Si ese ser está ahora dentro de un R-ROOM Silent. */

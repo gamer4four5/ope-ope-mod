@@ -68,11 +68,12 @@ public final class KikokuBladeFx {
 
 	/**
 	 * Vista desde fuera (tercera persona, o la de otro), la hoja va en guardia: alzada GUARD_RAISE sobre la mirada y
-	 * abierta GUARD_OPEN hacia su derecha. Apuntando justo a donde mira se vería de punta: un palito desde detrás y un
-	 * fogonazo blanco desde delante. En primera persona sí apunta a la mira: así se ve hasta dónde llega.
+	 * abierta GUARD_OPEN hacia su derecha, en diagonal sobre el hombro. Apuntando justo a donde mira se vería de punta
+	 * (un palito desde detrás y un fogonazo blanco desde delante) y, desde detrás, la taparía lo que tiene delante.
+	 * En primera persona sí apunta a la mira: así se ve hasta dónde llega.
 	 */
-	static final double GUARD_RAISE = Math.toRadians(26.0);
-	static final double GUARD_OPEN = Math.toRadians(6.0);
+	static final double GUARD_RAISE = Math.toRadians(30.0);
+	static final double GUARD_OPEN = Math.toRadians(18.0);
 	static final double GUARD_MAX = Math.toRadians(72.0);
 
 	/** El polvo de ROOM que va soltando la hoja (el color del K-ROOM), cada 4 ticks, a lo largo de la hoja que se ve. */
@@ -206,15 +207,21 @@ public final class KikokuBladeFx {
 		return true;
 	}
 
-	/** Polvo de ROOM cada 4 bloques de la hoja, desde los 3 primeros hasta casi la punta. */
+	/**
+	 * Polvo de ROOM cada 4 bloques de la hoja, desde los 3 primeros hasta casi la punta; no a menos de 3 bloques de la
+	 * cámara (ahí cada mota se vería como un borrón de píxeles enorme).
+	 */
 	private static void dust(MinecraftClient mc, Vec3d hilt, Vec3d dir, double len) {
 		double l = dir.length();
 		if (!(l > 1e-6)) return;
 		double ux = dir.x / l, uy = dir.y / l, uz = dir.z / l;
+		Vec3d cam = LawFxClient.cam;
 		var rnd = mc.world.random;
 		for (double s = 3.0; s <= len - 1.0; s += 4.0) {
-			mc.world.addParticle(DUST, hilt.x + ux * s + rnd.nextGaussian() * 0.08, hilt.y + uy * s + rnd.nextGaussian() * 0.08,
-				hilt.z + uz * s + rnd.nextGaussian() * 0.08, 0.0, 0.0, 0.0);
+			double x = hilt.x + ux * s, y = hilt.y + uy * s, z = hilt.z + uz * s;
+			if (cam.squaredDistanceTo(x, y, z) < 9.0) continue;
+			mc.world.addParticle(DUST, x + rnd.nextGaussian() * 0.08, y + rnd.nextGaussian() * 0.08, z + rnd.nextGaussian() * 0.08,
+				0.0, 0.0, 0.0);
 		}
 	}
 

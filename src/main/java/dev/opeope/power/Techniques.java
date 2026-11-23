@@ -1491,7 +1491,9 @@ public final class Techniques {
 		if (pw.onCooldown(Tech.SILENT)) return;
 		// R-ROOM: Silent lanzado: con alguien en la mira, la burbuja muda se le pega a él (el Soul Pocus de Big Mom)
 		LivingEntity t = livingInSight(p, 40);
-		if (t != null && SilentRoom.apply(p, pw, t)) return;
+		// solo si está delante (un mob pegado a la espalda «contiene» los ojos de Law y saldría el primero) y no es su montura
+		boolean ahead = t != null && t.getBoundingBox().getCenter().subtract(p.getEyePos()).dotProduct(p.getRotationVector()) > 0;
+		if (ahead && !t.isConnectedThroughVehicle(p) && SilentRoom.apply(p, pw, t)) return;
 		pw.silentTicks = OpeConfig.SILENT_TICKS;
 		p.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, OpeConfig.SILENT_TICKS, 0, false, false, true));
 		LawFx.send(p, Payloads.LawFx.SILENT, null, p.getPos(), p.getPos(), 2.3f, 1f, OpeConfig.SILENT_TICKS);

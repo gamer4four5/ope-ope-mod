@@ -1,6 +1,8 @@
 package dev.opeope.client.render;
 
+import dev.opeope.client.ClientState;
 import dev.opeope.client.config.OpeSettings;
+import dev.opeope.client.dismember.ClientDismember;
 import dev.opeope.client.room.RoomFxClient;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.client.util.math.MatrixStack;
@@ -164,6 +166,9 @@ public final class LawBodyFx {
 		int id = e.getId();
 		Body b = BODIES.get(id);
 		if (b == null) return;
+		// cortado por K-ROOM o con miembros fuera: sus tapas y sus costuras se dibujan sin esta matriz y se saldrían del
+		// cuerpo (el muñón quedaría flotando donde estaba el hombro)
+		if (ClientState.CUTS.containsKey(id) || ClientDismember.STATE.containsKey(id)) return;
 		double now = RoomFxClient.time();
 		boolean calm = OpeSettings.reducedMotion();
 		float amp = calm ? CALM : 1f;

@@ -545,7 +545,7 @@ public final class LawFxClient {
 		switch (e.kind) {
 			case LawFx.GAMMA -> {
 				Entity target = body(mc, e.targetId);
-				if (target == null) return;
+				if (target == null || ownView(mc, target)) return;
 				GammaPose g = gammaPose(mc, e, t);
 				// la radiografía se enciende cuando la hoja toca la piel y se apaga con ella
 				float a = (float) (MathHelper.clamp((t - g.contact + 0.05) / 0.12, 0.0, 1.0) * (t < 0.8 ? 1.0 : (1.0 - t) / 0.2));
@@ -577,7 +577,7 @@ public final class LawFxClient {
 			}
 			case LawFx.SHOCK_WILLE -> {
 				Entity target = body(mc, e.targetId);
-				if (target == null || t < 0.22 || t > 0.75) return;
+				if (target == null || ownView(mc, target) || t < 0.22 || t > 0.75) return;
 				double u = (t - 0.22) / 0.53;
 				Box box = lerpBox(target);
 				Vec3d c = box.getCenter();
@@ -597,7 +597,7 @@ public final class LawFxClient {
 			case LawFx.COUNTER_SHOCK -> {
 				// la radiografía tenue del cuerpo, con el corazón que se enciende con cada descarga («ba-dum»)
 				Entity target = body(mc, e.targetId);
-				if (target == null || t >= 0.6) return;
+				if (target == null || ownView(mc, target) || t >= 0.6) return;
 				float a = (float) (Math.min(1.0, t / 0.05) * (t < 0.45 ? 1.0 : (0.6 - t) / 0.15)) * 0.4f;
 				double glow;
 				if (calm) {
@@ -613,7 +613,7 @@ public final class LawFxClient {
 			}
 			case LawFx.ANESTHESIA -> {
 				Entity target = entity(mc, e.targetId);
-				if (target == null) return;
+				if (target == null || ownView(mc, target)) return;
 				Box box = lerpBox(target);
 				float a = (float) (0.5 * (1.0 - t) + 0.25);
 				boxEdges(b, box.expand(0.04), ROOM, a * 0.55f, 0.02);
@@ -1633,6 +1633,14 @@ public final class LawFxClient {
 	 * El ser aunque se esté muriendo: sigue en el mundo mientras dura la animación de muerte, y es justo entonces
 	 * cuando se ve lo de dentro (Gamma Knife y Shock Wille suelen matar al momento).
 	 */
+	/**
+	 * Si ese ser es desde donde se mira, en primera persona (otro Law te ha dado a ti): su interior no se dibuja, que
+	 * sería un esqueleto y unos anillos alrededor de la propia cámara, sin profundidad.
+	 */
+	static boolean ownView(MinecraftClient mc, Entity e) {
+		return e == mc.getCameraEntity() && mc.options.getPerspective().isFirstPerson();
+	}
+
 	static Entity body(MinecraftClient mc, int id) {
 		if (id < 0 || mc.world == null) return null;
 		Entity e = mc.world.getEntityById(id);
