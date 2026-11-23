@@ -28,8 +28,9 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Comparator;
 import java.util.List;
+import java.util.ListIterator;
 
 /**
  * Los efectos 3D de las técnicas de Law, sacados del anime: el tajo eléctrico del Radio Knife, la retícula y el
@@ -40,7 +41,10 @@ import java.util.List;
  * tajos de la Kikoku y el R-ROOM lanzado.
  * <p>
  * Todo son quads POSITION_COLOR aditivos en AFTER_TRANSLUCENT (mismo esquema que {@link GravityFxClient}); lo que pasa
- * dentro de un cuerpo (Gamma Knife, Shock Wille, Anesthesia) se dibuja otra vez sin profundidad, como rayos X.
+ * dentro de un cuerpo (Gamma Knife, Shock Wille, Counter Shock, Anesthesia y los seres que barre el Scan) se dibuja
+ * otra vez sin profundidad, como rayos X ({@link XRayFx}). La Kikoku gigante de K-ROOM la dibuja {@link KikokuBladeFx};
+ * la «presentación anime» (rótulo con el nombre, fotograma de impacto, tajo en pantalla) {@link LawHudFx}, y los
+ * cuerpos que reaccionan al golpe {@link LawBodyFx}.
  * Respeta «menos movimiento» (sin temblores ni parpadeos) y el nivel de destellos.
  */
 public final class LawFxClient {
@@ -83,6 +87,14 @@ public final class LawFxClient {
 	static float pulseStrength;
 	static int pulseRgb = ROOM;
 	static double scanStart = -100;
+	/** Los rayos X del Scan propio: desde y hasta cuándo, y el centro y el radio del barrido. */
+	static double scanXrayStart = -100, scanXrayUntil = -100, scanXrayRadius;
+	static Vec3d scanXrayCenter = Vec3d.ZERO;
+	static final int SCAN_XRAY_MAX = 48;
+	/** El último Anesthesia propio (el servidor lo reenvía cada segundo mientras se mantiene: un solo rótulo). */
+	static double lastAnesthesia = -100;
+	/** Lo larga que es la hoja de Gamma Knife (en bloques). */
+	static final double GAMMA_LEN = 1.0;
 
 	static final Matrix4f BASE = new Matrix4f();
 	static boolean plain;
@@ -101,6 +113,14 @@ public final class LawFxClient {
 		EVENTS.clear();
 		pulseStrength = 0f;
 		scanStart = -100;
+		scanXrayStart = -100;
+		scanXrayUntil = -100;
+		scanXrayRadius = 0;
+		scanXrayCenter = Vec3d.ZERO;
+		lastAnesthesia = -100;
+		KikokuBladeFx.clear();
+		LawHudFx.clear();
+		LawBodyFx.clear();
 	}
 
 	public static void receive(LawFx p) {
@@ -118,6 +138,7 @@ public final class LawFxClient {
 		if (mc.player == null) return;
 		boolean mine = p.userId() == mc.player.getId();
 		double dist = Math.sqrt(mc.player.squaredDistanceTo(p.bx(), p.by(), p.bz()));
+		anime(p, mine, dist, now);
 		switch (p.kind()) {
 			case LawFx.RADIO_KNIFE -> {
 				if (mine) {
@@ -162,7 +183,14 @@ public final class LawFxClient {
 				}
 			}
 			case LawFx.SCAN -> {
-				if (mine) scanStart = now;
+				if (mine) {
+					scanStart = now;
+					// los rayos X duran lo que el Scan; ClientState.scanTicks puede llegar un tick después: 8 s como mínimo
+					scanXrayStart = now;
+					scanXrayUntil = now + Math.max(8.0, ClientState.scanTicks / 20.0);
+					scanXrayCenter = new Vec3d(p.ax(), p.ay(), p.az());
+					scanXrayRadius = Math.max(3.0, p.radius());
+				}
 			}
 			case LawFx.AWAKEN -> {
 				if (mine) {
@@ -244,20 +272,137 @@ public final class LawFxClient {
 		pulseRgb = rgb;
 	}
 
+	/**
+	 * La «presentación anime» de cada técnica: el rótulo con su nombre (solo las propias), el fotograma de impacto,
+	 * el tajo que cruza la pantalla, el cuerpo del objetivo que reacciona y la Kikoku gigante de los demás Law.
+	 */
+	static void anime(LawFx p, boolean mine, double dist, double now) {
+		int kind = p.kind();
+		if (mine) banner(p, now);
+		// el fotograma de impacto: técnicas propias, o de otro a menos de 24 bloques (más flojo cuanto más lejos)
+		float impact = switch (kind) {
+			case LawFx.SHOCK_WILLE, LawFx.PUNCTURE -> 1.0f;
+			case LawFx.INJECTION_HIT -> 0.8f;
+			case LawFx.GAMMA -> 0.7f;
+			case LawFx.COUNTER_SHOCK, LawFx.RROOM_BURST -> 0.6f;
+			case LawFx.RADIO_KNIFE -> 0.5f;
+			case LawFx.MES -> 0.4f;
+			default -> 0f;
+		};
+		if (impact > 0f && (mine || dist < 24)) {
+			float k = mine ? 1f : (float) (1.0 - dist / 24.0);
+			if (impact * k > 0.04f) LawHudFx.impact(impact * k, 0.5f, 0.5f);
+		}
+		// el tajo que cruza la pantalla: el Iai (Law ya está de espaldas al corte) y el Radio Knife
+		if (mine && kind == LawFx.SWORD && p.targetId() < 0 && Math.round(p.power()) == LawFx.SWORD_IAI) {
+			LawHudFx.slash(-28f, 1f);
+		}
+		if (mine && kind == LawFx.RADIO_KNIFE) LawHudFx.slash(35f, 0.6f);
+		// el cuerpo del objetivo reacciona: se sacude, se hincha por dentro o sale despedido
+		int id = p.targetId();
+		if (id >= 0) {
+			switch (kind) {
+				case LawFx.COUNTER_SHOCK -> bodyShake(id, 1.0f, 0.7);
+				case LawFx.RADIO_KNIFE -> bodyShake(id, 0.6f, 0.35);
+				case LawFx.SHOCK_WILLE -> {
+					LawBodyFx.bulge(id, 1.0f, 0.55);
+					bodyShake(id, 0.8f, 0.6);
+				}
+				case LawFx.GAMMA -> {
+					LawBodyFx.bulge(id, 0.5f, 0.45);
+					bodyShake(id, 0.35f, 0.4);
+				}
+				// a = el centro del objetivo, b = a + la dirección de la embestida
+				case LawFx.INJECTION_HIT -> bodyRecoil(id, p.bx() - p.ax(), p.bz() - p.az(), 1.0f, 0.45);
+				// a = la mano de Law, b = el pecho del objetivo
+				case LawFx.MES -> bodyRecoil(id, p.bx() - p.ax(), p.bz() - p.az(), 0.4f, 0.3);
+				case LawFx.ANESTHESIA -> bodyShake(id, 0.2f, 0.3);
+				default -> {}
+			}
+		}
+		// la Kikoku gigante de otro Law: se ve mientras le dura la hoja en el servidor (la propia sale de ClientState)
+		if (!mine && p.userId() >= 0) {
+			double secs = switch (kind) {
+				case LawFx.KROOM -> 14.0;
+				case LawFx.ANESTHESIA, LawFx.SHOCK_WILLE -> 10.0;
+				case LawFx.PUNCTURE -> 12.0;
+				default -> 0.0;
+			};
+			if (secs > 0) KikokuBladeFx.noteBlade(p.userId(), now + secs);
+		}
+	}
+
+	/** El rótulo con el nombre de la técnica propia; no para los golpes sueltos ni para los reenvíos del servidor. */
+	static void banner(LawFx p, double now) {
+		int kind = p.kind();
+		switch (kind) {
+			case LawFx.INJECTION_HIT, LawFx.RROOM_BURST, LawFx.HEART_SQUEEZE, LawFx.RAIN_SLASH -> {
+				return;
+			}
+			case LawFx.SWORD -> {
+				if (p.targetId() >= 0) return;   // K-ROOM manda un SWORD por cada víctima
+			}
+			case LawFx.ANESTHESIA -> {
+				// el servidor lo reenvía cada segundo mientras se mantiene: un rótulo por uso, no uno por reenvío
+				double last = lastAnesthesia;
+				lastAnesthesia = now;
+				if (now - last < 3.0) return;
+			}
+			default -> {}
+		}
+		int variant = kind == LawFx.SWORD ? Math.round(p.power()) : kind == LawFx.AWAKEN ? (p.power() > 0.5f ? 1 : 0) : 0;
+		LawHudFx.banner(kind, variant);
+	}
+
+	/** El cuerpo se sacude (nada con «menos movimiento»: sin temblores). */
+	static void bodyShake(int id, float strength, double seconds) {
+		if (!OpeSettings.reducedMotion()) LawBodyFx.shake(id, strength, seconds);
+	}
+
+	/** El cuerpo sale despedido hacia (dx, dz), en horizontal. */
+	static void bodyRecoil(int id, double dx, double dz, float strength, double seconds) {
+		double l = Math.sqrt(dx * dx + dz * dz);
+		if (l < 1e-4) return;
+		LawBodyFx.recoil(id, dx / l, dz / l, strength, seconds);
+	}
+
+	/** Cuánto pesan los fogonazos grandes según el nivel de destellos (2 = todos, 1 = suaves, 0 = casi nada). */
+	static float flashScale() {
+		int level = OpeSettings.flashLevel();
+		return level >= 2 ? 1f : level == 1 ? 0.6f : 0.3f;
+	}
+
 	// ------------------------------------------------------------------ dibujo en el mundo
 
 	public static void renderWorld(WorldRenderContext ctx) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.world == null || mc.player == null) return;
 		double now = RoomFxClient.time();
-		Iterator<Ev> it = EVENTS.iterator();
+		int self = mc.player.getId();
+		boolean silentSelf = ClientState.has(Payloads.State.SILENT);
+		boolean curtainSelf = ClientState.has(Payloads.State.CURTAIN);
+		ListIterator<Ev> it = EVENTS.listIterator();
 		while (it.hasNext()) {
 			Ev e = it.next();
 			double age = now - e.start;
-			if (age < 0 || age > e.duration) it.remove();
+			if (age < 0 || age > e.duration) {
+				it.remove();
+				continue;
+			}
+			// Curtain y Silent propios: si el servidor ya quitó el estado (la técnica acabó), se apagan en medio segundo
+			// en vez de quedarse pegados en pantalla hasta el final del efecto
+			if (e.userId == self && age > 0.4 && e.duration - age > 0.55
+				&& ((e.kind == LawFx.CURTAIN && !curtainSelf) || (e.kind == LawFx.SILENT && !silentSelf))) {
+				it.set(new Ev(e.kind, e.userId, e.targetId, e.a, e.b, e.radius, e.power, age + 0.5, e.start, e.seed));
+			}
 		}
-		boolean silentSelf = ClientState.has(Payloads.State.SILENT);
-		if (EVENTS.isEmpty() && !silentSelf) return;
+		// los rayos X del Scan: si el Scan dura más de lo previsto (ClientState.scanTicks llega un tick después), se alargan
+		if (ClientState.scanTicks > 0 && now - scanXrayStart < 1.0) {
+			scanXrayUntil = Math.max(scanXrayUntil, now + ClientState.scanTicks / 20.0);
+		}
+		float xray = scanXrayAlpha(now);
+		boolean blades = KikokuBladeFx.anyActive(mc);
+		if (EVENTS.isEmpty() && !silentSelf && !blades && xray <= 0.01f) return;
 
 		cam = ctx.camera().getPos();
 		td = ctx.tickCounter().getTickDelta(true);
@@ -283,15 +428,23 @@ public final class LawFxClient {
 				double t = MathHelper.clamp((now - e.start) / e.duration, 0.0, 1.0);
 				drawEvent(b, mc, e, t, now - e.start, now, calm);
 			}
+			// la Kikoku gigante (K-ROOM) de quien la tenga desenvainada
+			KikokuBladeFx.draw(b, mc, now, calm);
 			end(b);
-			// dentro de los cuerpos: Gamma Knife, Shock Wille y Anesthesia brillan a través de la carne, como rayos X
-			if (OpeSettings.flashLevel() > 0) {
+			// dentro de los cuerpos, como rayos X: Gamma Knife, Shock Wille, Counter Shock y Anesthesia brillan a través
+			// de la carne (solo con destellos); y mientras dura el Scan propio, la anatomía de los seres que barre y lo
+			// que llevan en la mano (eso es información, no un destello: se ve con cualquier nivel)
+			boolean inside = OpeSettings.flashLevel() > 0;
+			if (inside || xray > 0.01f) {
 				RenderSystem.disableDepthTest();
 				BufferBuilder x = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-				for (Ev e : EVENTS) {
-					double t = MathHelper.clamp((now - e.start) / e.duration, 0.0, 1.0);
-					drawInside(x, mc, e, t, now, calm);
+				if (inside) {
+					for (Ev e : EVENTS) {
+						double t = MathHelper.clamp((now - e.start) / e.duration, 0.0, 1.0);
+						drawInside(x, mc, e, t, now, calm);
+					}
 				}
+				if (xray > 0.01f) scanXray(x, mc, now, xray);
 				end(x);
 			}
 		} finally {
@@ -308,12 +461,49 @@ public final class LawFxClient {
 		if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 	}
 
+	/**
+	 * Lo visibles que son ahora los rayos X del Scan propio: entran en 0,3 s y se apagan en los últimos 0,6 s.
+	 * Duran mientras el servidor diga que el Scan sigue (ClientState.scanTicks), o el primer medio segundo, que es
+	 * lo que puede tardar en llegar ese estado.
+	 */
+	static float scanXrayAlpha(double now) {
+		double since = now - scanXrayStart;
+		if (since < 0 || now >= scanXrayUntil) return 0f;
+		double left = scanXrayUntil - now;
+		if (ClientState.scanTicks > 0) left = Math.min(left, ClientState.scanTicks / 20.0);
+		else if (since >= 0.5) return 0f;
+		return (float) (Math.min(1.0, since / 0.3) * Math.min(1.0, left / 0.6));
+	}
+
+	/**
+	 * Scan: los seres vivos dentro del barrido se ven por dentro (esqueleto celeste y corazón) a través de las paredes,
+	 * con una marca dorada en lo que llevan en la mano, lo que luego se les puede quitar con Shambles.
+	 */
+	static void scanXray(BufferBuilder b, MinecraftClient mc, double now, float a) {
+		if (mc.world == null) return;
+		final Vec3d c = scanXrayCenter;
+		final double r = Math.max(3.0, scanXrayRadius);
+		final double r2 = r * r;
+		final Entity self = mc.player;
+		List<LivingEntity> list = mc.world.getEntitiesByClass(LivingEntity.class,
+			new Box(c.x - r, c.y - r, c.z - r, c.x + r, c.y + r, c.z + r),
+			le -> le != self && le.isAlive() && le.squaredDistanceTo(c) <= r2);
+		// si hay demasiados, los más cercanos a la cámara
+		if (list.size() > SCAN_XRAY_MAX) list.sort(Comparator.comparingDouble(le -> le.squaredDistanceTo(cam)));
+		int n = Math.min(SCAN_XRAY_MAX, list.size());
+		for (int i = 0; i < n; i++) {
+			LivingEntity being = list.get(i);
+			XRayFx.anatomy(b, being, ROOM, a, HEART, 0.35f, now);
+			XRayFx.heldMarker(b, being, GOLD, a, now);
+		}
+	}
+
 	static void drawEvent(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
 		switch (e.kind) {
 			case LawFx.RADIO_KNIFE -> radioKnife(b, e, t, now, calm);
 			case LawFx.INJECTION_DASH -> injectionDash(b, mc, e, t, now, calm);
-			case LawFx.INJECTION_HIT -> injectionHit(b, e, t, now, calm);
-			case LawFx.GAMMA -> gamma(b, mc, e, t, now);
+			case LawFx.INJECTION_HIT -> injectionHit(b, mc, e, t, now, calm);
+			case LawFx.GAMMA -> gamma(b, mc, e, t, now, calm);
 			case LawFx.CURTAIN -> curtain(b, mc, e, t, age, now, calm);
 			case LawFx.MES -> mes(b, mc, e, t, now);
 			case LawFx.COUNTER_SHOCK -> counterShock(b, mc, e, t, now, calm);
@@ -322,7 +512,7 @@ public final class LawFxClient {
 			case LawFx.RAIN_SLASH -> rainSlash(b, e, t);
 			case LawFx.AWAKEN -> awaken(b, mc, e, t, now, calm);
 			case LawFx.KROOM -> kroom(b, mc, e, t, now);
-			case LawFx.ANESTHESIA -> anesthesia(b, mc, e, t, now);
+			case LawFx.ANESTHESIA -> anesthesia(b, mc, e, t, now, calm);
 			case LawFx.SHOCK_WILLE -> shockWille(b, e, t, now, calm);
 			case LawFx.PUNCTURE -> puncture(b, e, t, now, calm);
 			case LawFx.SILENT -> silent(b, mc, e, t, age, now);
@@ -331,6 +521,7 @@ public final class LawFxClient {
 			case LawFx.RROOM_BURST -> rroomBurst(b, e, t, now);
 			case LawFx.STERBEN -> sterben(b, e, t, now);
 			case LawFx.HEART_SQUEEZE -> heartSqueeze(b, mc, e, t, now);
+			case LawFx.SILENT_TARGET, LawFx.SCAN_STEAL, LawFx.EXTRACT -> LawFxExtra.draw(b, mc, e, t, age, now, calm);
 			default -> {}
 		}
 	}
@@ -338,36 +529,48 @@ public final class LawFxClient {
 	static void drawInside(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		switch (e.kind) {
 			case LawFx.GAMMA -> {
-				Entity target = entity(mc, e.targetId);
-				if (target == null || t < 0.12) return;
+				Entity target = body(mc, e.targetId);
+				if (target == null) return;
+				GammaPose g = gammaPose(mc, e, t);
+				// la radiografía se enciende cuando la hoja toca la piel y se apaga con ella
+				float a = (float) (MathHelper.clamp((t - g.contact + 0.05) / 0.12, 0.0, 1.0) * (t < 0.8 ? 1.0 : (1.0 - t) / 0.2));
+				if (a <= 0.01f) return;
 				Box box = lerpBox(target);
 				Vec3d c = box.getCenter();
-				double u = (t - 0.12) / 0.88;
-				float a = (float) (Math.sin(Math.min(1.0, u * 1.6) * Math.PI * 0.5) * (1.0 - u * u));
-				double beat = 0.5 + 0.5 * Math.sin(now * 18.0);
-				// los órganos: un núcleo verde que late y se vuelve amarillo al destruirse
+				double u = MathHelper.clamp((t - 0.3) / 0.6, 0.0, 1.0);   // 0 al clavarse la hoja, 1 con los órganos deshechos
+				float glow = (float) MathHelper.clamp((t - 0.15) / 0.6, 0.0, 1.0);
+				// el esqueleto en verde y los órganos, que se encienden y viran a amarillo al destruirse
 				int col = lerpRgb(GAMMA_G, GAMMA_Y, (float) u);
-				disc(b, c, (0.22 + 0.16 * beat) * Math.min(1.6, box.getLengthY() * 0.5), col, a * 0.85f, 0f);
-				disc(b, c, 0.10 + 0.05 * beat, CORE, a, 0.2f * a);
-				// la silueta del cuerpo en verde, como una radiografía
-				boxEdges(b, box.expand(0.02), GAMMA_G, a * 0.45f, 0.022);
-				// ondas que convergen hacia dentro (radiación concentrada)
+				XRayFx.anatomy(b, target, GAMMA_G, a * 0.85f, col, glow, now);
+				// con la hoja ya dentro, los órganos revientan sin herida por fuera
+				if (t >= 0.3) XRayFx.rupture(b, target, GAMMA_Y, (float) u, e.seed, calm);
+				// la parte de la hoja que queda dentro del cuerpo
+				if (g.tipDist > g.skin + 0.02) {
+					Vec3d in = g.hand.add(g.dir.multiply(Math.max(g.skin, g.tipDist - g.len)));
+					ribbon(b, in, g.tip, 0.06, 0.012, col, a * 0.45f, a * 0.6f);
+					ribbon(b, in, g.tip, 0.02, 0.004, CORE, a * 0.7f, a * 0.8f);
+				}
+				// el núcleo que late y las ondas que convergen hacia dentro (radiación concentrada)
+				double beat = 0.5 + 0.5 * Math.sin(now * 18.0);
+				disc(b, c, 0.10 + 0.05 * beat, CORE, a * 0.8f, 0.15f * a);
 				for (int k = 0; k < 3; k++) {
-					double ph = ((u * 2.2 + k / 3.0) % 1.0);
+					double ph = ((Math.max(0.0, t - 0.1) * 2.4 + k / 3.0) % 1.0);
 					double rr = (1.0 - ph) * box.getLengthY() * 0.65 + 0.08;
 					faceCam(c);
-					ring(b, c, rr * 0.86, rr, col, a * 0.55f * (float) ph, 0f);
+					ring(b, c, rr * 0.86, rr, col, a * 0.4f * (float) ph, 0f);
 				}
 			}
 			case LawFx.SHOCK_WILLE -> {
-				Entity target = entity(mc, e.targetId);
+				Entity target = body(mc, e.targetId);
 				if (target == null || t < 0.22 || t > 0.75) return;
 				double u = (t - 0.22) / 0.53;
 				Box box = lerpBox(target);
 				Vec3d c = box.getCenter();
 				float a = (float) Math.sin(u * Math.PI);
-				disc(b, c, box.getLengthY() * (0.35 + 0.5 * u), ELEC_HOT, a * 0.9f, 0f);
-				boxEdges(b, box.expand(0.03), ELEC, a * 0.6f, 0.026);
+				// la onda eléctrica estalla dentro: el esqueleto y los órganos en blanco eléctrico, que revientan
+				XRayFx.anatomy(b, target, ELEC, a * 0.9f, ELEC_HOT, (float) Math.min(1.0, u * 2.0), now);
+				XRayFx.rupture(b, target, ELEC_HOT, (float) u, e.seed, calm);
+				disc(b, c, box.getLengthY() * (0.35 + 0.5 * u), ELEC_HOT, a * 0.6f, 0f);
 				if (!calm) {
 					int flick = (int) (now * 30);
 					for (int k = 0; k < 5; k++) {
@@ -375,6 +578,23 @@ public final class LawFxClient {
 						bolt(b, c, q, 0.06, 0.02, ELEC, ELEC_HOT, a, e.seed + k * 31 + flick, 6, 0.18);
 					}
 				}
+			}
+			case LawFx.COUNTER_SHOCK -> {
+				// la radiografía tenue del cuerpo, con el corazón que se enciende con cada descarga («ba-dum»)
+				Entity target = body(mc, e.targetId);
+				if (target == null || t >= 0.6) return;
+				float a = (float) (Math.min(1.0, t / 0.05) * (t < 0.45 ? 1.0 : (0.6 - t) / 0.15)) * 0.4f;
+				double glow;
+				if (calm) {
+					glow = 0.7 * (1.0 - t / 0.6);   // sin parpadeo: se apaga despacio
+				} else {
+					glow = 0;
+					for (int i = 0; i < 2; i++) {
+						double dt = t - i * 0.18;
+						if (dt >= 0) glow = Math.max(glow, Math.exp(-dt * 12.0));
+					}
+				}
+				XRayFx.anatomy(b, target, ELEC, a, HEART, (float) glow, now);
 			}
 			case LawFx.ANESTHESIA -> {
 				Entity target = entity(mc, e.targetId);
@@ -479,69 +699,205 @@ public final class LawFxClient {
 		if (target != null) reticle(b, lerpBox(target).getCenter(), Math.max(0.7, target.getHeight() * 0.6), now, a);
 	}
 
-	/** Injection Shot: al clavarse la hoja dispara: fogonazo hacia delante y anillos de choque. */
-	static void injectionHit(BufferBuilder b, Ev e, double t, double now, boolean calm) {
+	/**
+	 * Injection Shot: al clavarse la hoja «dispara» como un arma: un fogonazo grande en el punto de contacto y el
+	 * disparo que SALE POR LA ESPALDA del objetivo (un cono de luz y cuatro anillos de choque a lo largo de la
+	 * embestida). Va pegado al objetivo, que sale despedido, para que se lea también desde los ojos de Law.
+	 */
+	static void injectionHit(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		Vec3d dir = e.b.subtract(e.a);
 		if (dir.lengthSquared() < 1e-4) dir = new Vec3d(0, 0, 1);
 		dir = dir.normalize();
 		float a = (float) ((1.0 - t) * (1.0 - t));
-		// fogonazo
+		float fl = flashScale();
+		// el objetivo aunque esté muriendo (sigue en el mundo durante la animación de muerte)
+		Entity target = body(mc, e.targetId);
+		Vec3d c = target != null ? lerpBox(target).getCenter() : e.a;
+		double half = target != null ? Math.max(0.2, target.getWidth() * 0.5) : 0.35;
+		Vec3d contact = c.subtract(dir.multiply(half + 0.08));
+		// 1) el fogonazo en el punto de contacto: grande y blanco
+		if (t < 0.2) {
+			float f = (float) (1.0 - t / 0.2);
+			disc(b, contact, 0.45 + 1.5 * f, CORE, f * fl, 0f);
+			disc(b, contact, 1.1 + 2.2 * f, ROOM, f * 0.4f * fl, 0f);
+			axes(dir);
+			double rr = 0.35 + (1.0 - f) * 1.6;
+			ring(b, contact, rr * 0.8, rr, CORE, f * 0.9f * fl, 0f);
+		}
+		// 2) el disparo sale por la espalda: un cono de luz a lo largo de la embestida, desde 0,8 detrás del centro
+		Vec3d back = c.add(dir.multiply(0.8));
+		if (t < 0.7) {
+			double g = Math.min(1.0, t / 0.3);
+			double ease = 1.0 - (1.0 - g) * (1.0 - g);
+			double reach = 0.6 + 6.4 * ease;
+			double r1 = 0.6 + 2.2 * ease;
+			float ca = (float) (t < 0.25 ? 1.0 : Math.max(0.0, 1.0 - (t - 0.25) / 0.45)) * 0.5f;
+			cone(b, back, dir, reach, 0.3, r1, ROOM, ca, 0f);
+			cone(b, back, dir, reach * 0.8, 0.15, r1 * 0.35, CORE, ca * 0.9f, 0f);
+			ribbon(b, back, back.add(dir.multiply(reach)), 0.16, 0.02, CORE, Math.min(1f, ca * 1.6f), 0f);
+		}
+		// 3) el chorro: rayas que salen hacia delante desde la espalda (fijas por semilla, sin parpadeo)
 		if (t < 0.25) {
 			float f = (float) (1.0 - t / 0.25);
-			disc(b, e.a, 1.4 * f + 0.3, CORE, f, 0f);
 			axes(dir);
+			double ex = u1x, ey = u1y, ez = u1z, fx = u2x, fy = u2y, fz = u2z;
 			for (int k = 0; k < 10; k++) {
 				double ang = k * Math.PI * 2 / 10 + e.seed;
-				Vec3d side = new Vec3d(u1x * Math.cos(ang) + u2x * Math.sin(ang), u1y * Math.cos(ang) + u2y * Math.sin(ang),
-					u1z * Math.cos(ang) + u2z * Math.sin(ang));
-				Vec3d tip = e.a.add(dir.multiply(3.5 + 1.5 * hash01(e.seed + k))).add(side.multiply(0.9));
-				ribbon(b, e.a, tip, 0.14, 0.0, ROOM, f * 0.9f, 0f);
+				double ca = Math.cos(ang), sa = Math.sin(ang);
+				Vec3d side = new Vec3d(ex * ca + fx * sa, ey * ca + fy * sa, ez * ca + fz * sa);
+				Vec3d tip = back.add(dir.multiply(3.5 + 1.5 * hash01(e.seed + k))).add(side.multiply(1.1));
+				ribbon(b, back, tip, 0.12, 0.0, ROOM, f * 0.9f, 0f);
 			}
 		}
-		// anillos de choque que se abren a lo largo del disparo
-		axes(dir);
+		// 4) cuatro anillos de choque perpendiculares al disparo: nacen detrás del objetivo y se alejan hasta ~7 bloques
 		for (int i = 0; i < 4; i++) {
-			double local = MathHelper.clamp(t * 1.4 - i * 0.12, 0, 1);
-			if (local <= 0 || local >= 1) continue;
-			Vec3d c = e.a.add(dir.multiply(0.8 + i * 1.3 + local * 2.0));
-			double rr = 0.5 + local * (1.6 + i * 0.5);
-			float ra = (float) ((1.0 - local) * 0.9);
-			ring(b, c, rr * 0.78, rr, ROOM, ra, 0f);
-			ring(b, c, rr * 0.9, rr * 0.95, CORE, ra, 0f);
+			double v = MathHelper.clamp((t - i * 0.07) / 0.55, 0.0, 1.0);
+			if (v <= 0 || v >= 1) continue;
+			double ease = 1.0 - (1.0 - v) * (1.0 - v);
+			Vec3d rc = c.add(dir.multiply(0.8 + 6.2 * ease));
+			double rr = 0.8 + 2.2 * ease;
+			float ra = (float) ((1.0 - v) * 0.95);
+			axes(dir);
+			ring(b, rc, rr * 0.78, rr, ROOM, ra, 0f);
+			ring(b, rc, rr * 0.9, rr * 0.96, CORE, ra, 0f);
 		}
-		// la onda horizontal en el sitio
+		// 5) la onda horizontal en el sitio del golpe
 		axes(new Vec3d(0, 1, 0));
 		double wave = 0.6 + t * 4.5;
 		ring(b, e.a, wave * 0.85, wave, ELEC, a * 0.6f, 0f);
 	}
 
-	/** Gamma Knife: una hoja corta de energía (verde que vira a amarillo) sale de la mano y se hunde en el cuerpo. */
-	static void gamma(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
-		Entity target = entity(mc, e.targetId);
-		Entity user = entity(mc, e.userId);
-		Vec3d to = target != null ? lerpBox(target).getCenter() : e.b;
-		Vec3d from = user != null ? handOf(user) : e.a;
-		float a = t < 0.65 ? 1f : (float) (1.0 - (t - 0.65) / 0.35);
-		double grow = Math.min(1.0, t / 0.12);
-		Vec3d d = to.subtract(from);
-		Vec3d tip = from.add(d.multiply(grow * 1.08));
-		int col = lerpRgb(GAMMA_G, GAMMA_Y, (float) Math.min(1.0, t * 1.4));
-		// la hoja: ancha en la mano, fina en la punta, con un filo blanco
-		ribbon(b, from, tip, 0.20, 0.03, col, a * 0.55f, a * 0.8f);
-		ribbon(b, from, tip, 0.06, 0.012, CORE, a, a);
-		// el resplandor en la mano
-		disc(b, from, 0.28 + 0.06 * Math.sin(now * 20), col, a * 0.7f, 0f);
-		// la entrada: anillo pequeño en la piel, sin herida
-		if (t > 0.1) {
-			Vec3d dn = d.lengthSquared() > 1e-4 ? d.normalize() : new Vec3d(0, 0, 1);
-			axes(dn);
-			double rr = 0.25 + 0.35 * Math.min(1.0, (t - 0.1) * 4);
-			Vec3d entry = to.subtract(dn.multiply(target != null ? target.getWidth() * 0.5 : 0.3));
-			ring(b, entry, rr * 0.7, rr, col, a * 0.8f, 0f);
+	/** Un cono hueco de luz a lo largo de dir: radio r0 en c y r1 a la distancia len (alfa a0 → a1). */
+	static void cone(BufferBuilder b, Vec3d c, Vec3d dir, double len, double r0, double r1, int rgb, float a0, float a1) {
+		if (a0 <= 0.003f && a1 <= 0.003f) return;
+		axes(dir);
+		Vec3d f = c.add(dir.multiply(len));
+		int n = 20;
+		for (int i = 0; i < n; i++) {
+			int i0 = i * SEG / n, i1 = (i + 1) * SEG / n;
+			double c0 = COS[i0], s0 = SIN[i0], c1 = COS[i1], s1 = SIN[i1];
+			double x0 = u1x * c0 + u2x * s0, y0 = u1y * c0 + u2y * s0, z0 = u1z * c0 + u2z * s0;
+			double x1 = u1x * c1 + u2x * s1, y1 = u1y * c1 + u2y * s1, z1 = u1z * c1 + u2z * s1;
+			vtx(b, c.x + x0 * r0, c.y + y0 * r0, c.z + z0 * r0, rgb, a0);
+			vtx(b, c.x + x1 * r0, c.y + y1 * r0, c.z + z1 * r0, rgb, a0);
+			vtx(b, f.x + x1 * r1, f.y + y1 * r1, f.z + z1 * r1, rgb, a1);
+			vtx(b, f.x + x0 * r1, f.y + y0 * r1, f.z + z0 * r1, rgb, a1);
 		}
 	}
 
-	/** Curtain: el velo quirúrgico que Law tira del aire con el brazo; ondula delante de él mientras dura. */
+	/** Gamma Knife en el instante t: la mano, el centro del objetivo, la dirección, la piel, la hoja y cuándo entra. */
+	record GammaPose(Vec3d hand, Vec3d center, Vec3d dir, double dist, double skin, double len, double tipDist,
+					 Vec3d hilt, Vec3d tip, double contact) {}
+
+	/**
+	 * Dónde está la hoja de Gamma Knife: se forma en la mano (t < 0,12), se lanza por la línea mano → objetivo
+	 * (0,12–0,3) y se queda clavada con la punta 0,35 bloques más allá del centro, con parte de la hoja aún fuera.
+	 */
+	static GammaPose gammaPose(MinecraftClient mc, Ev e, double t) {
+		Entity target = body(mc, e.targetId);   // aunque muera, la hoja sigue clavada mientras cae
+		Entity user = entity(mc, e.userId);
+		Vec3d to = target != null ? lerpBox(target).getCenter() : e.b;
+		Vec3d from = user != null ? handOf(user) : e.a;
+		Vec3d d = to.subtract(from);
+		double dist = d.length();
+		Vec3d dn = dist > 1e-3 ? d.multiply(1.0 / dist) : new Vec3d(0, 0, 1);
+		double skin = Math.max(0.0, dist - (target != null ? target.getWidth() * 0.5 : 0.3));
+		// la punta acaba 0,35 más allá del centro, pero con algo de hoja fuera aunque el ser sea muy ancho
+		double end = Math.max(GAMMA_LEN + 0.05, Math.min(dist + 0.35, skin + 0.65 * GAMMA_LEN));
+		double len = GAMMA_LEN, tipDist;
+		if (t < 0.12) {
+			double f = t / 0.12;
+			len = GAMMA_LEN * f * f * (3 - 2 * f);
+			tipDist = len;
+		} else if (t < 0.3) {
+			// la estocada: rápida al salir, frena al clavarse
+			double u = (t - 0.12) / 0.18;
+			tipDist = GAMMA_LEN + (end - GAMMA_LEN) * (1.0 - (1.0 - u) * (1.0 - u));
+		} else {
+			tipDist = end;
+		}
+		// cuándo toca la punta la piel (para el anillo de entrada y la radiografía)
+		double contact;
+		if (skin <= GAMMA_LEN) {
+			contact = 0.12 * skin / GAMMA_LEN;
+		} else {
+			double frac = MathHelper.clamp((skin - GAMMA_LEN) / Math.max(1e-3, end - GAMMA_LEN), 0.0, 1.0);
+			contact = 0.12 + 0.18 * (1.0 - Math.sqrt(1.0 - frac));
+		}
+		Vec3d tip = from.add(dn.multiply(tipDist));
+		Vec3d hilt = from.add(dn.multiply(Math.max(0.0, tipDist - len)));
+		return new GammaPose(from, to, dn, dist, skin, len, tipDist, hilt, tip, contact);
+	}
+
+	/**
+	 * Gamma Knife: una hoja CORTA de energía verde pálida (un bloque) se forma en la mano, se lanza y se clava en el
+	 * cuerpo, y allí late hasta apagarse; lo de dentro (los órganos que se deshacen) va en {@link #drawInside}. Si el
+	 * objetivo está lejos (el ROOM le da el alcance), solo una guía discontinua tenue une la mano con él.
+	 */
+	static void gamma(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
+		GammaPose g = gammaPose(mc, e, t);
+		float a = t < 0.75 ? 1f : (float) (1.0 - (t - 0.75) / 0.25);
+		int col = lerpRgb(GAMMA_G, CORE, 0.3f);   // verde pálido
+		// clavada, la hoja late
+		float glow = t < 0.3 ? 1f : (float) (calm ? 0.85 : 0.8 + 0.2 * Math.sin(now * 16.0));
+		// 1) objetivo lejos: una guía discontinua tenue, celeste, entre la mano y la piel
+		if (g.dist > 1.6) {
+			float ga = a * 0.22f * (float) Math.min(1.0, t / 0.08);
+			dashed(b, g.hand, g.hand.add(g.dir.multiply(g.skin)), 0.22, 0.16, 0.018, ROOM, ga, calm ? 0.0 : now * 0.9);
+		}
+		// 2) el resplandor en la mano mientras se forma la hoja
+		if (t < 0.4) {
+			float ha = a * (float) (t < 0.12 ? t / 0.12 : Math.max(0.0, 1.0 - (t - 0.12) / 0.28));
+			disc(b, g.hand, 0.2 + 0.05 * Math.sin(now * 20), col, ha * 0.7f, 0f);
+		}
+		// 3) la estela de la estocada, detrás de la empuñadura
+		if (t > 0.12 && t < 0.36) {
+			float sa = a * 0.3f * (float) (t < 0.3 ? 1.0 : (0.36 - t) / 0.06);
+			double hd = Math.max(0.0, g.tipDist - g.len);
+			if (hd > 0.05) {
+				Vec3d tail = g.hand.add(g.dir.multiply(Math.max(0.0, hd - 1.5)));
+				ribbon(b, tail, g.hilt, 0.0, 0.06, col, 0f, sa);
+			}
+		}
+		// 4) la hoja: halo suave, cuerpo verde pálido y filo blanco; ancha (0,16) en la empuñadura, fina en la punta
+		if (g.len > 0.02) {
+			ribbon(b, g.hilt, g.tip, 0.17, 0.05, col, a * 0.16f * glow, a * 0.22f * glow);
+			ribbon(b, g.hilt, g.tip, 0.08, 0.014, col, a * 0.7f * glow, a * 0.9f);
+			ribbon(b, g.hilt, g.tip, 0.028, 0.005, CORE, a, a);
+			disc(b, g.hilt, 0.13, col, a * 0.45f * glow, 0f);
+		}
+		// 5) la entrada: un anillo pequeño en la piel, sin herida, y un chispazo al tocarla
+		if (t > g.contact) {
+			double k = t - g.contact;
+			Vec3d entry = g.hand.add(g.dir.multiply(g.skin));
+			axes(g.dir);
+			double rr = 0.14 + 0.26 * Math.min(1.0, k * 5);
+			ring(b, entry, rr * 0.7, rr, col, a * 0.8f, 0f);
+			if (k < 0.1) disc(b, entry, 0.12 + 0.35 * (1.0 - k / 0.1), CORE, a * (float) (1.0 - k / 0.1), 0f);
+		}
+	}
+
+	/** Una línea discontinua de p0 a p1 (trazos de dash con huecos de gap) que avanza con shift. */
+	static void dashed(BufferBuilder b, Vec3d p0, Vec3d p1, double dash, double gap, double w, int rgb, float a, double shift) {
+		Vec3d d = p1.subtract(p0);
+		double len = d.length();
+		if (len < 1e-3 || a <= 0.003f) return;
+		Vec3d dn = d.multiply(1.0 / len);
+		double period = dash + gap;
+		double off = shift % period;
+		if (off < 0) off += period;
+		int n = 0;
+		for (double s = off - period; s < len && n < 200; s += period, n++) {
+			double s0 = Math.max(0.0, s), s1 = Math.min(len, s + dash);
+			if (s1 - s0 < 0.02) continue;
+			ribbon(b, p0.add(dn.multiply(s0)), p0.add(dn.multiply(s1)), w, w, rgb, a, a);
+		}
+	}
+
+	/**
+	 * Curtain: el paño quirúrgico que Law tira del aire con el brazo: un velo translúcido y suave delante de él, con
+	 * tres pliegues apenas marcados, el borde de arriba y el dobladillo claros y un brillo lento que lo cruza.
+	 */
 	static void curtain(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		if (user == null) return;
@@ -553,10 +909,14 @@ public final class LawFxClient {
 		double unfurl = Math.min(1.0, age / 0.38);
 		double out = e.duration - age < 0.5 ? (e.duration - age) / 0.5 : 1.0;
 		float a = (float) (Math.max(0, out));
+		if (a <= 0.003f) return;
 		double width = 2.8, height = 2.5;
 		int cols = 16, rows = 8;
 		double half = width * 0.5;
 		double startX = -half + width * (1.0 - unfurl);   // se despliega desde el lado del brazo
+		// el brillo que cruza el paño despacio, de un lado a otro (no con «menos movimiento»)
+		double sheen = calm ? Double.NaN : -half - 0.8 + (width + 1.6) * ((now * 0.22) % 1.0);
+		// 1) el paño: muy translúcido (alfa 0,06–0,12), algo más denso arriba; el alfa va por vértice, sin escalones
 		for (int i = 0; i < cols; i++) {
 			double x0 = -half + width * i / cols, x1 = -half + width * (i + 1) / cols;
 			if (x1 < startX) continue;
@@ -567,40 +927,63 @@ public final class LawFxClient {
 				Vec3d p10 = drape(base, fwd, side, x1, y0, now, calm);
 				Vec3d p11 = drape(base, fwd, side, x1, y1, now, calm);
 				Vec3d p01 = drape(base, fwd, side, x0, y1, now, calm);
-				double fold = 0.5 + 0.5 * Math.sin((x0 + x1) * 3.4 + now * (calm ? 0 : 1.7));
-				float fa = (float) ((0.13 + 0.16 * fold) * a);
-				float fb = fa * (float) (0.55 + 0.45 * j / rows);   // más denso arriba, como un paño colgado
-				quad(b, p00, p10, p11, p01, DRAPE, fb, fb, fa, fa);
+				quad(b, p00, p10, p11, p01, DRAPE,
+					a * veil(x0, y0, height, now, calm, sheen), a * veil(x1, y0, height, now, calm, sheen),
+					a * veil(x1, y1, height, now, calm, sheen), a * veil(x0, y1, height, now, calm, sheen));
 			}
 		}
-		// las crestas de los pliegues, verticales y brillantes
-		for (int i = 1; i < cols; i += 2) {
-			double x = -half + width * i / cols;
+		// 2) solo tres pliegues, muy tenues (alfa ≤ 0,15), que siguen la tela
+		for (int i = 1; i <= 3; i++) {
+			double x = -half + width * i / 4.0;
 			if (x < startX) continue;
-			Vec3d p0 = drape(base, fwd, side, x, 0.1, now, calm), p1 = drape(base, fwd, side, x, height, now, calm);
-			ribbon(b, p0, p1, 0.02, 0.02, CORE, a * 0.25f, a * 0.45f);
+			Vec3d prev = null;
+			for (int j = 0; j <= rows; j++) {
+				double y = 0.08 + (height - 0.16) * j / rows;
+				Vec3d q = drape(base, fwd, side, x, y, now, calm);
+				if (prev != null) {
+					float f0 = a * (float) (0.05 + 0.10 * (j - 1) / rows), f1 = a * (float) (0.05 + 0.10 * j / rows);
+					ribbon(b, prev, q, 0.04, 0.04, CORE, f0, f1);
+				}
+				prev = q;
+			}
 		}
-		// el dobladillo y los bordes, que brillan más
+		// 3) el borde de arriba y el dobladillo: una línea clara con un halo suave
 		Vec3d prevTop = null, prevBot = null;
 		for (int i = 0; i <= cols; i++) {
 			double x = Math.max(startX, -half + width * i / cols);
 			Vec3d top = drape(base, fwd, side, x, height, now, calm), bot = drape(base, fwd, side, x, 0.05, now, calm);
 			if (prevTop != null) {
-				ribbon(b, prevTop, top, 0.035, 0.035, CORE, a * 0.8f, a * 0.8f);
-				ribbon(b, prevBot, bot, 0.025, 0.025, ROOM, a * 0.6f, a * 0.6f);
+				ribbon(b, prevTop, top, 0.09, 0.09, DRAPE, a * 0.12f, a * 0.12f);
+				ribbon(b, prevTop, top, 0.022, 0.022, CORE, a * 0.55f, a * 0.55f);
+				ribbon(b, prevBot, bot, 0.08, 0.08, DRAPE, a * 0.10f, a * 0.10f);
+				ribbon(b, prevBot, bot, 0.018, 0.018, ROOM, a * 0.45f, a * 0.45f);
 			}
 			prevTop = top;
 			prevBot = bot;
 		}
+		// los lados, apenas un halo (nada de barras brillantes)
 		for (double x : new double[]{startX, half}) {
 			Vec3d p0 = drape(base, fwd, side, x, 0.05, now, calm), p1 = drape(base, fwd, side, x, height, now, calm);
-			ribbon(b, p0, p1, 0.03, 0.03, CORE, a * 0.75f, a * 0.75f);
+			ribbon(b, p0, p1, 0.05, 0.05, DRAPE, a * 0.08f, a * 0.12f);
 		}
-		// la cruz quirúrgica en el centro del paño, tenue
-		Vec3d cc = drape(base, fwd, side, 0, height * 0.55, now, calm);
-		Vec3d hx = side.multiply(0.32), hy = new Vec3d(0, 0.32, 0);
-		ribbon(b, cc.subtract(hx), cc.add(hx), 0.05, 0.05, ROOM, a * 0.35f, a * 0.35f);
-		ribbon(b, cc.subtract(hy), cc.add(hy), 0.05, 0.05, ROOM, a * 0.35f, a * 0.35f);
+		// la cruz quirúrgica en el centro del paño, tenue (cuando el paño ya llega hasta ella)
+		if (startX <= -0.35) {
+			Vec3d cc = drape(base, fwd, side, 0, height * 0.55, now, calm);
+			Vec3d hx = side.multiply(0.32), hy = new Vec3d(0, 0.32, 0);
+			ribbon(b, cc.subtract(hx), cc.add(hx), 0.05, 0.05, ROOM, a * 0.25f, a * 0.25f);
+			ribbon(b, cc.subtract(hy), cc.add(hy), 0.05, 0.05, ROOM, a * 0.25f, a * 0.25f);
+		}
+	}
+
+	/** Lo opaco que es el velo en (x, y): entre 0,06 y 0,12, más denso arriba, más el brillo que lo cruza. */
+	static float veil(double x, double y, double height, double now, boolean calm, double sheen) {
+		double fold = 0.5 + 0.5 * Math.cos(x * 3.4 + now * (calm ? 0 : 1.7));   // los pliegues de drape()
+		double v = (0.075 + 0.04 * fold) * (0.8 + 0.2 * y / height);
+		if (!Double.isNaN(sheen)) {
+			double dx = (x + 0.25 * (y - height * 0.5) - sheen) / 0.35;   // un poco inclinado, como la luz en la tela
+			v += 0.05 * Math.exp(-dx * dx);
+		}
+		return (float) v;
 	}
 
 	static Vec3d drape(Vec3d base, Vec3d fwd, Vec3d side, double x, double y, double now, boolean calm) {
@@ -704,7 +1087,8 @@ public final class LawFxClient {
 	static void scan(BufferBuilder b, Ev e, double t, double now) {
 		double r = Math.max(3.0, e.radius);
 		Vec3d c = e.a;
-		float a = (float) (t < 0.85 ? 1.0 : (1.0 - t) / 0.15);
+		// ×1,5 respecto a antes para que el barrido se vea también de día (vtx recorta el alfa a 1)
+		float a = 1.5f * (float) (t < 0.85 ? 1.0 : (1.0 - t) / 0.15);
 		double sweep = MathHelper.clamp(t / 0.85, 0, 1);
 		double h = -r + 2 * r * sweep;
 		double ringR = Math.sqrt(Math.max(0.0, r * r - h * h));
@@ -829,22 +1213,19 @@ public final class LawFxClient {
 		Vec3d dir = user != null ? user.getRotationVec(td) : e.b.subtract(e.a).normalize();
 		float a = (float) (t < 0.8 ? 1.0 : (1.0 - t) / 0.2);
 		if (t < 0.45) {
-			// la esfera giroscópica en la palma
+			// la esfera de ROOM en la palma, que no crece: se apaga al pasar a revestir la hoja
 			double u = t / 0.45;
 			double rr = 0.12 + 0.28 * Math.sin(u * Math.PI * 0.5);
-			for (int i = 0; i < 3; i++) {
-				double ang = now * (2.5 + i) + i;
-				axes(new Vec3d(Math.cos(ang), Math.sin(ang * 0.7), Math.sin(ang)));
-				ring(b, hand, rr * 0.9, rr, i == 0 ? CORE : ROOM, a, a * 0.3f);
-			}
-			disc(b, hand, rr * 1.4, ROOM, a * 0.35f, 0f);
+			float pa = a * (float) (u < 0.8 ? 1.0 : (1.0 - u) / 0.2);
+			KikokuBladeFx.palmSphere(b, hand, rr, pa, now);
+			disc(b, hand, rr * 1.4, ROOM, pa * 0.3f, 0f);
 		}
-		// los anillos que recorren la hoja hasta la punta (26 m)
+		// dos anillos recorren la hoja hasta la punta (la hoja gigante ya enseña los 26 m)
 		if (t > 0.3) {
 			double u = (t - 0.3) / 0.7;
 			axes(dir);
-			for (int i = 0; i < 5; i++) {
-				double v = MathHelper.clamp(u * 1.4 - i * 0.09, 0, 1);
+			for (int i = 0; i < 2; i++) {
+				double v = MathHelper.clamp(u * 1.4 - i * 0.12, 0, 1);
 				if (v <= 0 || v >= 1) continue;
 				Vec3d c = hand.add(dir.multiply(1.0 + v * 25.0));
 				double rr = 0.45 + 0.25 * Math.sin(v * Math.PI);
@@ -854,7 +1235,7 @@ public final class LawFxClient {
 	}
 
 	/** Anesthesia: la hoja de K-ROOM atraviesa al objetivo sin cortarlo; ondas de fase donde entra. */
-	static void anesthesia(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void anesthesia(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		Entity target = entity(mc, e.targetId);
 		if (user == null || target == null) return;
@@ -862,11 +1243,12 @@ public final class LawFxClient {
 		Vec3d tc = lerpBox(target).getCenter();
 		Vec3d d = tc.subtract(hand);
 		if (d.lengthSquared() < 1e-4) return;
-		Vec3d dn = d.normalize();
+		double dist = d.length();
+		Vec3d dn = d.multiply(1.0 / dist);
 		Vec3d past = tc.add(dn.multiply(3.0));   // la hoja sigue por detrás: lo ha atravesado
 		float a = (float) (t < 0.85 ? 1.0 : (1.0 - t) / 0.15);
-		ribbon(b, hand, past, 0.16, 0.05, ROOM, a * 0.4f, a * 0.25f);
-		ribbon(b, hand, past, 0.04, 0.015, CORE, a * 0.9f, a * 0.7f);
+		// la Kikoku revestida de K-ROOM lo atraviesa entero y sale 3 bloques por detrás
+		KikokuBladeFx.blade(b, hand, dn, dist + 3.0, 1.0, a * 0.9f, now, calm);
 		axes(dn);
 		for (int i = 0; i < 3; i++) {
 			double ph = ((now * 1.4 + i / 3.0) % 1.0);
@@ -887,14 +1269,14 @@ public final class LawFxClient {
 		Vec3d a0 = e.a, p = e.b;
 		Vec3d d = p.subtract(a0);
 		if (d.lengthSquared() < 1e-4) d = new Vec3d(0, 0, 1);
+		double dist = d.length();
 		Vec3d dn = d.normalize();
 		double r = Math.max(3.0, e.radius);
 		int flick = calm ? 0 : (int) (now * 24);
-		// 1) la hoja
+		// 1) la Kikoku de K-ROOM lo atraviesa y asoma 2,5 bloques por detrás
 		if (t < 0.55) {
 			float a = (float) (t < 0.4 ? 1.0 : (0.55 - t) / 0.15);
-			ribbon(b, a0, p.add(dn.multiply(2.5)), 0.22, 0.10, ROOM, a * 0.5f, a * 0.3f);
-			ribbon(b, a0, p.add(dn.multiply(2.5)), 0.06, 0.03, CORE, a, a * 0.8f);
+			KikokuBladeFx.blade(b, a0, dn, dist + 2.5, 1.0, a, now, calm);
 		}
 		// 2) el pulso que viaja por la hoja
 		if (t > 0.05 && t < 0.3) {
@@ -933,17 +1315,14 @@ public final class LawFxClient {
 		Vec3d c = e.b;
 		double R = Math.max(4.0, e.radius);
 		double depth = Math.max(6.0, e.power);
-		Vec3d sky = c.add(0, 42, 0);
+		Vec3d sky = c.add(0, 40, 0);
 		int flick = calm ? 0 : (int) (now * 20);
-		axes(new Vec3d(0, 1, 0));
-		// 1) la hoja colosal baja del cielo y se hunde
+		// 1) la Kikoku colosal baja del cielo, se clava y sigue alargándose bajo tierra
 		if (t < 0.55) {
-			double u = MathHelper.clamp(t / 0.16, 0, 1);
 			float a = (float) (t < 0.4 ? 1.0 : (0.55 - t) / 0.15);
-			Vec3d tip = sky.lerp(c.add(0, -depth, 0), u);
-			ribbon(b, sky, tip, 1.6, 0.25, ROOM, a * 0.55f, a * 0.8f);
-			ribbon(b, sky, tip, 0.45, 0.08, CORE, a, a);
+			KikokuBladeFx.blade(b, sky, new Vec3d(0, -1, 0), 40.0 + depth, Math.min(1.0, t / 0.16), a, now, calm);
 		}
+		axes(new Vec3d(0, 1, 0));   // los anillos de abajo van en horizontal (la hoja puede haber cambiado la base)
 		// 2) la implosión bajo tierra: anillos que se cierran a distintas profundidades
 		if (t > 0.12 && t < 0.6) {
 			double u = (t - 0.12) / 0.48;
@@ -1020,6 +1399,7 @@ public final class LawFxClient {
 		int variant = Math.round(e.power);
 		Vec3d d = e.b.subtract(e.a);
 		if (d.lengthSquared() < 1e-4) d = new Vec3d(0, 0, 1);
+		double pathLen = d.length();
 		Vec3d dn = d.normalize();
 		Vec3d right = dn.crossProduct(new Vec3d(0, 1, 0));
 		if (right.lengthSquared() < 1e-4) right = new Vec3d(1, 0, 0);
@@ -1028,23 +1408,58 @@ public final class LawFxClient {
 		float a = (float) ((1 - t) * (1 - t));
 		switch (variant) {
 			case LawFx.SWORD_IAI -> {
-				// la estela del paso relámpago y el corte diagonal que aparece después
+				// la estela del paso relámpago
 				Vec3d p0 = e.a.add(0, 1.1, 0), p1 = e.b.add(0, 1.1, 0);
 				ribbon(b, p0, p1, 0.02, 0.45, ROOM, a * 0.25f, a * 0.6f);
 				ribbon(b, p0, p1, 0.005, 0.12, CORE, a * 0.5f, a);
-				if (t > 0.12) {
-					double u = MathHelper.clamp((t - 0.12) / 0.2, 0, 1);
+				float fl = flashScale();
+				// el envainado: un destello pequeño y brillante en el punto final, justo antes de que se abra el corte
+				// (pegado a la cámara, en primera persona, no se dibuja)
+				if (t > 0.12 && t < 0.36) {
+					float f = (float) Math.sin((t - 0.12) / 0.24 * Math.PI);
+					float fa = f * fl * (float) MathHelper.clamp((p1.distanceTo(cam) - 1.0) / 1.5, 0.0, 1.0);
+					if (fa > 0.01f) {
+						disc(b, p1, 0.12 + 0.3 * f, CORE, fa, 0f);
+						disc(b, p1, 0.25 + 0.5 * f, ROOM, fa * 0.35f, 0f);
+						// el brillo del filo al entrar en la vaina: una raya corta horizontal
+						Vec3d gl = right.multiply(0.25 + 0.55 * f);
+						ribbon(b, p1.subtract(gl), p1, 0.0, 0.025, CORE, 0f, fa);
+						ribbon(b, p1, p1.add(gl), 0.025, 0.0, CORE, fa, 0f);
+					}
+				}
+				// el corte, cuando Law ya ha pasado: un tajo diagonal grande (3 bloques) en mitad del camino, a la
+				// altura del pecho, que se enciende en blanco y se apaga
+				if (t > 0.25) {
+					double u = (t - 0.25) / 0.75;
 					Vec3d m = p0.lerp(p1, 0.5);
-					Vec3d s = up.add(right.multiply(0.35)).normalize().multiply(2.6 * u);
-					ribbon(b, m.subtract(s), m.add(s), 0.09, 0.09, CORE, a, a);
-					ribbon(b, m.subtract(s), m.add(s), 0.25, 0.25, ROOM, a * 0.5f, a * 0.5f);
+					Vec3d s = right.multiply(0.88).subtract(up.multiply(0.47)).normalize().multiply(1.5 * Math.min(1.0, u * 8.0));
+					float ca = (float) ((1 - u) * (1 - u));
+					float flare = (float) Math.max(0.0, 1.0 - u * 3.5) * fl;
+					for (int sgn = -1; sgn <= 1; sgn += 2) {
+						Vec3d tipEnd = m.add(s.multiply(sgn));
+						ribbon(b, m, tipEnd, 0.42, 0.0, ROOM, ca * 0.2f, 0f);
+						ribbon(b, m, tipEnd, 0.16, 0.0, ROOM, ca * 0.6f, ca * 0.1f);
+						ribbon(b, m, tipEnd, 0.06 + 0.06 * flare, 0.0, CORE, Math.min(1f, ca + flare), ca * 0.3f);
+					}
+					if (flare > 0.01f) disc(b, m, 0.4 + 1.1 * flare, CORE, flare * 0.6f, 0f);
 				}
 			}
 			case LawFx.SWORD_MOON -> {
-				// una media luna de luz que vuela hasta la mira
+				// una media luna de luz grande que vuela hasta la mira, con tres estelas que se apagan detrás
+				double rr = 3.4, thick = 1.0;
 				double u = Math.min(1.0, t / 0.45);
-				Vec3d c = e.a.lerp(e.b, u);
-				crescent(b, c, up.add(right.multiply(0.25)).normalize(), dn, 2.6, 0.55, a);
+				double travel = u * pathLen;
+				Vec3d n = up.add(right.multiply(0.25)).normalize();
+				float am = (float) (t < 0.45 ? 1.0 : Math.max(0.0, 1.0 - (t - 0.45) / 0.55));
+				float trail = (float) (t < 0.45 ? 1.0 : Math.max(0.0, 1.0 - (t - 0.45) / 0.2));
+				for (int k = 3; k >= 1; k--) {
+					double back = travel - k * 1.6;
+					if (back < 0) continue;
+					// el centro de la media luna va por detrás del punto, para que el filo pase por él
+					Vec3d ck = e.a.add(dn.multiply(back - rr * 0.6));
+					moonWave(b, ck, n, dn, rr * (1.0 - 0.06 * k), thick * (1.0 - 0.15 * k), am * trail * (0.55f - 0.13f * k));
+				}
+				moonWave(b, e.a.add(dn.multiply(travel - rr * 0.6)), n, dn, rr, thick, am);
 			}
 			case LawFx.SWORD_WHIRL -> {
 				// dos medias lunas girando alrededor de Law a la vez que se abren
@@ -1182,6 +1597,8 @@ public final class LawFxClient {
 			ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, 0, w, band, cTop, cZero, 0);
 			ctx.fillGradient(RenderLayer.getGuiOverlay(), 0, h - band, w, h, cZero, cTop, 0);
 		}
+		// la presentación anime: el rótulo con el nombre de la técnica, el fotograma de impacto y el tajo en pantalla
+		LawHudFx.render(ctx, tc);
 	}
 
 	// ------------------------------------------------------------------ geometría
@@ -1190,6 +1607,16 @@ public final class LawFxClient {
 		if (id < 0 || mc.world == null) return null;
 		Entity e = mc.world.getEntityById(id);
 		return e != null && e.isAlive() ? e : null;
+	}
+
+	/**
+	 * El ser aunque se esté muriendo: sigue en el mundo mientras dura la animación de muerte, y es justo entonces
+	 * cuando se ve lo de dentro (Gamma Knife y Shock Wille suelen matar al momento).
+	 */
+	static Entity body(MinecraftClient mc, int id) {
+		if (id < 0 || mc.world == null) return null;
+		Entity e = mc.world.getEntityById(id);
+		return e != null && !e.isRemoved() ? e : null;
 	}
 
 	static Vec3d lerpPos(Entity e) {
@@ -1240,6 +1667,40 @@ public final class LawFxClient {
 			}
 			prevO = o;
 			prevI = in;
+		}
+	}
+
+	/**
+	 * Luna de Acero: una media luna grande y brillante. Además de la de su plano ({@link #crescent}) lleva grosor a lo
+	 * largo de n (una banda que brilla en el filo y se apaga hacia fuera), para que no quede como una raya fina cuando
+	 * se ve de canto, que es justo como la ve Law desde detrás.
+	 */
+	static void moonWave(BufferBuilder b, Vec3d c, Vec3d n, Vec3d fwd, double r, double thick, float a) {
+		if (a <= 0.01f) return;
+		crescent(b, c, n, fwd, r, thick, a);
+		Vec3d s = n.crossProduct(fwd);
+		if (s.lengthSquared() < 1e-4) s = new Vec3d(1, 0, 0);
+		s = s.normalize();
+		int k = 22;
+		Vec3d prev = null;
+		double prevH = 0, prevEnv = 0;
+		for (int i = 0; i <= k; i++) {
+			double ang = -Math.PI * 0.42 + Math.PI * 0.84 * i / k;
+			double env = Math.sin(Math.PI * i / k);
+			Vec3d dir = s.multiply(Math.sin(ang)).add(fwd.multiply(Math.cos(ang)));
+			Vec3d o = c.add(dir.multiply(r));
+			double h = 0.5 * thick * env;
+			if (prev != null) {
+				Vec3d pu = prev.add(n.multiply(prevH)), pd = prev.subtract(n.multiply(prevH));
+				Vec3d ou = o.add(n.multiply(h)), od = o.subtract(n.multiply(h));
+				quad(b, pd, od, o, prev, ROOM, 0f, 0f, a * 0.7f, a * 0.7f);
+				quad(b, prev, o, ou, pu, ROOM, a * 0.7f, a * 0.7f, 0f, 0f);
+				// el filo, blanco y más grueso en el centro
+				ribbon(b, prev, o, 0.03 + 0.07 * prevEnv, 0.03 + 0.07 * env, CORE, a, a);
+			}
+			prev = o;
+			prevH = h;
+			prevEnv = env;
 		}
 	}
 

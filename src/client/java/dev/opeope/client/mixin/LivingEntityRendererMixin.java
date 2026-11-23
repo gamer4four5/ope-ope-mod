@@ -54,6 +54,7 @@ public class LivingEntityRendererMixin {
 		method = "setupTransforms(Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/client/util/math/MatrixStack;FFFF)V",
 		at = @At("TAIL"))
 	private void opeope$playerBodyAnim(LivingEntity entity, MatrixStack matrices, float animationProgress, float bodyYaw, float tickDelta, float scale, CallbackInfo ci) {
+		dev.opeope.client.render.LawBodyFx.apply(entity, matrices, tickDelta);
 		if (entity instanceof AbstractClientPlayerEntity acp) {
 			PlayerAnimClient.applyBodyTransforms(acp, matrices, tickDelta);
 		}

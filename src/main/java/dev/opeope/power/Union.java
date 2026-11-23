@@ -335,8 +335,20 @@ public final class Union {
 		}
 
 		if (pw.surgeryTicks % 8 != 0) return;
+		// aldeano zombi: a los 2 s de cirugía la fruta le extrae la infección y vuelve a ser aldeano
+		if (target instanceof net.minecraft.entity.mob.ZombieVillagerEntity zv && pw.surgeryTicks >= 40) {
+			SurgicalCure.cureZombieVillager(p, zv);
+			pw.surgery = false;
+			return;
+		}
 		target.heal(2.2f);
 		CutStates.reattach(target, false);
+		// las impurezas (venenos, infecciones, drogas…): si había alguna, se ve cómo sale del cuerpo
+		boolean impure = target.hasStatusEffect(StatusEffects.POISON) || target.hasStatusEffect(StatusEffects.WITHER)
+			|| target.hasStatusEffect(StatusEffects.SLOWNESS) || target.hasStatusEffect(StatusEffects.WEAKNESS)
+			|| target.hasStatusEffect(StatusEffects.BLINDNESS) || target.hasStatusEffect(StatusEffects.DARKNESS)
+			|| target.hasStatusEffect(StatusEffects.NAUSEA) || target.hasStatusEffect(StatusEffects.MINING_FATIGUE)
+			|| target.hasStatusEffect(StatusEffects.HUNGER);
 		target.removeStatusEffect(StatusEffects.POISON);
 		target.removeStatusEffect(StatusEffects.WITHER);
 		target.removeStatusEffect(StatusEffects.SLOWNESS);
@@ -346,6 +358,7 @@ public final class Union {
 		target.removeStatusEffect(StatusEffects.NAUSEA);
 		target.removeStatusEffect(StatusEffects.MINING_FATIGUE);
 		target.removeStatusEffect(StatusEffects.HUNGER);
+		if (impure) SurgicalCure.extractFx(p, target, false);
 		if (target instanceof ServerPlayerEntity sp) {
 			sp.getHungerManager().add(1, 0.5f);
 		}

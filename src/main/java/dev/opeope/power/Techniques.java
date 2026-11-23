@@ -452,6 +452,11 @@ public final class Techniques {
 			fightUppercutTakt(p, pw);
 			return;
 		}
+		// Scan otra vez con el Scan activo: Shambles a todo lo que llevan en las manos los escaneados
+		if (pw.scanTicks > 0 && pw.scanTicks <= OpeConfig.SCAN_TICKS - 6) {
+			ScanSteal.steal(p, pw);
+			return;
+		}
 		if (pw.onCooldown(Tech.SCAN)) return;
 		pw.scanTicks = OpeConfig.SCAN_TICKS;
 		pw.cooldown(Tech.SCAN);
@@ -1490,6 +1495,9 @@ public final class Techniques {
 	/** Silent: nadie cerca te oye ni te sigue un rato. */
 	public static void silent(ServerPlayerEntity p, PlayerPower pw) {
 		if (pw.onCooldown(Tech.SILENT)) return;
+		// R-ROOM: Silent lanzado: con alguien en la mira, la burbuja muda se le pega a él (el Soul Pocus de Big Mom)
+		LivingEntity t = livingInSight(p, 40);
+		if (t != null && SilentRoom.apply(p, pw, t)) return;
 		pw.silentTicks = OpeConfig.SILENT_TICKS;
 		p.addStatusEffect(new StatusEffectInstance(StatusEffects.INVISIBILITY, OpeConfig.SILENT_TICKS, 0, false, false, true));
 		LawFx.send(p, Payloads.LawFx.SILENT, null, p.getPos(), p.getPos(), 2.3f, 1f, OpeConfig.SILENT_TICKS);

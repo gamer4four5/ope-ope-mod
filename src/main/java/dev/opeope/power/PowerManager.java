@@ -415,6 +415,7 @@ public final class PowerManager {
 		ElementEffects.serverTick(server);
 		GravityPowers.tickServer(server);
 		SurgicalSurvival.tickPendingRestores(server);
+		SilentRoom.tick(server);
 	}
 
 	public static void syncState(ServerPlayerEntity p, PlayerPower pw) {
