@@ -290,3 +290,10 @@ Teclas por defecto: **Shambles = Alt izquierdo** y **Takt = R**.
   - `client/input/InputHandler.java`
   - `client/hud/*`
 - **Red:** `net/Payloads.java` (`CutShape`, `ShamblesFx`, `GravityFx`, flags de `State`) y `power/Actions.java` (acciones 12 y 110–119).
+
+## 6. Añadido de última hora (WIP 2, 21:27)
+Mientras escribía este informe, Antigravity siguió editando el código. Este segundo WIP cambia el **impacto del meteorito**:
+- **Antes**, el meteorito explotaba al llegar a la Y del objetivo, al quedar cerca de él o a los 240 ticks.
+- **Ahora** solo detona cuando su superficie toca de verdad un bloque sólido o agua. Lo comprueba `findMeteorContact` con 5 sondas sobre la nariz y la panza del meteorito; atraviesa aire, hojas y hierba.
+- Si cae al vacío sin tocar nada, desaparece sin explotar. Lo mismo pasa a los 900 ticks.
+- **Apuntado:** nuevo `meteorAimTarget`. En el cliente, el raycast llega a 200 m; si no da con nada, apunta a la superficie del terreno a 115 m.
