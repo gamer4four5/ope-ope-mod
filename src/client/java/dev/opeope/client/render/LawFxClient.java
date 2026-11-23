@@ -47,23 +47,23 @@ public final class LawFxClient {
 	private LawFxClient() {}
 
 	// la paleta de Law: el celeste del ROOM, el blanco del filo, la electricidad, el verde-amarillo de Gamma Knife…
-	private static final int ROOM = 0x8FE3FF;
-	private static final int CORE = 0xEFFCFF;
-	private static final int DEEP = 0x2F8CFF;
-	private static final int ELEC = 0x9FDcFF;
-	private static final int ELEC_HOT = 0xF4FBFF;
-	private static final int GAMMA_G = 0x8DFF7A;
-	private static final int GAMMA_Y = 0xFFF06A;
-	private static final int HEART = 0xFF3A5C;
-	private static final int SOUL_A = 0xFF86D8;
-	private static final int SOUL_B = 0x86ECFF;
-	private static final int GOLD = 0xFFD966;
-	private static final int HUSH = 0x6474FF;
-	private static final int DRAPE = 0xD8F4FF;
+	static final int ROOM = 0x8FE3FF;
+	static final int CORE = 0xEFFCFF;
+	static final int DEEP = 0x2F8CFF;
+	static final int ELEC = 0x9FDcFF;
+	static final int ELEC_HOT = 0xF4FBFF;
+	static final int GAMMA_G = 0x8DFF7A;
+	static final int GAMMA_Y = 0xFFF06A;
+	static final int HEART = 0xFF3A5C;
+	static final int SOUL_A = 0xFF86D8;
+	static final int SOUL_B = 0x86ECFF;
+	static final int GOLD = 0xFFD966;
+	static final int HUSH = 0x6474FF;
+	static final int DRAPE = 0xD8F4FF;
 
-	private static final int SEG = 40;
-	private static final float[] COS = new float[SEG + 1];
-	private static final float[] SIN = new float[SEG + 1];
+	static final int SEG = 40;
+	static final float[] COS = new float[SEG + 1];
+	static final float[] SIN = new float[SEG + 1];
 
 	static {
 		for (int i = 0; i <= SEG; i++) {
@@ -73,27 +73,28 @@ public final class LawFxClient {
 		}
 	}
 
-	private record Ev(int kind, int userId, int targetId, Vec3d a, Vec3d b, float radius, float power,
+	record Ev(int kind, int userId, int targetId, Vec3d a, Vec3d b, float radius, float power,
 					  double duration, double start, int seed) {}
 
-	private static final List<Ev> EVENTS = new ArrayList<>();
-	private static final int MAX_EVENTS = 64;
+	static final List<Ev> EVENTS = new ArrayList<>();
+	static final int MAX_EVENTS = 64;
 
-	private static double pulseStart = -100;
-	private static float pulseStrength;
-	private static int pulseRgb = ROOM;
-	private static double scanStart = -100;
+	static double pulseStart = -100;
+	static float pulseStrength;
+	static int pulseRgb = ROOM;
+	static double scanStart = -100;
 
-	private static final Matrix4f BASE = new Matrix4f();
-	private static boolean plain;
-	private static final Vector3f TV = new Vector3f();
-	private static double u1x, u1y, u1z, u2x, u2y, u2z;
-	private static Vec3d cam = Vec3d.ZERO;
-	private static float td;
+	static final Matrix4f BASE = new Matrix4f();
+	static boolean plain;
+	static final Vector3f TV = new Vector3f();
+	static double u1x, u1y, u1z, u2x, u2y, u2z;
+	static Vec3d cam = Vec3d.ZERO;
+	static float td;
 
 	/** Cuánto dura cada efecto en segundos como mínimo (el servidor puede pedir más con ticks). */
-	private static final double[] MIN_SECONDS = {
-		0.75, 0.45, 0.6, 0.95, 1.0, 1.15, 0.75, 1.5, 1.1, 0.45, 1.2, 0.95, 1.0, 1.3, 2.2, 1.0, 0.6, 0.4, 0.9, 0.6, 0.6
+	static final double[] MIN_SECONDS = {
+		0.75, 0.45, 0.6, 0.95, 1.0, 1.15, 0.75, 1.5, 1.1, 0.45, 1.2, 0.95, 1.0, 1.3, 2.2, 1.0, 0.6, 0.4, 0.9, 0.6, 0.6,
+		1.0, 1.2, 1.4
 	};
 
 	public static void clear() {
@@ -221,7 +222,7 @@ public final class LawFxClient {
 	}
 
 	/** El gesto de Law en el jugador que usa la técnica (lo ven todos). */
-	private static void gesture(LawFx p) {
+	static void gesture(LawFx p) {
 		if (p.userId() < 0) return;
 		int g = switch (p.kind()) {
 			case LawFx.RADIO_KNIFE, LawFx.SWORD, LawFx.SHOCK_WILLE, LawFx.RAIN_SLASH -> PlayerAnimClient.GESTURE_SLASH;
@@ -236,7 +237,7 @@ public final class LawFxClient {
 		if (g >= 0 && !(p.kind() == LawFx.RAIN_SLASH)) PlayerAnimClient.triggerGesture(p.userId(), g);
 	}
 
-	private static void pulse(float strength, int rgb) {
+	static void pulse(float strength, int rgb) {
 		if (strength <= 0.01f) return;
 		pulseStart = RoomFxClient.time();
 		pulseStrength = Math.min(0.6f, strength);
@@ -302,12 +303,12 @@ public final class LawFxClient {
 		}
 	}
 
-	private static void end(BufferBuilder b) {
+	static void end(BufferBuilder b) {
 		var built = b.endNullable();
 		if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 	}
 
-	private static void drawEvent(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
+	static void drawEvent(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
 		switch (e.kind) {
 			case LawFx.RADIO_KNIFE -> radioKnife(b, e, t, now, calm);
 			case LawFx.INJECTION_DASH -> injectionDash(b, mc, e, t, now, calm);
@@ -334,7 +335,7 @@ public final class LawFxClient {
 		}
 	}
 
-	private static void drawInside(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
+	static void drawInside(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		switch (e.kind) {
 			case LawFx.GAMMA -> {
 				Entity target = entity(mc, e.targetId);
@@ -391,7 +392,7 @@ public final class LawFxClient {
 	// ------------------------------------------------------------------ cada técnica
 
 	/** Radio Knife: tres tajos cruzados y electrificados en el sitio, con la descarga saltando por las costuras. */
-	private static void radioKnife(BufferBuilder b, Ev e, double t, double now, boolean calm) {
+	static void radioKnife(BufferBuilder b, Ev e, double t, double now, boolean calm) {
 		Vec3d dir = e.b.subtract(e.a);
 		if (dir.lengthSquared() < 1e-4) dir = new Vec3d(0, 0, 1);
 		dir = dir.normalize();
@@ -443,7 +444,7 @@ public final class LawFxClient {
 	}
 
 	/** Injection Shot: la retícula sobre el objetivo y la punta de lanza de luz delante de Law mientras embiste. */
-	private static void injectionDash(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
+	static void injectionDash(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		Vec3d dir = e.b.subtract(e.a);
 		if (dir.lengthSquared() < 1e-4) dir = new Vec3d(0, 0, 1);
@@ -479,7 +480,7 @@ public final class LawFxClient {
 	}
 
 	/** Injection Shot: al clavarse la hoja dispara: fogonazo hacia delante y anillos de choque. */
-	private static void injectionHit(BufferBuilder b, Ev e, double t, double now, boolean calm) {
+	static void injectionHit(BufferBuilder b, Ev e, double t, double now, boolean calm) {
 		Vec3d dir = e.b.subtract(e.a);
 		if (dir.lengthSquared() < 1e-4) dir = new Vec3d(0, 0, 1);
 		dir = dir.normalize();
@@ -515,7 +516,7 @@ public final class LawFxClient {
 	}
 
 	/** Gamma Knife: una hoja corta de energía (verde que vira a amarillo) sale de la mano y se hunde en el cuerpo. */
-	private static void gamma(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void gamma(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity target = entity(mc, e.targetId);
 		Entity user = entity(mc, e.userId);
 		Vec3d to = target != null ? lerpBox(target).getCenter() : e.b;
@@ -541,7 +542,7 @@ public final class LawFxClient {
 	}
 
 	/** Curtain: el velo quirúrgico que Law tira del aire con el brazo; ondula delante de él mientras dura. */
-	private static void curtain(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
+	static void curtain(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		if (user == null) return;
 		float yaw = user.getYaw(td);
@@ -602,14 +603,14 @@ public final class LawFxClient {
 		ribbon(b, cc.subtract(hy), cc.add(hy), 0.05, 0.05, ROOM, a * 0.35f, a * 0.35f);
 	}
 
-	private static Vec3d drape(Vec3d base, Vec3d fwd, Vec3d side, double x, double y, double now, boolean calm) {
+	static Vec3d drape(Vec3d base, Vec3d fwd, Vec3d side, double x, double y, double now, boolean calm) {
 		double wave = calm ? 0.0 : Math.sin(x * 3.4 + now * 1.7) * 0.10 + Math.sin(y * 2.1 + now * 2.3 + x) * 0.05;
 		double bow = -0.18 * (x * x);   // un poco curvado alrededor de Law
 		return base.add(side.multiply(x)).add(fwd.multiply(wave + bow)).add(0, y, 0);
 	}
 
 	/** Mes: la palma golpea el pecho, el corazón sale en un cubo de cristal y vuela a la mano de Law. */
-	private static void mes(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void mes(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity target = entity(mc, e.targetId);
 		Entity user = entity(mc, e.userId);
 		Vec3d chest = target != null ? lerpPos(target).add(0, target.getHeight() * 0.66, 0) : e.b;
@@ -651,7 +652,7 @@ public final class LawFxClient {
 	}
 
 	/** Counter Shock: dos palas de desfibrilador en las palmas, la descarga salta al cuerpo y lo recorre entero. */
-	private static void counterShock(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
+	static void counterShock(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		Entity target = entity(mc, e.targetId);
 		Vec3d look = e.b.subtract(e.a);
@@ -700,7 +701,7 @@ public final class LawFxClient {
 	}
 
 	/** Scan: un plano de resonancia recorre el ROOM de abajo arriba, y un meridiano gira alrededor. */
-	private static void scan(BufferBuilder b, Ev e, double t, double now) {
+	static void scan(BufferBuilder b, Ev e, double t, double now) {
 		double r = Math.max(3.0, e.radius);
 		Vec3d c = e.a;
 		float a = (float) (t < 0.85 ? 1.0 : (1.0 - t) / 0.15);
@@ -738,7 +739,7 @@ public final class LawFxClient {
 	}
 
 	/** Cambio de almas: dos almas (rosa y celeste) salen de cada cuerpo y se cruzan en arco hasta el otro. */
-	private static void souls(BufferBuilder b, Ev e, double t, double now) {
+	static void souls(BufferBuilder b, Ev e, double t, double now) {
 		Vec3d pa = e.a, pb = e.b;
 		Vec3d mid = pa.lerp(pb, 0.5);
 		Vec3d d = pb.subtract(pa);
@@ -774,7 +775,7 @@ public final class LawFxClient {
 	}
 
 	/** Lluvia de cortes: un tajo cae del cielo sobre el ser y lo cruza. */
-	private static void rainSlash(BufferBuilder b, Ev e, double t) {
+	static void rainSlash(BufferBuilder b, Ev e, double t) {
 		Vec3d c = e.a;
 		Vec3d top = c.add(0, 7, 0);
 		if (t < 0.3) {
@@ -796,7 +797,7 @@ public final class LawFxClient {
 	}
 
 	/** Despertar: columnas de luz celeste y dorada suben en espiral alrededor de Law (o se apagan hacia dentro). */
-	private static void awaken(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
+	static void awaken(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now, boolean calm) {
 		Entity user = entity(mc, e.userId);
 		Vec3d feet = user != null ? lerpPos(user) : e.a;
 		boolean on = e.power > 0.5f;
@@ -822,7 +823,7 @@ public final class LawFxClient {
 	}
 
 	/** K-ROOM: una esfera de ROOM diminuta se forma en la palma y se desliza recubriendo la Kikoku. */
-	private static void kroom(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void kroom(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity user = entity(mc, e.userId);
 		Vec3d hand = user != null ? handOf(user) : e.a;
 		Vec3d dir = user != null ? user.getRotationVec(td) : e.b.subtract(e.a).normalize();
@@ -853,7 +854,7 @@ public final class LawFxClient {
 	}
 
 	/** Anesthesia: la hoja de K-ROOM atraviesa al objetivo sin cortarlo; ondas de fase donde entra. */
-	private static void anesthesia(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void anesthesia(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity user = entity(mc, e.userId);
 		Entity target = entity(mc, e.targetId);
 		if (user == null || target == null) return;
@@ -882,7 +883,7 @@ public final class LawFxClient {
 	}
 
 	/** Shock Wille: la hoja atraviesa, un pulso viaja por ella y estalla dentro del cuerpo como una onda. */
-	private static void shockWille(BufferBuilder b, Ev e, double t, double now, boolean calm) {
+	static void shockWille(BufferBuilder b, Ev e, double t, double now, boolean calm) {
 		Vec3d a0 = e.a, p = e.b;
 		Vec3d d = p.subtract(a0);
 		if (d.lengthSquared() < 1e-4) d = new Vec3d(0, 0, 1);
@@ -928,7 +929,7 @@ public final class LawFxClient {
 	}
 
 	/** Puncture Wille: la Kikoku colosal se clava desde el cielo, implosiona bajo tierra y sube una columna de luz. */
-	private static void puncture(BufferBuilder b, Ev e, double t, double now, boolean calm) {
+	static void puncture(BufferBuilder b, Ev e, double t, double now, boolean calm) {
 		Vec3d c = e.b;
 		double R = Math.max(4.0, e.radius);
 		double depth = Math.max(6.0, e.power);
@@ -988,7 +989,7 @@ public final class LawFxClient {
 	}
 
 	/** Silent: una burbuja muda rodea a Law; los sonidos se encogen hacia dentro y desaparecen. */
-	private static void silent(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now) {
+	static void silent(BufferBuilder b, MinecraftClient mc, Ev e, double t, double age, double now) {
 		Entity user = entity(mc, e.userId);
 		if (user == null) return;
 		Vec3d c = lerpPos(user).add(0, user.getHeight() * 0.5, 0);
@@ -1015,7 +1016,7 @@ public final class LawFxClient {
 	}
 
 	/** Los tajos de la Kikoku (estilo Espada): Iai, Luna de Acero, Torbellino y Mil Puntadas. */
-	private static void sword(BufferBuilder b, Ev e, double t, double now) {
+	static void sword(BufferBuilder b, Ev e, double t, double now) {
 		int variant = Math.round(e.power);
 		Vec3d d = e.b.subtract(e.a);
 		if (d.lengthSquared() < 1e-4) d = new Vec3d(0, 0, 1);
@@ -1076,7 +1077,7 @@ public final class LawFxClient {
 	}
 
 	/** R-ROOM: una semilla de ROOM sale de la palma como un cometa hacia la mira. */
-	private static void rroomCast(BufferBuilder b, Ev e, double t, double now) {
+	static void rroomCast(BufferBuilder b, Ev e, double t, double now) {
 		double u = Math.min(1.0, t / 0.8);
 		Vec3d pos = e.a.lerp(e.b, u * u * (3 - 2 * u));
 		float a = (float) (t < 0.85 ? 1.0 : (1 - t) / 0.15);
@@ -1090,7 +1091,7 @@ public final class LawFxClient {
 	}
 
 	/** R-ROOM al soltar: la esfera estalla en una cuadrícula de nueve cortes. */
-	private static void rroomBurst(BufferBuilder b, Ev e, double t, double now) {
+	static void rroomBurst(BufferBuilder b, Ev e, double t, double now) {
 		Vec3d c = e.b;
 		double r = Math.max(2.0, e.radius);
 		float a = (float) ((1 - t) * (1 - t));
@@ -1116,7 +1117,7 @@ public final class LawFxClient {
 	}
 
 	/** Sterben: el brazo con la Kikoku sale girando; un disco de sierra en el sitio donde se lanza. */
-	private static void sterben(BufferBuilder b, Ev e, double t, double now) {
+	static void sterben(BufferBuilder b, Ev e, double t, double now) {
 		Vec3d d = e.b.subtract(e.a);
 		if (d.lengthSquared() < 1e-4) d = new Vec3d(0, 0, 1);
 		Vec3d dn = d.normalize();
@@ -1127,7 +1128,7 @@ public final class LawFxClient {
 	}
 
 	/** Apretar el corazón: anillos rojos que se cierran sobre el pecho del dueño. */
-	private static void heartSqueeze(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
+	static void heartSqueeze(BufferBuilder b, MinecraftClient mc, Ev e, double t, double now) {
 		Entity target = entity(mc, e.targetId);
 		Vec3d chest = target != null ? lerpPos(target).add(0, target.getHeight() * 0.66, 0) : e.b;
 		faceCam(chest);
@@ -1185,23 +1186,23 @@ public final class LawFxClient {
 
 	// ------------------------------------------------------------------ geometría
 
-	private static Entity entity(MinecraftClient mc, int id) {
+	static Entity entity(MinecraftClient mc, int id) {
 		if (id < 0 || mc.world == null) return null;
 		Entity e = mc.world.getEntityById(id);
 		return e != null && e.isAlive() ? e : null;
 	}
 
-	private static Vec3d lerpPos(Entity e) {
+	static Vec3d lerpPos(Entity e) {
 		return e.getLerpedPos(td);
 	}
 
-	private static Box lerpBox(Entity e) {
+	static Box lerpBox(Entity e) {
 		Vec3d p = e.getLerpedPos(td);
 		return e.getBoundingBox().offset(p.subtract(e.getPos()));
 	}
 
 	/** La mano derecha de un jugador (o el centro delante del pecho de otro ser). */
-	private static Vec3d handOf(Entity e) {
+	static Vec3d handOf(Entity e) {
 		Vec3d look = e.getRotationVec(td);
 		Vec3d right = look.crossProduct(new Vec3d(0, 1, 0));
 		if (right.lengthSquared() < 1e-4) right = new Vec3d(1, 0, 0);
@@ -1210,7 +1211,7 @@ public final class LawFxClient {
 		return eye.add(look.multiply(0.7)).add(right.multiply(0.32)).add(0, -0.32, 0);
 	}
 
-	private static void fan(BufferBuilder b, Vec3d c, Vec3d s, Vec3d dir, double reach, double depth, int rgb, float a) {
+	static void fan(BufferBuilder b, Vec3d c, Vec3d s, Vec3d dir, double reach, double depth, int rgb, float a) {
 		// un abanico fino: el plano que barre la hoja entre −s y +s, un poco hacia delante y hacia atrás
 		int n = 10;
 		for (int i = 0; i < n; i++) {
@@ -1222,7 +1223,7 @@ public final class LawFxClient {
 		}
 	}
 
-	private static void crescent(BufferBuilder b, Vec3d c, Vec3d n, Vec3d fwd, double r, double thick, float a) {
+	static void crescent(BufferBuilder b, Vec3d c, Vec3d n, Vec3d fwd, double r, double thick, float a) {
 		Vec3d s = n.crossProduct(fwd);
 		if (s.lengthSquared() < 1e-4) s = new Vec3d(1, 0, 0);
 		s = s.normalize();
@@ -1243,7 +1244,7 @@ public final class LawFxClient {
 	}
 
 	/** Un arco de corte en el plano de normal n, desde el ángulo start y con la amplitud span. */
-	private static void arc(BufferBuilder b, Vec3d c, Vec3d n, double start, double span, double r, double thick, float a) {
+	static void arc(BufferBuilder b, Vec3d c, Vec3d n, double start, double span, double r, double thick, float a) {
 		axes(n);
 		int k = 22;
 		Vec3d prevO = null, prevI = null;
@@ -1264,7 +1265,7 @@ public final class LawFxClient {
 		}
 	}
 
-	private static void reticle(BufferBuilder b, Vec3d c, double r, double now, float a) {
+	static void reticle(BufferBuilder b, Vec3d c, double r, double now, float a) {
 		faceCam(c);
 		ring(b, c, r * 0.92, r, ROOM, a, a * 0.3f);
 		ring(b, c, r * 0.45, r * 0.5, CORE, a * 0.8f, 0f);
@@ -1278,19 +1279,19 @@ public final class LawFxClient {
 		}
 	}
 
-	private static void cubeEdges(BufferBuilder b, Vec3d c, double h, int rgb, float a, double w, double spin) {
+	static void cubeEdges(BufferBuilder b, Vec3d c, double h, int rgb, float a, double w, double spin) {
 		Vec3d[] v = cubeVerts(c, h, spin);
 		int[][] edges = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6}, {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
 		for (int[] ed : edges) ribbon(b, v[ed[0]], v[ed[1]], w, w, rgb, a, a);
 	}
 
-	private static void cubeFaces(BufferBuilder b, Vec3d c, double h, int rgb, float a, double spin) {
+	static void cubeFaces(BufferBuilder b, Vec3d c, double h, int rgb, float a, double spin) {
 		Vec3d[] v = cubeVerts(c, h, spin);
 		int[][] faces = {{0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
 		for (int[] f : faces) quad(b, v[f[0]], v[f[1]], v[f[2]], v[f[3]], rgb, a, a, a, a);
 	}
 
-	private static Vec3d[] cubeVerts(Vec3d c, double h, double spin) {
+	static Vec3d[] cubeVerts(Vec3d c, double h, double spin) {
 		double cs = Math.cos(spin), sn = Math.sin(spin), tilt = 0.45;
 		double ct = Math.cos(tilt), st = Math.sin(tilt);
 		Vec3d[] v = new Vec3d[8];
@@ -1308,7 +1309,7 @@ public final class LawFxClient {
 		return v;
 	}
 
-	private static void boxEdges(BufferBuilder b, Box box, int rgb, float a, double w) {
+	static void boxEdges(BufferBuilder b, Box box, int rgb, float a, double w) {
 		double x0 = box.minX, y0 = box.minY, z0 = box.minZ, x1 = box.maxX, y1 = box.maxY, z1 = box.maxZ;
 		Vec3d[] v = {new Vec3d(x0, y0, z0), new Vec3d(x1, y0, z0), new Vec3d(x1, y0, z1), new Vec3d(x0, y0, z1),
 			new Vec3d(x0, y1, z0), new Vec3d(x1, y1, z0), new Vec3d(x1, y1, z1), new Vec3d(x0, y1, z1)};
@@ -1316,25 +1317,25 @@ public final class LawFxClient {
 		for (int[] ed : edges) ribbon(b, v[ed[0]], v[ed[1]], w, w, rgb, a, a);
 	}
 
-	private static Vec3d pointOnBox(Box box, int seed) {
+	static Vec3d pointOnBox(Box box, int seed) {
 		double fx = hash01(seed), fy = hash01(seed * 7 + 3), fz = hash01(seed * 13 + 5);
 		int face = (int) (hash01(seed * 17 + 11) * 6) % 6;
 		if (face == 0) fx = 0; else if (face == 1) fx = 1; else if (face == 2) fy = 0; else if (face == 3) fy = 1; else if (face == 4) fz = 0; else fz = 1;
 		return new Vec3d(MathHelper.lerp(fx, box.minX, box.maxX), MathHelper.lerp(fy, box.minY, box.maxY), MathHelper.lerp(fz, box.minZ, box.maxZ));
 	}
 
-	private static Vec3d bezier(Vec3d p0, Vec3d p1, Vec3d p2, double u) {
+	static Vec3d bezier(Vec3d p0, Vec3d p1, Vec3d p2, double u) {
 		double k = 1 - u;
 		return p0.multiply(k * k).add(p1.multiply(2 * k * u)).add(p2.multiply(u * u));
 	}
 
-	private static Vec3d randDir(int seed) {
+	static Vec3d randDir(int seed) {
 		double x = hashSigned(seed), y = hashSigned(seed * 3 + 1), z = hashSigned(seed * 7 + 2);
 		Vec3d v = new Vec3d(x, y, z);
 		return v.lengthSquared() < 1e-4 ? new Vec3d(0, 1, 0) : v.normalize();
 	}
 
-	private static void bolt(BufferBuilder b, Vec3d a0, Vec3d b0, double outerW, double innerW, int outer, int inner,
+	static void bolt(BufferBuilder b, Vec3d a0, Vec3d b0, double outerW, double innerW, int outer, int inner,
 							 float alpha, int seed, int segs, double jitter) {
 		Vec3d d = b0.subtract(a0);
 		double len = d.length();
@@ -1355,7 +1356,7 @@ public final class LawFxClient {
 	}
 
 	/** Base (u1, u2) perpendicular a n. */
-	private static void axes(Vec3d n) {
+	static void axes(Vec3d n) {
 		double nx = n.x, ny = n.y, nz = n.z;
 		double l = Math.sqrt(nx * nx + ny * ny + nz * nz);
 		if (l < 1e-6) {
@@ -1376,12 +1377,12 @@ public final class LawFxClient {
 		u2z = nx * u1y - ny * u1x;
 	}
 
-	private static void faceCam(Vec3d c) {
+	static void faceCam(Vec3d c) {
 		axes(c.subtract(cam));
 	}
 
 	/** Un anillo en el plano (u1, u2) actual. */
-	private static void ring(BufferBuilder b, Vec3d c, double rIn, double rOut, int rgb, float aIn, float aOut) {
+	static void ring(BufferBuilder b, Vec3d c, double rIn, double rOut, int rgb, float aIn, float aOut) {
 		if (rOut <= 0 || (aIn <= 0.003f && aOut <= 0.003f)) return;
 		rIn = Math.max(0, rIn);
 		for (int i = 0; i < SEG; i++) {
@@ -1394,12 +1395,12 @@ public final class LawFxClient {
 	}
 
 	/** Un disco de luz que mira a la cámara (centro brillante, borde transparente). */
-	private static void disc(BufferBuilder b, Vec3d c, double r, int rgb, float aCenter, float aEdge) {
+	static void disc(BufferBuilder b, Vec3d c, double r, int rgb, float aCenter, float aEdge) {
 		faceCam(c);
 		ring(b, c, 0, r, rgb, aCenter, aEdge);
 	}
 
-	private static void quad(BufferBuilder b, Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, int rgb, float a0, float a1, float a2, float a3) {
+	static void quad(BufferBuilder b, Vec3d p0, Vec3d p1, Vec3d p2, Vec3d p3, int rgb, float a0, float a1, float a2, float a3) {
 		vtx(b, p0.x, p0.y, p0.z, rgb, a0);
 		vtx(b, p1.x, p1.y, p1.z, rgb, a1);
 		vtx(b, p2.x, p2.y, p2.z, rgb, a2);
@@ -1407,7 +1408,7 @@ public final class LawFxClient {
 	}
 
 	/** Una cinta entre dos puntos que siempre da la cara a la cámara. */
-	private static void ribbon(BufferBuilder b, Vec3d p0, Vec3d p1, double w0, double w1, int rgb, float a0, float a1) {
+	static void ribbon(BufferBuilder b, Vec3d p0, Vec3d p1, double w0, double w1, int rgb, float a0, float a1) {
 		double ax = p0.x - cam.x, ay = p0.y - cam.y, az = p0.z - cam.z;
 		double bx = p1.x - cam.x, by = p1.y - cam.y, bz = p1.z - cam.z;
 		double mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz = (az + bz) * 0.5;
@@ -1423,7 +1424,7 @@ public final class LawFxClient {
 	}
 
 	/** Un vértice en coordenadas del mundo (se pasa a relativas a la cámara aquí). */
-	private static void vtx(BufferBuilder b, double x, double y, double z, int rgb, float a) {
+	static void vtx(BufferBuilder b, double x, double y, double z, int rgb, float a) {
 		a = MathHelper.clamp(a, 0f, 1f);
 		float fx = (float) (x - cam.x), fy = (float) (y - cam.y), fz = (float) (z - cam.z);
 		if (!plain) {
@@ -1435,7 +1436,7 @@ public final class LawFxClient {
 		b.vertex(fx, fy, fz).color((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, Math.round(a * 255f));
 	}
 
-	private static int lerpRgb(int c0, int c1, float u) {
+	static int lerpRgb(int c0, int c1, float u) {
 		u = MathHelper.clamp(u, 0f, 1f);
 		int r = Math.round(((c0 >> 16) & 255) + (((c1 >> 16) & 255) - ((c0 >> 16) & 255)) * u);
 		int g = Math.round(((c0 >> 8) & 255) + (((c1 >> 8) & 255) - ((c0 >> 8) & 255)) * u);
@@ -1443,11 +1444,11 @@ public final class LawFxClient {
 		return (r << 16) | (g << 8) | bl;
 	}
 
-	private static double hash01(int x) {
+	static double hash01(int x) {
 		return (hashSigned(x) + 1.0) * 0.5;
 	}
 
-	private static double hashSigned(int x) {
+	static double hashSigned(int x) {
 		x = ((x >>> 16) ^ x) * 0x45d9f3b;
 		x = ((x >>> 16) ^ x) * 0x45d9f3b;
 		x = (x >>> 16) ^ x;

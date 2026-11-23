@@ -723,7 +723,14 @@ public final class Payloads {
 		public static final int RADIO_KNIFE = 0, INJECTION_DASH = 1, INJECTION_HIT = 2, GAMMA = 3, CURTAIN = 4, MES = 5,
 			COUNTER_SHOCK = 6, SCAN = 7, SOULS = 8, RAIN_SLASH = 9, AWAKEN = 10, KROOM = 11, ANESTHESIA = 12,
 			SHOCK_WILLE = 13, PUNCTURE = 14, SILENT = 15, SWORD = 16, RROOM_CAST = 17, RROOM_BURST = 18, STERBEN = 19,
-			HEART_SQUEEZE = 20, KINDS = 21;
+			HEART_SQUEEZE = 20,
+			/** R-ROOM: Silent lanzado sobre un ser (la burbuja muda va pegada a él mientras dura). */
+			SILENT_TARGET = 21,
+			/** Scan + Shambles: lo que llevaban en las manos los escaneados vuela a Law (a = la mano del ser, b = Law). */
+			SCAN_STEAL = 22,
+			/** Cirugía: Law saca la impureza (veneno, infección…) del cuerpo; power = 1 si cura a un aldeano zombi. */
+			EXTRACT = 23,
+			KINDS = 24;
 		/** SWORD: qué tajo (va en power). */
 		public static final int SWORD_IAI = 0, SWORD_MOON = 1, SWORD_WHIRL = 2, SWORD_THRUSTS = 3;
 		public static final Id<LawFx> ID = new Id<>(OpeOpeMod.id("law_fx"));
