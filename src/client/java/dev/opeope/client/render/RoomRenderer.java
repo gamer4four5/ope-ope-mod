@@ -122,11 +122,10 @@ public final class RoomRenderer {
 		boolean rooms = RoomVisuals.anything(dim);
 		boolean holdingHeart = mc.player != null && ModItems.HEART != null
 			&& (mc.player.getMainHandStack().isOf(ModItems.HEART) || mc.player.getOffHandStack().isOf(ModItems.HEART));
-		boolean kroomBlade = mc.player != null && ClientState.kroomBlade();
 		boolean eternalYouth = mc.player != null && ClientState.eternalYouth();
 		boolean zg = ClientState.zeroGravity() && ClientState.ownRoom() != null;
-		boolean glowPass = rooms || holdingHeart || kroomBlade || eternalYouth || zg;
-		if (!rooms && !Bisturi.active && !holdingHeart && !kroomBlade && !eternalYouth && !zg) return;
+		boolean glowPass = rooms || holdingHeart || eternalYouth || zg;
+		if (!rooms && !Bisturi.active && !holdingHeart && !eternalYouth && !zg) return;
 
 		Vec3d cam = ctx.camera().getPos();
 		// Según la versión de Fabric, la rotación de la cámara va en la matriz del modelo o no: se mira y se añade si falta.
@@ -201,7 +200,7 @@ public final class RoomRenderer {
 				seed(buf, mc, cam, td, now, calm);
 			}
 			if (holdingHeart) heartGlow(buf, mc.player, cam, td, now);
-			if (kroomBlade) kroomGiantSwordGlow(buf, mc.player, cam, td, now);
+			// la Kikoku del K-ROOM la dibuja ahora KikokuBladeFx (desde LawFxClient): la hoja revestida de membrana, no un haz
 			if (eternalYouth) eternalYouthHaloGlow(buf, mc.player, cam, td, now);
 			if (zg) zeroGravityRings(buf, ClientState.ownRoom(), cam, now);
 			draw(buf);
@@ -681,45 +680,6 @@ public final class RoomRenderer {
 		vtx(b, x0, y1, z1, rgb, a); vtx(b, x1, y1, z1, rgb, a); vtx(b, x1, y1, z0, rgb, a); vtx(b, x0, y1, z0, rgb, a);
 		vtx(b, x0, y0, z0, rgb, a); vtx(b, x1, y0, z0, rgb, a); vtx(b, x1, y0, z1, rgb, a); vtx(b, x0, y0, z1, rgb, a);
 	}
-
-	/**
-	 * K-ROOM: Espada Gigante 3D de 26 metros que se extiende desde la mano del jugador en la dirección de su mirada,
-	 * con hoja interior blanca incandescente, vaina quirúrgica azul-cian translúcida y anillos de energía pulsantes.
-	 */
-	private static void kroomGiantSwordGlow(BufferBuilder b, PlayerEntity p, Vec3d cam, float td, double now) {
-		RoomVisuals.handPoint(p, td, P);
-		Vec3d dir = p.getRotationVec(td).normalize();
-		double hx = P[0] - cam.x, hy = P[1] - cam.y, hz = P[2] - cam.z;
-		double len = 26.0;
-		double tx = hx + dir.x * len, ty = hy + dir.y * len, tz = hz + dir.z * len;
-		float pulse = (float) (0.85 + 0.15 * Math.sin(now * 16.0));
-		// Vaina exterior luminosa cian eléctrico + núcleo blanco incandescente de 26m
-		ribbon(b, hx, hy, hz, tx, ty, tz, 0.68, 0.18, 0x3FD8FF, 0.42f * pulse, 0.18f * pulse);
-		ribbon(b, hx, hy, hz, tx, ty, tz, 0.24, 0.06, 0xFFFFFF, 0.95f * pulse, 0.68f * pulse);
-		// Ondas quirúrgicas y hélice eléctrica espiral a lo largo de toda la hoja
-		planeAxes(dir.x, dir.y, dir.z);
-		for (int k = 0; k < 6; k++) {
-			double u = ((now * 1.9 + k / 6.0) % 1.0);
-			double rx = hx + dir.x * (u * len), ry = hy + dir.y * (u * len), rz = hz + dir.z * (u * len);
-			double rad = 0.25 + 0.45 * (1.0 - u);
-			ringBand(b, rx, ry, rz, rad * 0.72, rad, 0xBFF4FF, (float) ((1.0 - u) * 0.65), 0f);
-		}
-		int segs = 22;
-		double prevX = hx, prevY = hy, prevZ = hz;
-		for (int s = 1; s <= segs; s++) {
-			double u = s / (double) segs;
-			double ang = now * 11.0 - u * 18.0;
-			double rad = 0.46 * (1.0 - u * 0.72);
-			double cx = Math.cos(ang) * rad, sy = Math.sin(ang) * rad;
-			double nx = hx + dir.x * (u * len) + e1x * cx + e2x * sy;
-			double ny = hy + dir.y * (u * len) + e1y * cx + e2y * sy;
-			double nz = hz + dir.z * (u * len) + e1z * cx + e2z * sy;
-			ribbon(b, prevX, prevY, prevZ, nx, ny, nz, 0.08, 0.08, (s % 2 == 0) ? 0xFFF2AA : 0x80F0FF, 0.72f * pulse, 0.72f * pulse);
-			prevX = nx; prevY = ny; prevZ = nz;
-		}
-		if (billboard(tx, ty, tz)) disc(b, tx, ty, tz, 0.9 * pulse, 0xFFFFFF, 0.75f * pulse, 0x55E6FF, 0f);
-	}
-
 
 	/**
 	 * Halo Quirúrgico 3D dorado-carmesí de la Cirugía de Juventud Eterna (Furo Shujutsu).
