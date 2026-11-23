@@ -4554,10 +4554,10 @@ public final class AutoTest {
 						zv2.setPersistent();
 						// era bibliotecario con experiencia (lo que guarda el aldeano zombi de cuando era aldeano)
 						zv2.setVillagerData(zv2.getVillagerData().withProfession(net.minecraft.village.VillagerProfession.LIBRARIAN).withLevel(1));
-						net.minecraft.nbt.NbtCompound zn = new net.minecraft.nbt.NbtCompound();
-						zv2.writeCustomDataToNbt(zn);
-						zn.putInt("Xp", 37);
-						zv2.readCustomDataFromNbt(zn);
+						net.minecraft.nbt.NbtCompound zvNbt = new net.minecraft.nbt.NbtCompound();
+						zv2.writeCustomDataToNbt(zvNbt);
+						zvNbt.putInt("Xp", 37);
+						zv2.readCustomDataFromNbt(zvNbt);
 						w.spawnEntity(zv2);
 						spawned.add(zv2);
 						net.minecraft.entity.passive.VillagerEntity v2 = dev.opeope.power.SurgicalCure.cureZombieVillager(sp, zv2);
