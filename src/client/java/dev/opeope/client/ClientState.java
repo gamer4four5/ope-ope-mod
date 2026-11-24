@@ -91,6 +91,18 @@ public final class ClientState {
 		return has(Payloads.State.GRAVITY_FRUIT);
 	}
 
+	public static boolean meraFruit() {
+		return has(Payloads.State.MERA_FRUIT);
+	}
+
+	public static boolean meraBody() {
+		return has(Payloads.State.MERA_BODY);
+	}
+
+	public static boolean meraCharging() {
+		return has(Payloads.State.MERA_CHARGING);
+	}
+
 	public static int gravityVector() {
 		return (has(Payloads.State.GRAVITY_VEC_BIT0) ? 1 : 0)
 			| (has(Payloads.State.GRAVITY_VEC_BIT1) ? 2 : 0);
@@ -124,10 +136,11 @@ public final class ClientState {
 	public static void apply(Payloads.State s) {
 		int oldMode = shamblesMode();
 		boolean oldGravity = gravityFruit();
+		boolean oldMera = meraFruit();
 		flags = s.flags();
 		int newMode = shamblesMode();
 		if (newMode != oldMode && hasFruit()) shamblesModeToastUntil = System.currentTimeMillis() + 3500L;
-		if (gravityFruit() != oldGravity) dev.opeope.client.hud.Theme.refresh();
+		if (gravityFruit() != oldGravity || meraFruit() != oldMera) dev.opeope.client.hud.Theme.refresh();
 		pattern = s.pattern();
 		taktCount = s.taktCount();
 		taktMode = s.taktMode();

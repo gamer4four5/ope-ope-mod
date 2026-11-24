@@ -35,7 +35,11 @@ public final class RoomPill {
 		if (r <= 0f && own != null) r = own.radius();
 
 		line = new Ui.Line();
-		if (ClientState.gravityFruit()) {
+		if (ClientState.meraFruit()) {
+			hasRoom = true;
+			line.text("MERA MERA ", Theme.ROOM).text(ClientState.meraBody() ? "🔥 Cuerpo de llamas" : "Logia", Theme.HI);
+			if (ClientState.meraCharging()) line.text(" · Cargando", Theme.GOLD);
+		} else if (ClientState.gravityFruit()) {
 			hasRoom = true;
 			String vec = switch (ClientState.gravityVector()) {
 				case 1 -> "⬆ -G";

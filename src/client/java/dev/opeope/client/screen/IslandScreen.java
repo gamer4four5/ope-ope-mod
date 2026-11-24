@@ -59,10 +59,12 @@ public class IslandScreen extends Screen {
 
 		// Cambio rápido entre Fruta Ope Ope (Law) y Fruta Gravity (Fujitora)
 		addActionBtn(leftX, y, colW * 2 + gap,
-			ClientState.gravityFruit()
-				? "🌌 Fruta Activa: Gravity (Fujitora) → Cambiar a Ope Ope (Law)"
+			ClientState.meraFruit()
+				? "🔥 Fruta Activa: Mera Mera (Ace) → Cambiar a Ope Ope (Law)"
+				: ClientState.gravityFruit()
+				? "🌌 Fruta Activa: Gravity (Fujitora) → Cambiar a Mera Mera (Ace)"
 				: "💠 Fruta Activa: Ope Ope (Law) → Cambiar a Gravity (Fujitora)",
-			"Alterna al instante entre la Ope Ope no Mi (Trafalgar Law) y la Fruta Gravity / Zushi Zushi no Mi (Almirante Fujitora) conservando tu rango y recompensa.",
+			"Pasa por las tres frutas: Ope Ope no Mi (Law), Zushi Zushi no Mi (Fujitora) y Mera Mera no Mi (Ace), conservando tu rango y recompensa.",
 			19);
 		y += 20;
 
@@ -138,7 +140,7 @@ public class IslandScreen extends Screen {
 	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
 		super.render(context, mouseX, mouseY, delta);
 		int cx = this.width / 2;
-		context.drawCenteredTextWithShadow(this.textRenderer, this.title, cx, 8, ClientState.gravityFruit() ? 0xFFC266FF : 0xFF8FE3FF);
+		context.drawCenteredTextWithShadow(this.textRenderer, this.title, cx, 8, ClientState.meraFruit() ? 0xFFFF8A2A : ClientState.gravityFruit() ? 0xFFC266FF : 0xFF8FE3FF);
 		context.drawCenteredTextWithShadow(this.textRenderer,
 			Text.literal("§7Flechas §f↑↓←→§7 mueven el ROOM · §fY§7 cambia estilo · §fC§7 con pieza elegida crea §bQuimera§7 al clicar un mob"),
 			cx, this.height - 16, 0xFFAAAAAA);

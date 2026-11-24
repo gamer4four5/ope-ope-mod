@@ -42,6 +42,8 @@ final class PlayerTick {
 		Techniques.eternalYouthTick(p, pw);
 		if (pw.isGravity()) {
 			GravityPowers.tickFieldAndFlight(p, pw);
+		} else if (pw.isMera()) {
+			dev.opeope.power.mera.MeraPowers.tickPlayer(p, pw);
 		} else {
 			Techniques.surgicalDomainTick(p, pw);
 		}

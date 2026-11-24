@@ -39,10 +39,18 @@ public final class Actions {
 		PlayerPower pw = PowerManager.get(p);
 		boolean release = (action == ROOM_RELEASE) || (action == GRAVITY_HOLD_END) || (action == GRAVITY_METEOR_RELEASE)
 			|| ((action == FLOOR || action == BISTURI || action == SURGERY
-			|| action == ANESTHESIA || action == RROOM || action == SQUEEZE) && arg == 0);
+			|| action == ANESTHESIA || action == RROOM || action == SQUEEZE) && arg == 0)
+			|| dev.opeope.power.mera.MeraActions.isRelease(action);
 		if (!release && action != ISLAND_ACTION && !PowerManager.canUse(p)) {
 			p.sendMessage(Text.translatable("opeope.msg.sea"), true);
 			return;
+		}
+		if (pw.isMera()) {
+			// Mera Mera no Mi: sus propias órdenes; de Law solo pasan el panel de la isla (cambiar de fruta) y el
+			// Despertar (M), que en Ace es el Cuerpo de llamas
+			if (action == AWAKEN) action = dev.opeope.power.mera.MeraActions.BODY;
+			if (dev.opeope.power.mera.MeraPowers.handle(p, pw, action, arg)) return;
+			if (action != ISLAND_ACTION && action != STYLE_SWITCH) return;
 		}
 		if (pw.isGravity() && handleGravityAction(p, pw, action, arg)) {
 			return;

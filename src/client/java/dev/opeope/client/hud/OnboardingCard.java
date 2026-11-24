@@ -36,7 +36,7 @@ public final class OnboardingCard {
 	static boolean layout(HudCanvas c, LayoutState s) {
 		canvas = c;
 		mode = NONE;
-		if (dev.opeope.client.ClientState.gravityFruit()) return false;
+		if (dev.opeope.client.ClientState.gravityFruit() || dev.opeope.client.ClientState.meraFruit()) return false;
 		OpeSettings st = OpeSettings.get();
 		if (st.pistas == OpeSettings.Pistas.NUNCA) return false;
 		boolean finished = Onboarding.finishedRecently();

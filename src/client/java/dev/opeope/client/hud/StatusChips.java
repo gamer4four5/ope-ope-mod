@@ -73,6 +73,12 @@ public final class StatusChips {
 	private static List<Chip> chips(MinecraftClient mc, OpeSettings.Interfaz mode, long now) {
 		List<Chip> out = new ArrayList<>();
 		boolean simple = mode == OpeSettings.Interfaz.SENCILLA;
+		if (ClientState.meraFruit()) {
+			if (ClientState.meraBody()) out.add(new Chip("despertar", Theme.ROOM, "Cuerpo de llamas", Theme.HI, -1f));
+			if (ClientState.meraCharging()) out.add(new Chip("gamma", Theme.GOLD, "Cargando fuego", Theme.GOLD, -1f));
+			if (ClientState.freeMode()) out.add(new Chip("despertar", Theme.HI, "Modo Libre", Theme.HI, -1f));
+			return out;
+		}
 		if (ClientState.gravityFruit()) {
 			if (ClientState.gravityRiding()) out.add(new Chip("shambles", Theme.ROOM, "Surfeando en Roca", Theme.HI, -1f));
 			if (ClientState.gravityCharging()) out.add(new Chip("room", Theme.GOLD, "Canalizando Presión", Theme.GOLD, -1f));

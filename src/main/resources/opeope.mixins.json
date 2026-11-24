@@ -6,7 +6,8 @@
   "mixins": [
     "MobEntityMixin",
     "LivingEntityMixin",
-    "MobEntityInvoker"
+    "MobEntityInvoker",
+    "ProjectileEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

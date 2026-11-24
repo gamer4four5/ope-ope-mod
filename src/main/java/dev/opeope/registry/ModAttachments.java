@@ -30,6 +30,10 @@ public final class ModAttachments {
 	public static final AttachmentType<Integer> FRUIT_KIND = AttachmentRegistry.<Integer>builder()
 		.persistent(Codec.INT).copyOnDeath().buildAndRegister(OpeOpeMod.id("fruit_kind"));
 
+	/** Ya recibió una Mera Mera no Mi de regalo al entrar (para no darla cada vez). */
+	public static final AttachmentType<Boolean> MERA_GIFTED = AttachmentRegistry.<Boolean>builder()
+		.persistent(Codec.BOOL).copyOnDeath().buildAndRegister(OpeOpeMod.id("mera_gifted"));
+
 	public static void init() {}
 
 	public static boolean hasFruit(PlayerEntity p) {
@@ -39,11 +43,11 @@ public final class ModAttachments {
 	public static int getFruitKind(PlayerEntity p) {
 		if (!hasFruit(p)) return 0;
 		Integer k = p.getAttached(FRUIT_KIND);
-		return (k != null && k == 2) ? 2 : 1;
+		return (k != null && (k == 2 || k == 3)) ? k : 1;
 	}
 
 	public static void setFruitKind(PlayerEntity p, int kind) {
-		p.setAttached(FRUIT_KIND, kind == 2 ? 2 : 1);
+		p.setAttached(FRUIT_KIND, (kind == 2 || kind == 3) ? kind : 1);
 	}
 
 	public static boolean hasAwakening(PlayerEntity p) {

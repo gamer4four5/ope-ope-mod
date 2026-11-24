@@ -41,11 +41,23 @@ public final class Theme {
 		} catch (RuntimeException e) {
 			// sin ajustes cargados todavía: los valores por defecto
 		}
-		boolean gravity = false;
+		boolean gravity = false, mera = false;
 		try {
 			gravity = dev.opeope.client.ClientState.gravityFruit();
+			mera = dev.opeope.client.ClientState.meraFruit();
 		} catch (RuntimeException ignored) {}
-		if (gravity) {
+		if (mera) {
+			// Ace: naranja de llama con el centro casi blanco
+			ROOM = 0xFFFF8A2A;
+			HI = 0xFFFFF1D6;
+			SOFT = 0xFFFFB25C;
+			TAKT = 0xFFFFC98A;
+			METER_FILL_A = 0xFFD8400E;
+			METER_FILL_B = 0xFFFFB347;
+			METER_MARK = 0xFFFFF1D6;
+			RETICLE_OUT = 0xC0FF8A2A;
+			RETICLE_IN = 0xD9FFF1D6;
+		} else if (gravity) {
 			ROOM = 0xFFC266FF;
 			HI = 0xFFF4DEFF;
 			SOFT = 0xFFD99BFF;

@@ -62,6 +62,13 @@ public final class ChordStrip {
 		boolean heart = Hints.heartInHand(MinecraftClient.getInstance());
 		List<Entry> r1 = new ArrayList<>(), r2 = new ArrayList<>(), r3 = new ArrayList<>();
 		int a = Theme.TAB;
+		if (ClientState.meraFruit()) {
+			r1.add(e(Keys.T_STERBEN, "sterben", a, shortNames ? "Enjōmō" : "Enjōmō (anillo de fuego)", dev.opeope.power.mera.MeraTechs.ENJOMO, false));
+			r1.add(e(Keys.T_SOULS, "almas", a, shortNames ? "Shiranui" : "Shiranui (lanzas)", dev.opeope.power.mera.MeraTechs.SHIRANUI, false));
+			r1.add(e(Keys.T_UNION, "union", a, shortNames ? "Hidaruma" : "Hidaruma (estallan las luciérnagas)", null, false));
+			r1.add(e(Keys.T_RAIN, "lluvia", a, shortNames ? "Hibashira" : "Hibashira (pilar de fuego)", dev.opeope.power.mera.MeraTechs.HIBASHIRA, false));
+			return List.of(r1);
+		}
 		if (gravity) {
 			r1.add(e(Keys.T_RAIN, "lluvia", a, shortNames ? "Escombros" : "Escombros de Dressrosa", Tech.RAIN, false));
 			r1.add(e(Keys.T_COUNTER, "puncture", a, shortNames ? "Meteoritos" : "Lluvia de Meteoritos", Tech.RADIO_KNIFE, false));
@@ -157,7 +164,7 @@ public final class ChordStrip {
 		if (tab) {
 			boolean room = ClientState.ownRoom() != null;
 			rows = tabRows(shortNames, room);
-			if (!room && !ClientState.gravityFruit()) {
+			if (!room && !ClientState.gravityFruit() && !ClientState.meraFruit()) {
 				REASONS.add(reason("El suelo se trabaja dentro de un ROOM (", KeyLabels.of(Keys.ROOM), ")"));
 				REASONS.add(reason("Lluvia necesita un ROOM", null, null));
 			}

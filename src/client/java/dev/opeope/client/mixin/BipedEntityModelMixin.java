@@ -22,5 +22,6 @@ public class BipedEntityModelMixin {
 	@Inject(method = "setAngles(Lnet/minecraft/entity/LivingEntity;FFFFF)V", at = @At("TAIL"))
 	private void opeope$playerKinematics(LivingEntity livingEntity, float f, float g, float h, float i, float j, CallbackInfo ci) {
 		PlayerAnimClient.applyBipedAngles(livingEntity, (BipedEntityModel<?>) (Object) this, f, g, h, i, j);
+		dev.opeope.client.mera.MeraAnim.apply(livingEntity, (BipedEntityModel<?>) (Object) this);
 	}
 }

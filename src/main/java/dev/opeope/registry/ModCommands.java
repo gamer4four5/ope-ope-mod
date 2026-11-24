@@ -18,6 +18,11 @@ public final class ModCommands {
 					PowerManager.grantFruit(p);
 					return 1;
 				}))
+				.then(CommandManager.literal("mera").executes(ctx -> {
+					ServerPlayerEntity p = ctx.getSource().getPlayerOrThrow();
+					PowerManager.grantFruit(p, 3);
+					return 1;
+				}))
 				.then(CommandManager.literal("quitar").executes(ctx -> {
 					ServerPlayerEntity p = ctx.getSource().getPlayerOrThrow();
 					PowerManager.removeFruit(p);
