@@ -440,12 +440,14 @@ public final class MeraFxClient {
 			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);
 			for (int i = 0; i < count; i++) if (KIND[i] == FIRE || KIND[i] == GREEN || KIND[i] == TONGUE || KIND[i] == CORE) drawPuff(b, i);
+			NEAR = 1f;
 			var built = b.endNullable();
 			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 
 			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
 			BufferBuilder g = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) if (KIND[i] == GLOW || KIND[i] == FLY || KIND[i] == SPARK) drawPuff(g, i);
+			NEAR = 1f;
 			var builtG = g.endNullable();
 			if (builtG != null) BufferRenderer.drawWithGlobalProgram(builtG);
 		} finally {
@@ -549,7 +551,7 @@ public final class MeraFxClient {
 		ROT[i] = R.nextFloat() * 6.2832f;
 		SPIN[i] = (R.nextFloat() - 0.5f) * 3f;
 		KIND[i] = kind;
-		CELL[i] = (byte) (kind == TONGUE ? 2 : (kind == GLOW || kind == FLY || kind == SPARK) ? 3 : R.nextInt(2));
+		CELL[i] = (byte) (kind == TONGUE ? 2 : (kind == GLOW || kind == FLY || kind == SPARK || kind == SMOKE || kind == STEAM) ? 3 : R.nextInt(2));
 		switch (kind) {
 			case FIRE, GREEN, CORE -> {
 				DRAG[i] = 2.2f;
@@ -637,6 +639,11 @@ public final class MeraFxClient {
 		float t = AGE[i] / LIFE[i];
 		byte k = KIND[i];
 		float x = (float) (PX[i] + ox - camX), y = (float) (PY[i] + oy - camY), z = (float) (PZ[i] + oz - camZ);
+		// pegado a la cámara una llama tapa la pantalla entera: se desvanece al acercarse (y detrás no se dibuja)
+		float d = (float) Math.sqrt(x * x + y * y + z * z);
+		if (x * fx + y * fy + z * fz < -0.5f) return;
+		NEAR = MathHelper.clamp((d - 0.35f) / 0.9f, 0f, 1f);
+		if (NEAR <= 0.01f) return;
 		float s;
 		float alpha;
 		switch (k) {
@@ -659,13 +666,13 @@ public final class MeraFxClient {
 			}
 			case SMOKE -> {
 				s = SIZE[i] * (0.6f + 1.4f * t);
-				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.5f;
-				quad(b, x, y, z, s, ROT[i], CELL[i], 0x2A2422, alpha);
+				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.38f;
+				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], 0x463E3A, alpha);
 			}
 			case STEAM -> {
 				s = SIZE[i] * (0.6f + 1.6f * t);
 				alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t) * 0.42f;
-				quad(b, x, y, z, s, ROT[i], CELL[i], 0xE8ECF0, alpha);
+				quad(b, x, y, z, s * 1.2f, ROT[i], CELL[i], 0xE8ECF0, alpha);
 			}
 			case SPARK -> {
 				s = SIZE[i];
@@ -769,8 +776,11 @@ public final class MeraFxClient {
 		vtx(b, x + vx - sx, y + vy - sy, z + vz - sz, 0.5f, 0.5f, rgb, a);
 	}
 
+	/** Lo que se desvanece la llama que se está dibujando por estar cerca de la cámara (1 = nada). */
+	private static float NEAR = 1f;
+
 	private static void vtx(BufferBuilder b, float x, float y, float z, float u, float v, int rgb, float a) {
-		a = MathHelper.clamp(a, 0f, 1f);
+		a = MathHelper.clamp(a * NEAR, 0f, 1f);
 		if (!plain) {
 			BASE.transformPosition(x, y, z, TV);
 			x = TV.x;
@@ -1559,7 +1569,7 @@ public final class MeraFxClient {
 		double yr = Math.toRadians(by);
 		double rX = -Math.cos(yr), rZ = -Math.sin(yr);
 		double fX = -Math.sin(yr), fZ = Math.cos(yr);
-		float rate = (self ? 90 : 260) * density;
+		float rate = (self ? 50 : 260) * density;
 		int n = (int) (rate * dt + R.nextFloat());
 		for (int i = 0; i < n; i++) {
 			int part = R.nextInt(10);
@@ -1586,7 +1596,7 @@ public final class MeraFxClient {
 				lz = rs() * 0.12;
 				size = 0.13f;
 			}
-			if (self && ly > 1.3) continue;   // en 1.ª persona no se tapa la vista
+			if (self && (ly > 1.1 || part < 3)) continue;   // en 1.ª persona no se tapa la vista (los brazos arden en la mano)
 			double x = base.x + rX * lx + fX * lz, z = base.z + rZ * lx + fZ * lz, y = base.y + ly;
 			if (R.nextFloat() < 0.55f) tongue(x, y, z, rs() * 0.3, 1.2 + R.nextDouble(), rs() * 0.3, size + 0.08f, 0.32f + R.nextFloat() * 0.15f);
 			else fire(x, y, z, rs() * 0.3, 0.9, rs() * 0.3, size, 0.3f);
