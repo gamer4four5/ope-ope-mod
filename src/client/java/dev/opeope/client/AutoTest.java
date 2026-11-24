@@ -106,6 +106,48 @@ public final class AutoTest {
 	public static final boolean ON = Boolean.getBoolean("opeope.autotest");
 	/** Con -Dopeope.gallery=true (./gradlew runGalleryClient): solo la galería de técnicas de Law, con capturas. */
 	public static final boolean GALLERY = Boolean.getBoolean("opeope.gallery");
+	/** Con -Dopeope.gallery.mera=true (./gradlew runMeraGalleryClient): la galería de la Mera Mera no Mi (Ace). */
+	public static final boolean MERA = GALLERY && Boolean.getBoolean("opeope.gallery.mera");
+
+	private static BiConsumer<ServerPlayerEntity, PlayerPower> mera(int action) {
+		return (sp, pw) -> dev.opeope.power.mera.MeraPowers.handle(sp, pw, action, 0);
+	}
+
+	/** Las técnicas de Ace, una a una (las que se mantienen se sueltan en meraRelease). */
+	private static List<Shot> meraShots() {
+		List<Shot> l = new ArrayList<>();
+		l.add(new Shot("hiken", mera(dev.opeope.power.mera.MeraActions.HIKEN_START), 4, new int[]{6, 16, 19, 24, 32}, new int[]{11}));
+		l.add(new Shot("higan", mera(dev.opeope.power.mera.MeraActions.HIGAN), 6, new int[]{2, 5, 9, 14}, new int[]{4}));
+		l.add(new Shot("jujika", mera(dev.opeope.power.mera.MeraActions.JUJIKA), 6, new int[]{4, 10, 13, 18, 26}, new int[]{8}));
+		l.add(new Shot("kagero", mera(dev.opeope.power.mera.MeraActions.KAGERO_START), 8, new int[]{5, 14, 24}, new int[]{10}));
+		l.add(new Shot("entei", mera(dev.opeope.power.mera.MeraActions.ENTEI_START), -10, new int[]{12, 30, 44, 48, 54}, new int[]{26}));
+		l.add(new Shot("hotarubi", mera(dev.opeope.power.mera.MeraActions.HOTARUBI), 2, new int[]{6, 18, 34, 37, 44}, new int[]{14}));
+		l.add(new Shot("kyokaen", mera(dev.opeope.power.mera.MeraActions.KYOKAEN), 4, new int[]{4, 12, 26}, new int[]{8}));
+		l.add(new Shot("enjomo", mera(dev.opeope.power.mera.MeraActions.ENJOMO), 6, new int[]{6, 14, 30}, new int[]{10}));
+		l.add(new Shot("shiranui", mera(dev.opeope.power.mera.MeraActions.SHIRANUI), 6, new int[]{5, 11, 15, 20}, new int[]{8}));
+		l.add(new Shot("hibashira", mera(dev.opeope.power.mera.MeraActions.HIBASHIRA), 0, new int[]{8, 17, 22, 32}, new int[]{20}));
+		l.add(new Shot("impulso", mera(dev.opeope.power.mera.MeraActions.DASH), 0, new int[]{2, 5}, new int[]{3}));
+		l.add(new Shot("cuerpo", mera(dev.opeope.power.mera.MeraActions.BODY), 0, new int[]{6, 20}, new int[]{10, 30}));
+		return l;
+	}
+
+	/** Las técnicas de Ace que se mantienen: cuándo se suelta la tecla (ticks desde que empiezan). */
+	private static void meraRelease(IntegratedServer srv, UUID id, String name, int r) {
+		int action = -1;
+		if (name.equals("hiken") && r == 8 + 15) action = dev.opeope.power.mera.MeraActions.HIKEN_RELEASE;
+		if (name.equals("kagero") && r == 8 + 30) action = dev.opeope.power.mera.MeraActions.KAGERO_END;
+		if (name.equals("entei") && r == 8 + 42) action = dev.opeope.power.mera.MeraActions.ENTEI_RELEASE;
+		if (name.equals("hotarubi") && r == 8 + 35) action = dev.opeope.power.mera.MeraActions.HIDARUMA;
+		if (action < 0) return;
+		int a = action;
+		server(srv, id, (sp, pw) -> {
+			try {
+				dev.opeope.power.mera.MeraPowers.handle(sp, pw, a, 0);
+			} catch (RuntimeException e) {
+				OpeOpeMod.LOG.error("AUTOTEST galería: falló al soltar {}", name, e);
+			}
+		});
+	}
 	private static int t = -1;
 
 	// ------------------------------------------------------------------ galería de técnicas de Law (efectos LawFx)
@@ -283,7 +325,7 @@ public final class AutoTest {
 	private static int galleryFrames0;
 
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
-		if (gallery == null) gallery = galleryShots();
+		if (gallery == null) gallery = MERA ? meraShots() : galleryShots();
 		if (g == 0) {
 			mc.getWindow().setWindowedSize(1280, 720);
 			if (!framesHooked) {
@@ -311,7 +353,7 @@ public final class AutoTest {
 			return;
 		}
 		Shot s = gallery.get(idx);
-		String base = "law-" + String.format("%02d", idx + 1) + "-" + s.name();
+		String base = (MERA ? "mera-" : "law-") + String.format("%02d", idx + 1) + "-" + s.name();
 		if (r == 0) {
 			// todo a su sitio, sin enfriamientos ni restos de la técnica anterior
 			if (!PENDING.isEmpty()) {
@@ -322,6 +364,8 @@ public final class AutoTest {
 			// los efectos de la técnica anterior fuera también en el cliente (el Curtain seguía en las capturas de Mes)
 			dev.opeope.client.render.LawFxClient.clear();
 			dev.opeope.client.render.ShamblesFxClient.clear();
+			dev.opeope.client.mera.MeraFxClient.clear();
+			dev.opeope.client.mera.MeraAnim.clear();
 			galleryFrames0 = frames;
 			boolean north = s.name().equals("injection") || s.name().equals("iai") || s.name().equals("luna");
 			server(srv, id, (sp, pw) -> {
@@ -331,6 +375,7 @@ public final class AutoTest {
 				for (Entity e : w.getOtherEntities(sp, area, e -> !(e instanceof ServerPlayerEntity))) e.discard();
 				setup(srv, id);
 				java.util.Arrays.fill(pw.cooldowns, 0);
+				if (MERA) dev.opeope.power.mera.MeraPowers.resetForTest(sp);
 				pw.anesthesia = false;
 				pw.combatStyle = 1;
 				pw.silentTicks = 0;
@@ -369,7 +414,9 @@ public final class AutoTest {
 				}
 			});
 		}
-		if (s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
+		if (MERA) meraRelease(srv, id, s.name(), r);
+		if (r == 8 + 20 && MERA) OpeOpeMod.LOG.info("AUTOTEST galería {} fx: {}", s.name(), dev.opeope.client.mera.MeraFxClient.debug());
+		if (!MERA && s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
 		// Scan otra vez con el Scan aún activo: Shambles a todo lo que llevan en las manos
 		if (s.name().equals("scan-robo") && r == 8 + 13) server(srv, id, (sp, pw) -> {
 			try {
@@ -398,7 +445,9 @@ public final class AutoTest {
 			if (r == at) {
 				queueShot(base + "-frente" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT, () -> {
 					if (mc.player != null) {
-						OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+						OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), MERA
+							? dev.opeope.client.mera.MeraAnim.debug(mc.player.getId())
+							: dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
 					}
 				});
 				queueShot(base + "-3p" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK, null);
@@ -491,7 +540,8 @@ public final class AutoTest {
 		if (sp == null) return;
 		ServerWorld w = sp.getServerWorld();
 		// si ya la tiene, nada (la galería llama a setup en cada técnica y llenaba el chat de «Ya comiste la Ope Ope no Mi»)
-		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != 1) PowerManager.grantFruit(sp);
+		int kind = MERA ? 3 : 1;
+		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != kind) PowerManager.grantFruit(sp, kind);
 		sp.changeGameMode(GameMode.CREATIVE);
 		w.setTimeOfDay(6000);
 		w.setWeather(20 * 600, 0, false, false);

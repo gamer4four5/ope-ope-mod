@@ -28,6 +28,14 @@ loom {
 			vmArgs "-Xmx3G", "-Dopeope.autotest=true", "-Dopeope.gallery=true"
 			runDir "run"
 		}
+		// Galería de la Mera Mera no Mi (Ace): capturas en run/screenshots/autotest-mera-*.png
+		meraGalleryClient {
+			client()
+			name "Mera Gallery Client"
+			programArgs "--quickPlaySingleplayer=Prueba"
+			vmArgs "-Xmx3G", "-Dopeope.autotest=true", "-Dopeope.gallery=true", "-Dopeope.gallery.mera=true"
+			runDir "run"
+		}
 	}
 	mods {
 		"opeope" {

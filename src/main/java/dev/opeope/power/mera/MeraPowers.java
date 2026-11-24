@@ -151,6 +151,16 @@ public final class MeraPowers {
 		if (st != null && st.hotarubiId >= 0) send(p.getServerWorld(), MeraFx.ZONE_END, p.getId(), st.hotarubiId, st.hotarubiCenter, Vec3d.ZERO, 0f, 0f, 0, 0);
 	}
 
+	/** Para la galería de pruebas: fuera todo lo de la técnica anterior (cuerpo, cargas, disparos y zonas). */
+	public static void resetForTest(ServerPlayerEntity p) {
+		onRevoke(p);
+		SHOTS.clear();
+		ZONES.clear();
+		DELAYED.clear();
+		PASSED.clear();
+		p.extinguish();
+	}
+
 	// ------------------------------------------------------------------ registro
 
 	public static void init() {

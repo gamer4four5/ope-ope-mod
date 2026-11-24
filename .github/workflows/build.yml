@@ -96,11 +96,30 @@ jobs:
           done
           ls capturas/galeria | wc -l
           grep -E "AUTOTEST galería" galeria.log | tail -90 || true
+      - name: Galería de la Mera Mera no Mi (capturas de cada técnica de Ace)
+        if: startsWith(github.ref_name, 'mera-') || contains(github.event.head_commit.message, '[galeria-mera]')
+        continue-on-error: true
+        run: |
+          export DISPLAY=:99
+          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
+          sleep 2
+          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
+          mkdir -p capturas/mera
+          set +e
+          timeout 540 ./gradlew runMeraGalleryClient --console=plain > galeria-mera.log 2>&1
+          echo "exit=$?"
+          set -e
+          for f in run/screenshots/autotest-mera-*.png; do
+            [ -f "$f" ] || continue
+            convert "$f" -quality 88 "capturas/mera/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera/
+          done
+          ls capturas/mera | wc -l
+          grep -E "AUTOTEST galería|Exception|Error" galeria-mera.log | tail -120 || true
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          cp -f compilar.log servidor.log cliente.log galeria.log /tmp/ci-logs/ 2>/dev/null || true
+          cp -f compilar.log servidor.log cliente.log galeria.log galeria-mera.log /tmp/ci-logs/ 2>/dev/null || true
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
           # el jar de esta ejecución, para instalarlo sin iniciar sesión en GitHub (los artefactos la piden)
           JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v -- '-sources' | head -1 || true)
