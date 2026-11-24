@@ -1077,11 +1077,13 @@ public final class MeraFxClient {
 					f.last = f.a;
 					Entity e = user;
 					Vec3d c = e != null ? e.getLerpedPos(td) : f.a;
-					for (int i = 0; i < 160 * density; i++) {
+					// en 1.ª persona la llamarada sale a ras de suelo y hacia fuera: se ve el anillo, no una pared de fuego
+					boolean self = e == mc.getCameraEntity() && mc.options.getPerspective().isFirstPerson();
+					for (int i = 0; i < (self ? 70 : 160) * density; i++) {
 						double ang = R.nextDouble() * Math.PI * 2;
-						double sp = 2 + R.nextDouble() * 4;
-						tongue(c.x + Math.cos(ang) * 0.3, c.y + R.nextDouble() * 1.8, c.z + Math.sin(ang) * 0.3,
-							Math.cos(ang) * sp, 2 + R.nextDouble() * 3, Math.sin(ang) * sp, 0.3f, 0.5f);
+						double sp = (self ? 4 : 2) + R.nextDouble() * 4;
+						tongue(c.x + Math.cos(ang) * (self ? 0.9 : 0.3), c.y + R.nextDouble() * (self ? 0.5 : 1.8), c.z + Math.sin(ang) * (self ? 0.9 : 0.3),
+							Math.cos(ang) * sp, self ? 0.6 + R.nextDouble() : 2 + R.nextDouble() * 3, Math.sin(ang) * sp, 0.3f, self ? 0.35f : 0.5f);
 					}
 					glow(c.x, c.y + 1, c.z, 0, 0, 0, 3.2f, 0.4f, 1f, 0.55f, 0.15f);
 				}
