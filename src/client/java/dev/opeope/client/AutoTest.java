@@ -138,6 +138,21 @@ public final class AutoTest {
 		if (name.equals("kagero") && r == 8 + 30) action = dev.opeope.power.mera.MeraActions.KAGERO_END;
 		if (name.equals("entei") && r == 8 + 42) action = dev.opeope.power.mera.MeraActions.ENTEI_RELEASE;
 		if (name.equals("hotarubi") && r == 8 + 35) action = dev.opeope.power.mera.MeraActions.HIDARUMA;
+		if (name.equals("cuerpo") && r == 8 + 44) {
+			// la Logia: un golpe normal y el fuego atraviesan; el agua no (se comprueba con el jugador mojado)
+			server(srv, id, (sp, pw) -> {
+				boolean inv = sp.getAbilities().invulnerable;
+				sp.getAbilities().invulnerable = false;
+				sp.setHealth(sp.getMaxHealth());
+				float h0 = sp.getHealth();
+				boolean golpe = galleryZombie != null && sp.damage(sp.getDamageSources().mobAttack(galleryZombie), 4f);
+				boolean fuego = sp.damage(sp.getDamageSources().inFire(), 4f);
+				OpeOpeMod.LOG.info("AUTOTEST mera logia: golpe={} fuego={} vida {}->{}", golpe ? "DAÑA" : "atraviesa",
+					fuego ? "DAÑA" : "inmune", h0, sp.getHealth());
+				if (golpe || fuego) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: la Logia no paró el daño");
+				sp.getAbilities().invulnerable = inv;
+			});
+		}
 		if (action < 0) return;
 		int a = action;
 		server(srv, id, (sp, pw) -> {
