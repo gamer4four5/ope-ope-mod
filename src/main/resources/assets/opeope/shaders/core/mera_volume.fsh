@@ -295,8 +295,11 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         u = p.y / H;
         // el remolino: el ruido gira alrededor del eje, se tuerce en hélice y se estira hacia arriba (vetas)
         vec2 sw = mf_rot(p.xz, p.y / R * 0.55 - time * 2.2);
-        nq = vec3(sw.x / (L * 0.8), p.y / (L * 3.0) - time * 3.0, sw.y / (L * 0.8));
-        nb = vec3(sw.x / (L * 1.2), p.y / (L * 3.5) - time * 1.6, sw.y / (L * 1.2));
+        // desde dentro (primera persona) la pared está a un paso: vetas más finas y más largas hacia arriba, como
+        // lenguas de fuego que suben (si no, de cerca parecía lava lisa)
+        float fin = mix(1.0, 0.6, clamp(prm.z, 0.0, 1.0));
+        nq = vec3(sw.x / (L * 0.8 * fin), p.y / (L * 3.6) - time * 3.0, sw.y / (L * 0.8 * fin));
+        nb = vec3(sw.x / (L * 1.2 * fin), p.y / (L * 4.2) - time * 1.6, sw.y / (L * 1.2 * fin));
         amp = L * (0.75 + 0.90 * v);
     }
     else if (shape < 3.5) {
@@ -409,7 +412,7 @@ vec4 mf_look(float shape, vec3 p, vec4 prm)
     if (shape < 1.5) { float S = max(prm.x, 0.2);
                        return vec4(mix(1.2, 0.55, smoothstep(-0.7 * S, -0.25 * S, p.z)), 0.26,
                                    0.6 * smoothstep(-0.30 * S, 0.0, p.z), 1.0); }
-    if (shape > 1.5 && shape < 2.5) return vec4(2.4, 0.16, 0.45, 1.0);
+    if (shape > 1.5 && shape < 2.5) return vec4(1.5, 0.16, 0.45, 1.0);
     if (shape > 5.5 && shape < 6.5) return vec4(0.8, 0.28, 0.35, 1.0);
     if (shape > 6.5 && shape < 7.5) return vec4(0.6, 0.28, 0.30, 1.0);
     return vec4(1.1, 0.25, 0.0, 1.0);
@@ -577,7 +580,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         }
 
         // el borde: nítido en el cuerpo, muy suave donde el fuego ya se deshace en humo (sin bordes duros)
-        float dens = max(smoothstep(0.0, L * mix(0.30, 0.17, isFist) * (1.0 + 2.5 * smoothstep(0.70, 1.15, u)), -dd), skin);
+        float dens = max(smoothstep(0.0, L * mix(mix(0.30, 0.17, isFist), 0.14, step(1.5, shape) * step(shape, 2.5)) * (1.0 + 2.5 * smoothstep(0.70, 1.15, u)), -dd), skin);
         if (dens > 0.001) {
             // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
@@ -601,6 +604,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // bolsas más calientes; los pliegues entre ellas, más oscuros (hollín)
             float crease = (1.0 - smoothstep(0.03, 0.24, tb)) * (1.0 - w) * massy;
             temp += 0.45 * (tb - 0.35) * (1.0 - w);
+            // la columna: vetas calientes que suben y surcos más oscuros entre ellas (no una pared lisa)
+            float isPil = (shape > 1.5 && shape < 2.5) ? 1.0 : 0.0;
+            temp += isPil * (0.55 * (tb - 0.35) - 0.12 * bhi);
             temp *= 1.0 - 0.18 * crease;
             float gran = (shape < 0.5) ? 1.5 : mix(1.0, 0.85, isFist);
             temp -= (0.10 * lo + 0.22 * hi) * coolU * gran * w;

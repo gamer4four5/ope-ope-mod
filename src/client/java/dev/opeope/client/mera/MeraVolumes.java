@@ -112,6 +112,35 @@ public final class MeraVolumes {
 		return spriteProgram != null ? spriteProgram : GameRenderer.getPositionTexColorProgram();
 	}
 
+	private static final Matrix4f INVP = new Matrix4f();
+
+	/**
+	 * Copia la profundidad de este fotograma aunque no haya fuego 3D (se llama después de lo translúcido, cuando la
+	 * del mundo está puesta): con ella las chispas y el humo sueltos se desvanecen al tocar el suelo o una pared.
+	 */
+	static void grabSoftDepth() {
+		if (depthFresh || failed || !enabled) return;
+		if (grabDepth()) depthFresh = true;
+	}
+
+	/**
+	 * Prepara el programa propio de las chispas y el humo para lo que viene: a cuántos bloques del suelo o de una pared
+	 * empiezan a desvanecerse (0 = sin eso, se cortan en seco contra el mundo). Pone la profundidad en la unidad 1: quien
+	 * llama guarda antes la que había y la devuelve al terminar.
+	 */
+	static void spriteSoft(float range) {
+		ShaderProgram sp = spriteProgram;
+		if (sp == null) return;
+		boolean on = range > 0f && depthFresh && depthTex >= 0 && viewW > 0 && viewH > 0;
+		vec(sp, "SoftRange", on ? range : 0f);
+		if (on) {
+			vec(sp, "ViewSize", viewW, viewH);
+			INVP.set(RenderSystem.getProjectionMatrix()).invert();
+			mat(sp, "InvProjMat", INVP);
+			RenderSystem.setShaderTexture(1, depthTex);
+		}
+	}
+
 	/** ¿Se puede dibujar el fuego volumétrico? (si el shader no cargó, el fuego vuelve a las llamas sueltas). */
 	public static boolean ready() {
 		return program != null && !failed && enabled;

@@ -476,6 +476,8 @@ public final class MeraFxClient {
 		if (vols) MeraVolumes.render(ctx, camX, camY, camZ, (float) (now % 3600.0));
 		particlesPending = false;
 		if (count == 0 || hideFlames) return;
+		// la profundidad de este fotograma (aunque no haya fuego 3D): el humo y las chispas se desvanecen contra el suelo
+		MeraVolumes.grabSoftDepth();
 		if (MeraVolumes.shaderPackInUse()) {
 			// con un shaderpack las chispas, brasas y humo también van al final, sobre la imagen terminada: dentro
 			// del mundo el shaderpack las metía en sus buffers y salían como discos planos de borde duro
@@ -538,6 +540,7 @@ public final class MeraFxClient {
 		// (con el programa propio: el de Minecraft recorta lo tenue y deja discos con el borde duro)
 		RenderSystem.setShader(MeraVolumes::spriteProgram);
 		RenderSystem.setShaderTexture(0, ATLAS);
+		int tex1 = RenderSystem.getShaderTexture(1);
 		try {
 			// 1) el fuego, en 3D: bolas y lenguas sólidas que escriben profundidad (se tapan entre ellas y con el mundo)
 			RenderSystem.defaultBlendFunc();
@@ -553,9 +556,10 @@ public final class MeraFxClient {
 				RenderSystem.depthMask(false);
 			}
 
-			// 2) humo y vapor (suaves, mezcla normal)
+			// 2) humo y vapor (suaves, mezcla normal): se desvanecen a medio bloque del suelo o de una pared
 			RenderSystem.setShader(MeraVolumes::spriteProgram);
 			RenderSystem.setShaderTexture(0, ATLAS);
+			MeraVolumes.spriteSoft(0.5f);
 			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);
 			NEAR = 1f;
@@ -563,6 +567,8 @@ public final class MeraFxClient {
 			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 
 			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
+			// (los resplandores y las brasas, más cerca: son pequeños)
+			MeraVolumes.spriteSoft(0.2f);
 			BufferBuilder g = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) {
 				byte k = KIND[i];
@@ -574,6 +580,7 @@ public final class MeraFxClient {
 			var builtG = g.endNullable();
 			if (builtG != null) BufferRenderer.drawWithGlobalProgram(builtG);
 		} finally {
+			RenderSystem.setShaderTexture(1, tex1);
 			RenderSystem.defaultBlendFunc();
 			RenderSystem.depthMask(true);
 			RenderSystem.enableCull();
@@ -2409,7 +2416,10 @@ public final class MeraFxClient {
 				glow(c.x, c.y, c.z, 0, 0, 0, r * 2.8f, 0.3f, 1f, 0.85f, 0.5f);
 				glow(c.x, c.y, c.z, 0, 0, 0, r * 4.2f, 0.55f, 1f, 0.45f, 0.12f);
 				for (int i = 0; i < (int) (8 + 8 * r); i++) spark(c.x, c.y, c.z, rs() * 4 * r, R.nextDouble() * 4 * r, rs() * 4 * r, 0.9f);
-				for (int i = 0; i < (int) (6 + 6 * r) * d; i++) smoke(c.x + rs() * r * 0.5, c.y + rs() * r * 0.3, c.z + rs() * r * 0.5, rs() * 1.5, 1.2 + R.nextDouble(), rs() * 1.5, 0.4f + r * 0.25f, 2.2f);
+				// con el fuego 3D los estallidos grandes acaban en una nube de humo oscura: las bocanadas, de su mismo
+				// gris (si no, quedaba una bruma gris clara por encima de la nube); los pequeños, gris claro
+				float tone = vol() && r >= 1.2f ? 0.55f : 1f;
+				for (int i = 0; i < (int) (6 + 6 * r) * d; i++) smoke(c.x + rs() * r * 0.5, c.y + rs() * r * 0.3, c.z + rs() * r * 0.5, rs() * 1.5, 1.2 + R.nextDouble(), rs() * 1.5, 0.4f + r * 0.25f, 2.2f, tone);
 			}
 		}
 	}
