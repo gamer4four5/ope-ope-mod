@@ -49,8 +49,8 @@ out vec4 fragColor;
 //                w humo claro y fino 0..1 (los golpes pequeños: una bocanada gris)
 //    1 FIST      x tamaño, y largo de la estela
 //    2 PILLAR    x radio, y alto, z 1 = visto desde el hueco de dentro
-//    3 RING      x radio, y alto, z grosor
-//    4 WALL      x medio ancho, y alto, z grosor
+//    3 RING      x radio, y alto, z grosor, w 1 = cortina de lenguas (el cerco de Enjōmō)
+//    4 WALL      x medio ancho, y alto, z grosor (una cortina de lenguas)
 //    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
 //    6 CROSS     x brazo, y grosor
 //    7 LANCE     x largo, y radio (la punta en +x/2, centrada)
@@ -305,32 +305,52 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
     else if (shape < 3.5) {
         // ---------------- 3: CERCO (Enjomo) ----------------
         float R  = max(prm.x, 0.5);
-        float H  = max(prm.y, 0.3);
+        float H0 = max(prm.y, 0.3);
         float th = (prm.z > 0.01) ? prm.z : 0.5;
+        // w = 1 (el cerco de Enjōmō): como el muro, una cortina de lenguas que suben, unas más altas que otras y
+        // cambiando, con la base seguida y muy caliente (antes, bolas sueltas como palomitas con el borde de arriba
+        // recto). Los demás anillos (el remolino que se cierra, las ondas) siguen como estaban.
+        float cur = clamp(prm.w, 0.0, 1.0);
+        float hv = clamp(mf_gnoise(vec3(p.x * 0.30, time * 0.7, p.z * 0.30)) * 1.5, -1.0, 1.0);
+        float H = H0 * mix(1.0, 0.86 + 0.18 * hv, cur);
         float v = clamp(p.y / H, 0.0, 1.0);
         float rd = length(p.xz) - R;
         d = abs(rd) - th * (1.0 - 0.45 * v);
         d = max(d, p.y - H);
         d = max(d, -p.y - 0.2);
-        L = max(th, 0.25 * H) * 0.9;
+        // (la altura cambia de un sitio a otro: la distancia hasta arriba ya no es exacta)
+        mf_lip = mix(1.0, 1.4, cur);
+        L = mix(max(th, 0.25 * H0) * 0.9, max(th * 1.1, 0.5), cur);
         u = p.y / H;
-        nq = vec3(p.x / (L * 0.8), p.y / (L * 2.0) - time * 2.6, p.z / (L * 0.8));
-        nb = vec3(p.x / (L * 1.5), p.y / (L * 1.5) - time * 1.2, p.z / (L * 1.5));
-        amp = mix(L * 0.55, H * 0.45, v);
+        // en la cortina, el ruido estirado hacia arriba: vetas y lenguas que suben, no bolas redondas
+        nq = vec3(p.x / (L * mix(0.8, 0.7, cur)), p.y / (L * mix(2.0, 3.0, cur)) - time * mix(2.6, 3.2, cur), p.z / (L * mix(0.8, 0.7, cur)));
+        nb = vec3(p.x / (L * mix(1.5, 1.1, cur)), p.y / (L * mix(1.5, 3.6, cur)) - time * mix(1.2, 1.9, cur), p.z / (L * mix(1.5, 1.1, cur)));
+        // y abajo casi sin huecos: la masa se abre en lenguas sobre todo en la mitad de arriba
+        amp = mix(L * mix(0.55, 0.45, cur), H * mix(0.45, 0.34, cur), mix(v, v * v, cur));
     }
     else if (shape < 4.5) {
-        // ---------------- 4: MURO (Kyokaen) ----------------
+        // ---------------- 4: MURO (Kyokaen): una cortina de fuego ----------------
+        // abajo una franja seguida y muy caliente (de ahí sale el fuego); encima se abre en lenguas que suben, unas
+        // más altas que otras y cambiando, y en los extremos más baja (antes, una caja de bolas como palomitas con el
+        // borde de arriba recto)
         float W  = max(prm.x, 0.5);
-        float H  = max(prm.y, 0.5);
+        float H0 = max(prm.y, 0.5);
         float T  = max(prm.z, 0.1);
+        float hv = clamp(mf_gnoise(vec3(p.x * 0.30, time * 0.7, 2.7)) * 1.5, -1.0, 1.0);
+        float ends = smoothstep(W * 0.30, W, abs(p.x));
+        float H = H0 * (0.86 + 0.18 * hv) * (1.0 - 0.45 * ends);
         float v = clamp(p.y / H, 0.0, 1.0);
-        vec3 c = p - vec3(0.0, H * 0.5, 0.0);
+        vec3 c = vec3(p.x, p.y - H * 0.5, p.z);
         d = mf_sdRoundBox(c, vec3(W, H * 0.5, T * (1.0 - 0.35 * v)), min(T * 0.9, H * 0.3));
+        // (la altura cambia a lo largo: la distancia hasta arriba ya no es exacta)
+        mf_lip = 1.5;
         L = max(T * 1.1, 0.5);
         u = p.y / H;
-        nq = vec3(p.x / (L * 0.9), p.y / (L * 2.2) - time * 2.6, p.z / (L * 0.9));
-        nb = vec3(p.x / (L * 1.6), p.y / (L * 1.6) - time * 1.2, p.z / (L * 1.6));
-        amp = mix(L * 0.60, H * 0.35, v);
+        // el ruido estirado hacia arriba: vetas y lenguas que suben, no bolas redondas
+        nq = vec3(p.x / (L * 0.7), p.y / (L * 3.0) - time * 3.2, p.z / (L * 0.7));
+        nb = vec3(p.x / (L * 1.1), p.y / (L * 3.6) - time * 1.9, p.z / (L * 1.1));
+        // y abajo casi sin huecos: la masa se abre en lenguas sobre todo en la mitad de arriba
+        amp = mix(L * 0.45, H * 0.32, v * v);
     }
     else if (shape < 5.5) {
         // ---------------- 5: CHORRO (Kagero) ----------------
@@ -607,6 +627,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // la columna: vetas calientes que suben y surcos más oscuros entre ellas (no una pared lisa)
             float isPil = (shape > 1.5 && shape < 2.5) ? 1.0 : 0.0;
             temp += isPil * (0.55 * (tb - 0.35) - 0.12 * bhi);
+            // las cortinas (el muro y el cerco de Enjōmō): igual, y la base, donde nace el fuego, más caliente
+            float isCur = (shape > 3.5 && shape < 4.5) ? 1.0 : ((shape > 2.5 && shape < 3.5) ? clamp(prm.w, 0.0, 1.0) : 0.0);
+            temp += isCur * (0.45 * (tb - 0.35) - 0.10 * bhi + 0.22 * (1.0 - smoothstep(0.0, 0.40, u)));
             temp *= 1.0 - 0.18 * crease;
             float gran = (shape < 0.5) ? 1.5 : mix(1.0, 0.85, isFist);
             temp -= (0.10 * lo + 0.22 * hi) * coolU * gran * w;

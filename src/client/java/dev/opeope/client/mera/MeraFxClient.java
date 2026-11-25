@@ -2305,7 +2305,8 @@ public final class MeraFxClient {
 		if ((f.ended && now - f.endAt > 0.5) || age > f.dur + 0.5) return false;
 		float k = zoneFade(f, now, age);
 		double r = f.radius, height = f.power * (0.3 + 0.7 * k);
-		if (vol()) vol(MeraVolumes.RING, f.a, FWD, (float) r, (float) height, 0.42f, f, k);
+		// (w = 1: el cerco como una cortina de lenguas que suben, igual que el muro de Kyokaen)
+		if (vol()) MeraVolumes.add(MeraVolumes.RING, f.a, FWD, (float) r, (float) height, 0.42f, 1f, f.id * 31 + f.kind * 7 + f.userId, k);
 		int cnt = many(f, (float) (2 * Math.PI * r * 45 * density * k), dt);
 		for (int i = 0; i < cnt; i++) {
 			double ang = R.nextDouble() * Math.PI * 2;
