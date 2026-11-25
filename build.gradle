@@ -114,6 +114,9 @@ tasks.register("prodMeraGallery", net.fabricmc.loom.task.prod.ClientProductionRu
 	programArgs.addAll("--quickPlaySingleplayer", "Prueba")
 	// -Pnoche=true: la galería a medianoche
 	if (project.hasProperty("noche")) jvmArgs.add("-Dopeope.gallery.noche=true")
+	// -Pancho=1920 -Palto=1080: la ventana de la galería a otro tamaño (para medir los fotogramas)
+	if (project.hasProperty("ancho")) jvmArgs.add("-Dopeope.gallery.ancho=${project.ancho}")
+	if (project.hasProperty("alto")) jvmArgs.add("-Dopeope.gallery.alto=${project.alto}")
 	// ya hay un Xvfb de 1280x720 en la pantalla :99; con xvfb-run se abriría otra, de otro tamaño
 	useXVFB = false
 }

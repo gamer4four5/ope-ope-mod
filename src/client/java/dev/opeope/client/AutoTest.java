@@ -446,7 +446,8 @@ public final class AutoTest {
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
 		if (gallery == null) gallery = MERA ? meraShots() : galleryShots();
 		if (g == 0) {
-			mc.getWindow().setWindowedSize(1280, 720);
+			// -Dopeope.gallery.ancho y .alto: otro tamaño de ventana, para medir los fotogramas al tamaño de la pantalla
+			mc.getWindow().setWindowedSize(Integer.getInteger("opeope.gallery.ancho", 1280), Integer.getInteger("opeope.gallery.alto", 720));
 			if (!framesHooked) {
 				framesHooked = true;
 				net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.END.register(ctx -> frames++);
