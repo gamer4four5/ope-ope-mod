@@ -130,11 +130,45 @@ jobs:
           done
           ls capturas/mera | wc -l
           grep -E "AUTOTEST galería|Exception|Error" galeria-mera.log | tail -120 || true
+      - name: Galería de la Mera con un shaderpack (Iris + Sodium + Photon)
+        # solo si el commit lo pide con [iris]: así se ve el fuego 3D con el shaderpack que usa el jugador
+        if: ${{ !cancelled() && startsWith(github.ref_name, 'mera-') && contains(github.event.head_commit.message, '[iris]') }}
+        continue-on-error: true
+        run: |
+          export DISPLAY=:99
+          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
+          sleep 2
+          set +e
+          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
+          mkdir -p run/mods run/shaderpacks run/config capturas/mera-iris
+          API=https://api.modrinth.com/v2
+          Q='game_versions=%5B%221.21.1%22%5D&loaders=%5B%22fabric%22%5D'
+          # las últimas versiones estables para 1.21.1 (en desarrollo, Fabric las traduce al vuelo)
+          for p in sodium iris; do
+            URL=$(curl -fsSL "$API/project/$p/version?$Q" | jq -r '[.[] | select(.version_type == "release")][0].files | (map(select(.primary)) + .)[0].url')
+            echo "$p: $URL"
+            curl -fsSL -o "run/mods/${URL##*/}" "$URL"
+          done
+          URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
+          PACK="${URL##*/}"
+          echo "photon: $URL"
+          curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
+          printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
+          ls -la run/mods run/shaderpacks
+          timeout 900 ./gradlew runMeraGalleryClient --console=plain > galeria-mera-iris.log 2>&1
+          echo "exit=$?"
+          for f in run/screenshots/autotest-mera-*.png; do
+            [ -f "$f" ] || continue
+            convert "$f" -quality 88 "capturas/mera-iris/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera-iris/
+          done
+          ls capturas/mera-iris | wc -l
+          grep -E "AUTOTEST galería|Iris|Sodium|Mera:|Exception|Error|Incompatible|requires" galeria-mera-iris.log | head -150 || true
+          rm -rf run/mods run/config/iris.properties
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          cp -f compilar.log servidor.log cliente.log galeria.log galeria-mera.log /tmp/ci-logs/ 2>/dev/null || true
+          cp -f compilar.log servidor.log cliente.log galeria.log galeria-mera.log galeria-mera-iris.log /tmp/ci-logs/ 2>/dev/null || true
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
           # el jar de esta ejecución, para instalarlo sin iniciar sesión en GitHub (los artefactos la piden)
           JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v -- '-sources' | head -1 || true)
