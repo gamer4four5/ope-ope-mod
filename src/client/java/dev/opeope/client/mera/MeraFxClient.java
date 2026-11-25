@@ -434,19 +434,34 @@ public final class MeraFxClient {
 		RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
 		RenderSystem.setShaderTexture(0, ATLAS);
 		try {
-			// 1) humo y vapor (mezcla normal), 2) el cuerpo de las llamas en dos tonos (mezcla normal),
-			// 3) el resplandor de los núcleos, las chispas y las luciérnagas (aditiva)
+			// 1) el fuego, en 3D: bolas y lenguas sólidas que escriben profundidad (se tapan entre ellas y con el mundo)
 			RenderSystem.defaultBlendFunc();
+			RenderSystem.depthMask(true);
+			RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+			Flame3D.begin(BASE, plain);
+			flameTime = (float) (now % 1000.0);
+			BufferBuilder s3 = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+			for (int i = 0; i < count; i++) if (KIND[i] == FIRE || KIND[i] == GREEN || KIND[i] == TONGUE || KIND[i] == CORE) draw3D(s3, i);
+			var built3 = s3.endNullable();
+			if (built3 != null) BufferRenderer.drawWithGlobalProgram(built3);
+			RenderSystem.depthMask(false);
+
+			// 2) humo y vapor (suaves, mezcla normal)
+			RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+			RenderSystem.setShaderTexture(0, ATLAS);
 			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);
-			for (int i = 0; i < count; i++) if (KIND[i] == FIRE || KIND[i] == GREEN || KIND[i] == TONGUE || KIND[i] == CORE) drawPuff(b, i);
 			NEAR = 1f;
 			var built = b.endNullable();
 			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 
 			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
 			BufferBuilder g = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-			for (int i = 0; i < count; i++) if (KIND[i] == GLOW || KIND[i] == FLY || KIND[i] == SPARK) drawPuff(g, i);
+			for (int i = 0; i < count; i++) {
+				byte k = KIND[i];
+				if (k == GLOW || k == FLY || k == SPARK) drawPuff(g, i);
+				else if (k == CORE || (k == FIRE && SIZE[i] > 0.3f)) bloom(g, i);   // el calor alrededor del fuego
+			}
 			NEAR = 1f;
 			var builtG = g.endNullable();
 			if (builtG != null) BufferRenderer.drawWithGlobalProgram(builtG);
@@ -635,6 +650,60 @@ public final class MeraFxClient {
 
 	// ------------------------------------------------------------------ dibujar una llama
 
+	private static float flameTime;
+
+	/** Tamaño de una llama 3D a lo largo de su vida: nace rápido, crece y al final se encoge hasta desaparecer. */
+	private static float life3D(int i, float t) {
+		float g = t < 0.07f ? t / 0.07f : 1f;
+		float shrink = t > 0.45f ? 1f - (t - 0.45f) / 0.55f : 1f;
+		return SIZE[i] * (0.6f + 0.6f * (float) Math.sqrt(t)) * g * (float) Math.sqrt(Math.max(0f, shrink));
+	}
+
+	/** Una llama como cuerpo 3D (bola en punta o lengua que se retuerce). */
+	private static void draw3D(BufferBuilder b, int i) {
+		float t = AGE[i] / LIFE[i];
+		byte k = KIND[i];
+		float x = (float) (PX[i] + ox - camX), y = (float) (PY[i] + oy - camY), z = (float) (PZ[i] + oz - camZ);
+		float s = life3D(i, t);
+		if (s < 0.012f) return;
+		float d = (float) Math.sqrt(x * x + y * y + z * z);
+		// detrás de la cámara, o la cámara dentro de la llama: nada (no tapa la pantalla)
+		if (x * fx + y * fy + z * fz < -s - 0.5f) return;
+		if (d < s * 1.15f + 0.35f) return;
+		float vx = VX[i], vy = VY[i], vz = VZ[i];
+		float sp = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+		float seed = ROT[i] * 3.1f;
+		switch (k) {
+			case TONGUE -> {
+				float len = s * (2.1f + Math.min(1.6f, sp * 0.12f));
+				Flame3D.tongue(b, x, y, z, s * 0.62f, len, vx, vy + 2.2f, vz, seed, flameTime,
+					fireInner(t * 0.7f), fireOuter(t * 0.45f), fireOuter(Math.min(1f, t + 0.3f)));
+			}
+			case CORE -> Flame3D.blob(b, x, y, z, s * 0.85f, vx, vy + 1.5f, vz, 0.35f, 0.18f, seed, flameTime, s > 0.3f,
+				hotInner(t), fireInner(t + 0.25f), fireOuter(t * 0.6f));
+			case GREEN -> Flame3D.blob(b, x, y, z, s * 0.8f, vx, vy + 1.5f, vz, 0.6f, 0.2f, seed, flameTime, s > 0.35f,
+				greenInner(t), Flame3D.lerp(greenInner(t), greenOuter(t), 0.55f), greenOuter(t));
+			default -> {   // FIRE
+				float stretch = 0.75f + Math.min(1.1f, sp * 0.12f);
+				Flame3D.blob(b, x, y, z, s * 0.8f, vx, vy + 2.4f, vz, stretch, 0.28f, seed, flameTime, s > 0.32f,
+					fireInner(t * 0.8f), fireOuter(t * 0.5f), fireOuter(Math.min(1f, t + 0.3f)));
+			}
+		}
+	}
+
+	/** Un resplandor suave y aditivo alrededor de las llamas grandes: el calor que las rodea. */
+	private static void bloom(BufferBuilder b, int i) {
+		float t = AGE[i] / LIFE[i];
+		float x = (float) (PX[i] + ox - camX), y = (float) (PY[i] + oy - camY), z = (float) (PZ[i] + oz - camZ);
+		float s = life3D(i, t) * (KIND[i] == CORE ? 2.6f : 2.0f);
+		if (s < 0.02f) return;
+		if (x * fx + y * fy + z * fz < -0.5f) return;
+		float d = (float) Math.sqrt(x * x + y * y + z * z);
+		NEAR = MathHelper.clamp((d - s) / (s + 1f), 0f, 1f);   // dentro del resplandor no se ve: no ciega
+		if (NEAR <= 0.01f) return;
+		quad(b, x, y, z, s, 0f, (byte) 3, KIND[i] == CORE ? 0xFFB040 : 0xFF6A18, (KIND[i] == CORE ? 0.3f : 0.14f) * (1f - t));
+	}
+
 	private static void drawPuff(BufferBuilder b, int i) {
 		float t = AGE[i] / LIFE[i];
 		byte k = KIND[i];
@@ -682,6 +751,7 @@ public final class MeraFxClient {
 			}
 			default -> {   // GLOW, FLY
 				s = SIZE[i] * (k == FLY ? 1f : (0.8f + 0.5f * t));
+				if (k == GLOW) NEAR = Math.min(NEAR, MathHelper.clamp((d - s * 0.8f) / (s + 1f), 0f, 1f));
 				alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t * t);
 				quad(b, x, y, z, s, 0f, (byte) 3, rgb(CR[i], CG[i], CB[i]), alpha * 0.85f);
 			}
