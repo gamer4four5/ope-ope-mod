@@ -279,11 +279,14 @@ public final class MeraPowers {
 				if (!sp.isTouchingWater() && !(le instanceof ArmorStandEntity)) {
 					float full = MathHelper.clamp(sp.getAttackCooldownProgress(0.5f), 0.25f, 1f);
 					Vec3d look = sp.getRotationVec(1f);
-					hurt(le, sp, (st.fireBody ? 9f : 6f) * full, st.fireBody ? 8f : 5f);
-					double kb = (st.fireBody ? 0.75 : 0.45) * full;
-					le.addVelocity(look.x * kb, 0.1 + kb * 0.25, look.z * kb);
-					le.velocityModified = true;
 					Vec3d at = le.getPos().add(0, le.getHeight() * 0.6, 0);
+					if (hurt(le, sp, (st.fireBody ? 9f : 6f) * full, st.fireBody ? 8f : 5f)) {
+						double kb = (st.fireBody ? 0.75 : 0.45) * full;
+						le.addVelocity(look.x * kb, 0.1 + kb * 0.25, look.z * kb);
+						le.velocityModified = true;
+						// (el golpe de Minecraft que viene detrás ya no entra: sonaría a golpe fallado)
+						snd(sp.getServerWorld(), at, SoundEvents.ENTITY_PLAYER_ATTACK_STRONG, 0.9f, 0.85f);
+					}
 					send(sp.getServerWorld(), MeraFx.PUNCH, sp.getId(), 0, at, sp.getRotationVec(1f), 0.8f, st.fireBody ? 1.4f : 1f, 8, 0);
 					snd(sp.getServerWorld(), at, SoundEvents.ITEM_FIRECHARGE_USE, 0.5f, 1.5f);
 				}
