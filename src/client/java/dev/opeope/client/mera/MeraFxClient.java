@@ -682,25 +682,25 @@ public final class MeraFxClient {
 		float d = (float) Math.sqrt(x * x + y * y + z * z);
 		// detrás de la cámara o pegada a ella: nada (el fuego no tapa la pantalla aunque estés dentro del sol)
 		if (x * fx + y * fy + z * fz < -s - 0.5f) return;
-		if (d < 1.4f + s * 0.6f) return;
+		if (d < 2.0f + s * 0.6f) return;
 		if (k == CORE && d < 2.6f + s) return;   // dentro del sol de Entei: hueco, se sigue viendo alrededor
-		if (d < 3.2f) s *= (d - 1.4f - s * 0.6f) / (1.8f - s * 0.6f) * 0.6f + 0.4f;
+		if (d < 4.5f) s *= MathHelper.clamp((d - 2.0f - s * 0.6f) / 2.5f, 0f, 1f) * 0.65f + 0.35f;
 		float vx = VX[i], vy = VY[i], vz = VZ[i];
 		float sp = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
 		float seed = ROT[i] * 3.1f;
-		boolean hi = s > 0.16f;
+		boolean hi = s > 0.1f;
 		switch (k) {
 			case TONGUE -> {
 				float len = s * (2.1f + Math.min(1.6f, sp * 0.12f));
 				Flame3D.tongue(b, x, y, z, s * 0.55f, len, vx, vy + 2.2f, vz, seed, flameTime, in3(t), mid3(t), out3(t));
 			}
-			case CORE -> Flame3D.blob(b, x, y, z, s * 0.7f, vx, vy + 1.5f, vz, 0.3f, 0.14f, seed, flameTime, hi,
+			case CORE -> Flame3D.blob(b, x, y, z, s * 0.7f, vx, vy + 1.5f, vz, 0.25f, 0.1f, seed, flameTime, hi,
 				0xFFFFF0, in3(t), mid3(t));
 			case GREEN -> Flame3D.blob(b, x, y, z, s * 0.65f, vx, vy + 1.5f, vz, 0.6f, 0.16f, seed, flameTime, hi,
 				greenInner(t), Flame3D.lerp(greenInner(t), greenOuter(t), 0.55f), greenOuter(t));
 			default -> {   // FIRE
-				float stretch = 0.8f + Math.min(1.1f, sp * 0.12f);
-				Flame3D.blob(b, x, y, z, s * 0.62f, vx, vy + 2.4f, vz, stretch, 0.2f, seed, flameTime, hi,
+				float stretch = 0.45f + Math.min(0.45f, sp * 0.05f);
+				Flame3D.blob(b, x, y, z, s * 0.6f, vx, vy + 2.4f, vz, stretch, 0.12f, seed, flameTime, hi,
 					in3(t), mid3(t), out3(t));
 			}
 		}

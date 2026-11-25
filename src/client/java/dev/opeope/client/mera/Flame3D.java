@@ -169,7 +169,7 @@ final class Flame3D {
 				+ 0.25f * MathHelper.sin(uz * 3.7f + ux * 2.2f + t3);
 			float along = ux * dx + uy * dy + uz * dz;
 			float r = s * (1f + wobble * noise) * (along < 0 ? 1f + 0.12f * along : 1f);
-			float pull = along > 0 ? s * stretch * along * along * (1f + 0.25f * noise) : 0f;
+			float pull = along > 0 ? s * stretch * along * along * along * (1f + 0.15f * noise) : 0f;
 			float px = x + ux * r + dx * pull, py = y + uy * r + dy * pull, pz = z + uz * r + dz * pull;
 			WX[k] = px;
 			WY[k] = py;
