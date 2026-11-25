@@ -104,6 +104,7 @@ public final class MeraVolumes {
 	public static void begin() {
 		n = 0;
 		nl = 0;
+		last = -1;
 		depthFresh = false;
 		if (diagArm) lastDiag = "sin volúmenes";
 	}
@@ -117,7 +118,10 @@ public final class MeraVolumes {
 	 * Las formas «de pie» (columna, cerco, muro, llama, bola) usan dir horizontal: su +Y queda vertical.
 	 */
 	public static void add(int shape, Vec3d c, Vec3d dir, float p0, float p1, float p2, float p3, int seed, float intensity) {
-		if (n >= MAXV || intensity <= 0.003f) return;
+		if (n >= MAXV || intensity <= 0.003f) {
+			last = -1;
+			return;
+		}
 		double dx = dir.x, dy = dir.y, dz = dir.z;
 		double l = Math.sqrt(dx * dx + dy * dy + dz * dz);
 		if (l < 1e-6) {
@@ -142,6 +146,7 @@ public final class MeraVolumes {
 		xz /= xl;
 		double yx = dy * xz - dz * xy, yy = dz * xx - dx * xz, yz = dx * xy - dy * xx;
 		int i = n++;
+		last = i;
 		CX[i] = c.x;
 		CY[i] = c.y;
 		CZ[i] = c.z;
@@ -174,8 +179,11 @@ public final class MeraVolumes {
 	 * sale de la mano en primera persona no tapa la vista).
 	 */
 	public static void nearFade(float blocks) {
-		if (n > 0) INFO[n - 1][3] = Math.max(0f, blocks);
+		// (si el último no entró, por estar lleno o casi apagado, a ningún otro)
+		if (last >= 0) INFO[last][3] = Math.max(0f, blocks);
 	}
+
+	private static int last = -1;
 
 	/**
 	 * El radio de la esfera que envuelve cada forma, con margen para las lenguas de fuego y el resplandor. Es el mismo
