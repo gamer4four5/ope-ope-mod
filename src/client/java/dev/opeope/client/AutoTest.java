@@ -244,6 +244,9 @@ public final class AutoTest {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.player == null) return;
 		int id = mc.player.getId();
+		// el golpe llega en primera persona: así la captura «-a» (4 ticks después) ve la llamarada de lo que te atraviesa
+		// (si llegaba en tercera persona, de la escena anterior, la llamarada ni se encendía)
+		if (r == 7) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
 		if (r == 8 + 30) {
 			// (el dibujo con el hueco más abierto de toda la escena: en primera persona el cuerpo solo se dibuja en las
 			// capturas de fuera, y en la CI salen tarde; mirar el dibujo de un tick fijo fallaba allí con 0 de 0)
