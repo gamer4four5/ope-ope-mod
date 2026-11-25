@@ -1,6 +1,5 @@
 package dev.opeope.client.mera;
 
-import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.opeope.OpeOpeMod;
 import dev.opeope.client.config.OpeSettings;
@@ -535,7 +534,9 @@ public final class MeraFxClient {
 
 		AbstractTexture tex = mc.getTextureManager().getTexture(ATLAS);
 		tex.setFilter(true, false);
-		RenderSystem.enableBlend();
+		// (la mezcla, encendida de verdad: con un shaderpack la copia del estado que guarda Minecraft puede decir que ya
+		// lo está sin estarlo, y sin fuego 3D delante las luciérnagas salían como discos opacos de borde duro)
+		MeraVolumes.blendNormal();
 		RenderSystem.disableCull();
 		RenderSystem.enableDepthTest();
 		RenderSystem.depthMask(false);
@@ -545,7 +546,6 @@ public final class MeraFxClient {
 		int tex1 = RenderSystem.getShaderTexture(1);
 		try {
 			// 1) el fuego, en 3D: bolas y lenguas sólidas que escriben profundidad (se tapan entre ellas y con el mundo)
-			RenderSystem.defaultBlendFunc();
 			if (!embers) {
 				RenderSystem.depthMask(true);
 				RenderSystem.setShader(GameRenderer::getPositionColorProgram);
@@ -571,7 +571,7 @@ public final class MeraFxClient {
 			var built = b.endNullable();
 			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
 
-			RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
+			MeraVolumes.blendAdd();
 			// (los resplandores y las brasas, más cerca: son pequeños)
 			MeraVolumes.spriteSoft(0.2f);
 			BufferBuilder g = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
@@ -734,6 +734,20 @@ public final class MeraFxClient {
 	private static void core(double x, double y, double z, double vx, double vy, double vz, float size, float life) {
 		if (thin < 1f && R.nextFloat() > thin) return;
 		spawn(CORE, x, y, z, vx, vy, vz, size, life);
+	}
+
+	/**
+	 * Suelta algo quieto que dura exactamente este fotograma y se dibuja una vez, con su brillo entero (lo que se pone en
+	 * cada fotograma en un sitio que se va moviendo: el punto de luz de una luciérnaga). Devuelve su índice (−1 si no cabe).
+	 */
+	private static int spawnFrame(byte kind, double x, double y, double z, float size, double dt) {
+		int i = spawn(kind, x, y, z, 0, 0, 0, size, 0.05f);
+		if (i < 0) return -1;
+		// (la simulación de este mismo fotograma le suma dt: queda al 40 % de su vida, y en el siguiente se va)
+		float life = (float) Math.max(0.008, dt * 1.6);
+		LIFE[i] = life;
+		AGE[i] = (float) (0.4 * life - dt);
+		return i;
 	}
 
 	private static void glow(double x, double y, double z, double vx, double vy, double vz, float size, float life, float r, float g, float bl) {
@@ -1445,6 +1459,8 @@ public final class MeraFxClient {
 			}
 			default -> {   // GLOW, FLY
 				s = SIZE[i] * (k == FLY ? 1f : (0.8f + 0.5f * t));
+				// (el punto de luz de una luciérnaga, nunca más de unos grados: junto a la cámara era un disco enorme)
+				if (k == FLY) s = Math.min(s, 0.07f * d + 0.02f);
 				if (k == GLOW) NEAR = Math.min(NEAR, MathHelper.clamp((d - s * 0.8f) / (s + 1f), 0f, 1f));
 				alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t * t);
 				quad(b, x, y, z, s, 0f, (byte) 3, rgb(CR[i], CG[i], CB[i]), alpha * 0.85f);
@@ -1464,7 +1480,10 @@ public final class MeraFxClient {
 		float d = (float) Math.sqrt(x * x + y * y + z * z);
 		NEAR = MathHelper.clamp((d - 0.35f) / 0.9f, 0f, 1f);
 		float alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t * t);
-		float s = SIZE[i] * (2.6f + 0.1f * Math.min(d, 20f));
+		// (nunca más ancho que una docena de grados, y a menos de dos bloques y medio se va apagando: al salir de la
+		// mano, en primera persona, las veintidós a la vez teñían la pantalla entera de verde)
+		float s = Math.min(SIZE[i] * (2.6f + 0.1f * Math.min(d, 20f)), 0.2f * d + 0.05f);
+		alpha *= MathHelper.clamp((d - 0.8f) / 1.7f, 0f, 1f);
 		// (CR..CB: el color de la luciérnaga, ya con su desvanecido; el halo, de un verde más hondo)
 		float k = Math.max(CG[i], 1e-3f);
 		quad(b, x, y, z, s, 0f, (byte) 3, rgb(0.42f, 0.9f, 0.16f), alpha * 0.55f * k);
@@ -1842,7 +1861,16 @@ public final class MeraFxClient {
 				for (int i = 0; i < n; i++) {
 					spawn(u < 0.6 ? GREEN : FIRE, p.x + rs() * 0.06, p.y + rs() * 0.06, p.z + rs() * 0.06, rs() * 0.3, 0.3, rs() * 0.3, 0.13f, 0.22f);
 				}
-				glow(p.x, p.y, p.z, 0, 0, 0, 0.5f, 0.06f, 0.85f, 1f, 0.4f);
+				// la luciérnaga que vuela a su víctima: su luz verde con el halo, como las que flotan, que al llegar se
+				// vuelve naranja (antes, un resplandor de 0,06 s: a pocos fotogramas por segundo no llegaba a dibujarse
+				// y a 60 eran tres o cuatro encima, quemados a blanco)
+				int hf = spawnFrame(FLY, p.x, p.y, p.z, 0.36f, dt);
+				if (hf >= 0) {
+					float hot = (float) MathHelper.clamp((u - 0.55) / 0.35, 0, 1);
+					CR[hf] = MathHelper.lerp(hot, 0.75f, 1f);
+					CG[hf] = MathHelper.lerp(hot, 1f, 0.72f);
+					CB[hf] = MathHelper.lerp(hot, 0.3f, 0.2f);
+				}
 				return true;
 			}
 			case MeraFx.KYOKAEN -> {
@@ -2377,12 +2405,11 @@ public final class MeraFxClient {
 			Vec3d p = fireflyPos(f, i, now);
 			// el parpadeo de una luciérnaga
 			float blink = 0.55f + 0.45f * (float) Math.sin(now * (5 + i % 4) + i * 1.7);
-			// (el punto de luz dura un fotograma y se dibuja una vez, con su brillo entero: antes nacía con 0,05 s de vida
-			// y, a menos de 20 fotogramas por segundo, moría en el mismo fotograma sin llegar a dibujarse)
-			float life = (float) Math.max(0.05, dt * 1.6);
-			int fi = spawn(FLY, p.x, p.y, p.z, 0, 0, 0, 0.32f * (0.7f + 0.6f * blink), life);
+			// (el punto de luz dura un fotograma y se dibuja una vez, con su brillo entero, a cualquier velocidad: con
+			// 0,05 s de vida fijos, a menos de 20 fotogramas por segundo moría sin llegar a dibujarse, y a 60 se
+			// dibujaban dos o tres uno encima de otro, quemados a blanco)
+			int fi = spawnFrame(FLY, p.x, p.y, p.z, 0.32f * (0.7f + 0.6f * blink), dt);
 			if (fi >= 0) {
-				AGE[fi] = (float) (0.4 * life - dt);
 				CR[fi] = 0.75f * fade;
 				CG[fi] = 1f * fade;
 				CB[fi] = 0.3f * fade;
@@ -2390,11 +2417,8 @@ public final class MeraFxClient {
 			if (R.nextFloat() < dt * 22 * density * fade) {
 				spawn(GREEN, p.x + rs() * 0.04, p.y, p.z + rs() * 0.04, rs() * 0.2, 0.25, rs() * 0.2, 0.11f * (0.8f + blink * 0.4f), 0.35f);
 			}
-			int ci = spawn(GREEN, p.x, p.y, p.z, 0, 0, 0, 0.12f * (0.8f + 0.4f * blink) * Math.max(0.2f, fade), life);
-			if (ci >= 0) {
-				LIFT[ci] = 0f;
-				AGE[ci] = (float) (0.4 * life - dt);
-			}
+			int ci = spawnFrame(GREEN, p.x, p.y, p.z, 0.12f * (0.8f + 0.4f * blink) * Math.max(0.2f, fade), dt);
+			if (ci >= 0) LIFT[ci] = 0f;
 		}
 		return true;
 	}

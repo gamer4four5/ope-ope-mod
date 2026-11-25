@@ -527,6 +527,7 @@ public final class MeraVolumes {
 		// si no se puede copiar la imagen: color = mundo × 2·salida (la salida va de 0,5 a 1), en tramos de ×2
 		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.SRC_COLOR,
 			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
+		GL14.glBlendFuncSeparate(GL11.GL_DST_COLOR, GL11.GL_SRC_COLOR, GL11.GL_ZERO, GL11.GL_ONE);
 		double e = Math.sqrt(e2) * gain;
 		double most = 1 + e / (1 + 0.12 * e);
 		int passes = most <= 2.02 ? 1 : most <= 4.04 ? 2 : 3;
@@ -536,6 +537,7 @@ public final class MeraVolumes {
 			if (p == passes) {
 				RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE,
 					GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
+				GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ONE, GL11.GL_ZERO, GL11.GL_ONE);
 			}
 			vec(lp, "LightPass", p == passes ? 3 : p);
 			lightBox(x0, y0, z0, x1, y1, z1);
@@ -847,6 +849,38 @@ public final class MeraVolumes {
 		draw();
 	}
 
+	/**
+	 * Enciende la mezcla (y pone sus factores) de verdad, en OpenGL, y no solo en la copia del estado que guarda Minecraft.
+	 * Con un shaderpack, Iris apaga o cambia la mezcla de un buffer suelto (glDisablei, glBlendFuncSeparatei) sin pasar por
+	 * esa copia: Minecraft cree que sigue encendida, enableBlend() no hace nada y lo translúcido se dibuja opaco. Así
+	 * salían con Photon las luciérnagas de Hotarubi, como discos blancos enormes de borde duro: son lo único que se dibuja
+	 * sin fuego 3D delante, que era quien, de paso, la apagaba y la encendía de verdad. Las llamadas de OpenGL sin índice
+	 * valen para todos los buffers.
+	 */
+	static void blendNormal() {
+		RenderSystem.enableBlend();
+		RenderSystem.defaultBlendFunc();
+		GL11.glEnable(GL11.GL_BLEND);
+		GL14.glBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
+	}
+
+	/** Lo mismo, sumando (resplandores, chispas y brasas). */
+	static void blendAdd() {
+		RenderSystem.enableBlend();
+		RenderSystem.blendFunc(GlStateManager.SrcFactor.SRC_ALPHA, GlStateManager.DstFactor.ONE);
+		GL11.glEnable(GL11.GL_BLEND);
+		GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
+	}
+
+	/** Lo mismo, con el alfa ya multiplicado (el fuego 3D). */
+	private static void blendPremul() {
+		RenderSystem.enableBlend();
+		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE_MINUS_SRC_ALPHA,
+			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
+		GL11.glEnable(GL11.GL_BLEND);
+		GL14.glBlendFuncSeparate(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ZERO, GL11.GL_ONE);
+	}
+
 	private static void draw() {
 		double camX = camX0, camY = camY0, camZ = camZ0;
 		int w = viewW, h = viewH;
@@ -868,7 +902,7 @@ public final class MeraVolumes {
 		}
 
 		ShaderProgram sp = program;
-		RenderSystem.enableBlend();
+		blendNormal();
 		RenderSystem.disableDepthTest();
 		RenderSystem.depthMask(false);
 		RenderSystem.disableCull();
@@ -880,8 +914,7 @@ public final class MeraVolumes {
 			if (diag) diagColors(DC1);
 			RenderSystem.setShader(() -> sp);
 			RenderSystem.setShaderTexture(0, depthTex);
-			RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE_MINUS_SRC_ALPHA,
-				GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
+			blendPremul();
 			mat(sp, "ViewProj", VP);
 			mat(sp, "InvViewProj", INV);
 			vec(sp, "ViewSize", w, h);

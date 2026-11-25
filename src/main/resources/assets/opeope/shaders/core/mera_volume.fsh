@@ -655,6 +655,16 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         // el detalle más fino solo donde cabe en la pantalla: de lejos, más pequeño que dos o tres píxeles, se
         // volvía un muaré (vetas como de madera en la columna de Hibashira)
         float aa = t * pixAng / L;
+        // la columna de Hibashira vista de lejos (por fuera): las bolsas de la masa, casi el doble de grandes. Con las
+        // pequeñas, a más de diez bloques la columna parecía una textura de lava agrietada o la corteza de un árbol,
+        // no fuego que sube; de cerca siguen como estaban (son dos ruidos fijos en el mundo y solo cambia la mezcla,
+        // así que al acercarse no se mueve nada)
+        float farP = ((shape > 1.5 && shape < 2.5) ? 1.0 - selfPil : 0.0) * smoothstep(0.040, 0.085, aa);
+        if (farP > 0.001 && w < 0.995) {
+            float tb2 = 0.35; float bh2 = 0.0;
+            mf_billow(nb * vec3(0.545, 0.60, 0.545) + so.yzx, tm * 0.6, tb2, bh2);
+            tb = mix(tb, tb2, farP); bhi = mix(bhi, bh2, farP);
+        }
         hi *= 1.0 - smoothstep(0.035, 0.12, aa);
         bhi *= 1.0 - smoothstep(0.08, 0.22, aa);
         float blo = tb - 0.35;
@@ -714,7 +724,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             temp += 0.45 * (tb - 0.35) * (1.0 - w);
             // la columna: vetas calientes que suben y surcos más oscuros entre ellas (no una pared lisa)
             float isPil = (shape > 1.5 && shape < 2.5) ? 1.0 : 0.0;
-            temp += isPil * (0.55 * (tb - 0.35) - 0.12 * bhi);
+            // (de lejos con menos contraste: allí las bolsas ya son grandes y se leen solas)
+            temp += isPil * (mix(0.55, 0.30, farP) * (tb - 0.35) - 0.12 * bhi);
             // las cortinas (el muro y el cerco de Enjōmō): igual, y la base, donde nace el fuego, más caliente
             float isCur = (shape > 3.5 && shape < 4.5) ? 1.0 : ((shape > 2.5 && shape < 3.5) ? clamp(prm.w, 0.0, 1.0) : 0.0);
             temp += isCur * (0.45 * (tb - 0.35) - 0.10 * bhi + 0.22 * (1.0 - smoothstep(0.0, 0.40, u)));
