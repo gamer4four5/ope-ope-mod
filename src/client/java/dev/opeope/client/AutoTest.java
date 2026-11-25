@@ -532,6 +532,19 @@ public final class AutoTest {
 		}
 		if (MERA) meraRelease(srv, id, s.name(), r);
 		if (r == 8 + 20 && MERA) OpeOpeMod.LOG.info("AUTOTEST galería {} fx: {}", s.name(), dev.opeope.client.mera.MeraFxClient.debug());
+		// el fuego que dejan las técnicas en el suelo: el de Ace (dibujado en 3D, se apaga solo), no las láminas de Minecraft
+		if (r == 8 + 80 && MERA) server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			BlockPos c = sp.getBlockPos();
+			int mine = 0, vanilla = 0;
+			for (BlockPos bp : BlockPos.iterate(c.add(-24, -6, -24), c.add(24, 10, 24))) {
+				BlockState st = w.getBlockState(bp);
+				if (st.isOf(dev.opeope.registry.ModBlocks.MERA_FIRE)) mine++;
+				else if (st.isOf(Blocks.FIRE)) vanilla++;
+			}
+			OpeOpeMod.LOG.info("AUTOTEST galería {} fuego en el suelo: de Ace={} de Minecraft={}", s.name(), mine, vanilla);
+			if (s.name().equals("entei") && mine == 0) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: Entei no dejó fuego de Ace en el suelo");
+		});
 		if (!MERA && s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
 		// Scan otra vez con el Scan aún activo: Shambles a todo lo que llevan en las manos
 		if (s.name().equals("scan-robo") && r == 8 + 13) server(srv, id, (sp, pw) -> {
@@ -717,9 +730,12 @@ public final class AutoTest {
 		}
 		sp.networkHandler.requestTeleport(x0 + 0.5, fy + 1, z0 + 0.5, 0f, 0f);
 		PlayerPower pw = PowerManager.get(sp);
-		pw.room = new Room(w.getRegistryKey(), new Vec3d(x0 + 0.5, fy + 3, z0 + 8.5), 11);
-		pw.room.state = Room.State.FIXED;
-		PowerManager.broadcastRoom(sp, 0, pw.room);
+		// el ROOM es de Law: en la galería de Ace no (su cúpula tapaba las capturas de lejos)
+		if (!MERA) {
+			pw.room = new Room(w.getRegistryKey(), new Vec3d(x0 + 0.5, fy + 3, z0 + 8.5), 11);
+			pw.room.state = Room.State.FIXED;
+			PowerManager.broadcastRoom(sp, 0, pw.room);
+		}
 		OpeOpeMod.LOG.info("AUTOTEST escena lista en {} {} {}", x0, fy, z0);
 		gx0 = x0;
 		gfy = fy;

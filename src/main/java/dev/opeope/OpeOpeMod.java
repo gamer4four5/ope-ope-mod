@@ -3,6 +3,7 @@ package dev.opeope;
 import dev.opeope.net.Net;
 import dev.opeope.power.PowerManager;
 import dev.opeope.registry.ModAttachments;
+import dev.opeope.registry.ModBlocks;
 import dev.opeope.registry.ModCommands;
 import dev.opeope.registry.ModDamage;
 import dev.opeope.registry.ModEffects;
@@ -25,6 +26,7 @@ public class OpeOpeMod implements ModInitializer {
 	public void onInitialize() {
 		ModAttachments.init();
 		ModEffects.init();
+		ModBlocks.init();
 		ModItems.init();
 		ModEntities.init();
 		ModDamage.init();

@@ -23,7 +23,8 @@
     "VertexConsumerProviderImmediateMixin",
     "BipedEntityModelMixin",
     "FireBlockSmokeMixin",
-    "EntityFireMixin"
+    "EntityFireMixin",
+    "ClientWorldBlockMixin"
   ],
   "injectors": {
     "defaultRequire": 1

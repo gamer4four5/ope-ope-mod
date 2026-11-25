@@ -451,7 +451,7 @@ vec3 mf_bands(float t)
 
 // ---------------------------------------------------------------------
 vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
-              float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float thin)
+              float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float thin, float pixAng)
 {
     float flash = clamp(intensity - 1.0, 0.0, 1.0);   // destello del golpe
     intensity = clamp(intensity, 0.0, 1.0);
@@ -473,8 +473,12 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float isBall = (shape < 0.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
 
-    // entrada escalonada por píxel (interleaved gradient noise): sin cortes
-    float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    // entrada escalonada por píxel, sin cortes. Con un número sin patrón (antes, interleaved gradient noise: con
+    // una tarjeta de verdad su rejilla de puntos se veía como ondas en las zonas finas)
+    vec3 hq = fract(vec3(gl_FragCoord.xyx) * vec3(0.1031, 0.1030, 0.0973));
+    hq += dot(hq, hq.yzx + 33.33);
+    float jit = fract((hq.x + hq.y) * hq.z);
+    float kEnt = 0.0;
 
     float T = 1.0;
     vec3  col = vec3(0.0);
@@ -503,15 +507,27 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // espacio vacío: saltar hasta la envoltura (el halo, según lo cerca que pasa; no pegado a la cámara)
             if (t > 1.2 && d < minD) { minD = d; Lref = L; }
             t += max(dEnv * 0.85, stepIn * 0.5);
+            first = true;
             continue;
         }
-        if (first) { first = false; t += stepIn * jit; continue; }
+        if (first) {
+            // al entrar (y al volver a entrar), un trozo de paso distinto en cada píxel
+            first = false;
+            t += stepIn * fract(jit + 0.618034 * kEnt);
+            kEnt += 1.0;
+            continue;
+        }
 
         // ¿cuerpo (masa) o borde que se deshace (lenguas)?
         float w = smoothstep(0.55, 0.95, u) * (1.0 - cool);
         float tb = 0.35; float bhi = 0.0; float lo = 0.0; float hi = 0.0;
         if (w < 0.995) mf_billow(nb + so, tm * 0.6, tb, bhi);
         if (w > 0.005) mf_fbm2(nq * 1.15 + so.zxy, tm, lo, hi);
+        // el detalle más fino solo donde cabe en la pantalla: de lejos, más pequeño que dos o tres píxeles, se
+        // volvía un muaré (vetas como de madera en la columna de Hibashira)
+        float aa = t * pixAng / L;
+        hi *= 1.0 - smoothstep(0.035, 0.12, aa);
+        bhi *= 1.0 - smoothstep(0.08, 0.22, aa);
         float blo = tb - 0.35;
 
         // cuerpo: bolsas que empujan hacia fuera y pliegues que entran
@@ -660,6 +676,10 @@ void main() {
     vec2 ndc = uv * 2.0 - 1.0;
     vec3 ro = mfUnproject(ndc, -1.0);
     vec3 rd = normalize(mfUnproject(ndc, 1.0) - ro);
+    // lo que abarca un píxel (radianes): el detalle más fino que se puede dibujar sin muaré
+    vec2 ndc1 = ndc + vec2(2.0 / ViewSize.x, 0.0);
+    vec3 ro1 = mfUnproject(ndc1, -1.0);
+    float pixAng = length(normalize(mfUnproject(ndc1, 1.0) - ro1) - rd);
 
     // hasta dónde llega la mirada antes de chocar con el mundo
     float depth = texture(Sampler0, uv).r;
@@ -713,7 +733,7 @@ void main() {
         nearF = max(nearF, wc * max(rc - 0.21 * Rc, 0.0) * 1.6);
     }
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin);
+    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin, pixAng);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }

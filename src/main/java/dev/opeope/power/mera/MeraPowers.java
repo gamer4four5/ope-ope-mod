@@ -5,12 +5,12 @@ import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
 import dev.opeope.power.Tech;
 import dev.opeope.registry.ModAttachments;
+import dev.opeope.registry.ModBlocks;
 import dev.opeope.registry.ModDamage;
 import dev.opeope.registry.ModItems;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.block.AbstractFireBlock;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShapeContext;
@@ -45,7 +45,6 @@ import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameRules;
@@ -1096,8 +1095,9 @@ public final class MeraPowers {
 		snd(w, at, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 3f, 0.55f);
 		snd(w, at, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, 2.5f, 0.6f);
 		float power = (float) Math.min(7.0, 2.0 + r * 0.9);
-		// la explosión de verdad: respeta mobGriefing (sin él no rompe bloques ni prende fuego)
-		w.createExplosion(s.owner, burn(s.owner), null, at.x, at.y, at.z, power, griefing(w), World.ExplosionSourceType.MOB);
+		// la explosión de verdad: respeta mobGriefing (sin él no rompe bloques). El fuego lo pone igniteAround: el de Ace,
+		// en 3D, en vez de las láminas pixeladas que deja una explosión de Minecraft
+		w.createExplosion(s.owner, burn(s.owner), null, at.x, at.y, at.z, power, false, World.ExplosionSourceType.MOB);
 		igniteAround(w, at, area * 0.6, 0.18f);
 	}
 
@@ -1305,18 +1305,21 @@ public final class MeraPowers {
 		return w.getGameRules().getBoolean(GameRules.DO_MOB_GRIEFING);
 	}
 
-	/** Prende fuego por encima del suelo alrededor de c (solo con mobGriefing). */
+	/**
+	 * Prende fuego por encima del suelo alrededor de c (solo con mobGriefing): el fuego de Ace, que el cliente dibuja en
+	 * 3D y se apaga solo en unos segundos (lo que arde al lado sigue con el fuego de Minecraft).
+	 */
 	private static void igniteAround(ServerWorld w, Vec3d c, double r, float chance) {
 		if (!griefing(w)) return;
 		int ir = (int) Math.ceil(r);
 		BlockPos base = BlockPos.ofFloored(c);
+		BlockState fire = ModBlocks.MERA_FIRE.getDefaultState();
 		int placed = 0;
 		for (BlockPos bp : BlockPos.iterate(base.add(-ir, -ir, -ir), base.add(ir, ir, ir))) {
 			if (placed > 24) break;
 			if (bp.getSquaredDistance(c) > r * r || w.random.nextFloat() > chance) continue;
-			if (!w.getBlockState(bp).isAir()) continue;
-			if (!AbstractFireBlock.canPlaceAt(w, bp, Direction.UP)) continue;
-			w.setBlockState(bp, AbstractFireBlock.getState(w, bp), 11);
+			if (!w.getBlockState(bp).isAir() || !fire.canPlaceAt(w, bp)) continue;
+			w.setBlockState(bp, fire, 11);
 			placed++;
 		}
 	}

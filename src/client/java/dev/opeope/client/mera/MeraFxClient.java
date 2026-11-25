@@ -22,9 +22,16 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.texture.AbstractTexture;
+import it.unimi.dsi.fastutil.longs.Long2DoubleMap;
+import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import dev.opeope.registry.ModBlocks;
+import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.client.world.ClientWorld;
+import net.minecraft.util.math.Direction;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -445,6 +452,8 @@ public final class MeraFxClient {
 		else burnIds = NO_IDS;
 		// y los bloques de fuego cercanos: llamas 3D delante de sus láminas pixeladas
 		if (v3) emitFireBlocks(mc);
+		// el fuego que dejan las técnicas en el suelo (no tiene dibujo de bloque): llamas 3D que acaban en humo
+		emitMeraFire(mc, now, dt, v3);
 
 		simulate((float) dt);
 		boolean vols = MeraVolumes.count() > 0;
@@ -823,10 +832,14 @@ public final class MeraFxClient {
 			for (int z = bz - FB_RXZ; z <= bz + FB_RXZ; z++) {
 				for (int y = by - FB_RY; y <= by + FB_RY; y++) {
 					FB_POS.set(x, y, z);
-					if (w.getBlockState(FB_POS).isOf(Blocks.FIRE)) {
+					BlockState st = w.getBlockState(FB_POS);
+					if (st.isOf(Blocks.FIRE)) {
 						long l = FB_POS.asLong();
 						FB_SCAN.add(l);
 						FB_SEEN.add(l);
+					} else if (st.isOf(ModBlocks.MERA_FIRE)) {
+						// por si llegó con el trozo de mundo (sin aviso de cambio de bloque)
+						MF.putIfAbsent(FB_POS.asLong(), RoomFxClient.time() - 1.0);
 					}
 				}
 			}
@@ -884,6 +897,155 @@ public final class MeraFxClient {
 			float hgt = (floor ? 1.1f : 0.8f) + 0.4f * hsh;
 			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx + tx * 0.42, y + (floor ? 0.0 : 0.2), cz + tz * 0.42), FWD,
 				floor ? 0.55f : 0.42f, hgt, 0, 0, seed, 0.85f);
+		}
+	}
+
+	// ------------------------------------------------------------------ el fuego de Ace en el suelo
+
+	private static final int MF_MAX = 40;
+	private static final double MF_RANGE = 48, MF_FORGET = 96, MF_OUT_T = 0.45;
+	/** Los bloques de fuego de Ace (fuego_mera) conocidos: posición → cuándo prendieron (RoomFxClient.time). */
+	private static final Long2DoubleOpenHashMap MF = new Long2DoubleOpenHashMap();
+	/** Los que se acaban de apagar: posición → cuándo. La llama baja en un momento y queda el humo. */
+	private static final Long2DoubleOpenHashMap MF_OUT = new Long2DoubleOpenHashMap();
+	private static final long[] MF_PICK = new long[MF_MAX];
+	private static final double[] MF_D = new double[MF_MAX];
+	private static final BlockPos.Mutable MF_POS = new BlockPos.Mutable();
+	private static final Direction[] SIDES = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+	private static ClientWorld mfWorld;
+
+	/**
+	 * Desde ClientWorld#updateListeners (en el hilo del juego): un bloque cambió. Así se sabe al momento dónde prende y
+	 * dónde se apaga el fuego de Ace, sin buscarlo por el mundo.
+	 */
+	public static void blockChanged(ClientWorld w, BlockPos pos, BlockState oldState, BlockState newState) {
+		Block mera = ModBlocks.MERA_FIRE;
+		if (mera == null) return;
+		boolean was = oldState.isOf(mera), is = newState.isOf(mera);
+		if (was == is) return;
+		if (w != mfWorld) {
+			MF.clear();
+			MF_OUT.clear();
+			mfWorld = w;
+		}
+		long l = pos.asLong();
+		double now = RoomFxClient.time();
+		if (is) {
+			MF.put(l, now);
+			MF_OUT.remove(l);
+			return;
+		}
+		MF.remove(l);
+		MF_OUT.put(l, now);
+		// al apagarse queda humo (como el fuego de verdad: lo último que se ve es la columna de humo)
+		if (!originSet) return;
+		double x = pos.getX() + 0.5, y = pos.getY() + 0.35, z = pos.getZ() + 0.5;
+		for (int i = 0; i < 2; i++) {
+			smoke(x + rs() * 0.25, y + R.nextFloat() * 0.3, z + rs() * 0.25, rs() * 0.12, 0.55 + R.nextFloat() * 0.3, rs() * 0.12,
+				0.45f + R.nextFloat() * 0.25f, 2.6f + R.nextFloat() * 1.2f);
+		}
+	}
+
+	/**
+	 * El fuego que dejan las técnicas de Ace en el suelo (el bloque fuego_mera no tiene dibujo): una llama 3D por bloque,
+	 * los más cercanos a la cámara. Prende alta de golpe, se asienta y va bajando; al apagarse baja en un momento y
+	 * deja humo. Sin fuego 3D (shader apagado), llamas sueltas.
+	 */
+	private static void emitMeraFire(MinecraftClient mc, double now, double dt, boolean v3) {
+		ClientWorld w = mc.world;
+		if (w != mfWorld) {
+			MF.clear();
+			MF_OUT.clear();
+			mfWorld = w;
+		}
+		if (MF.isEmpty() && MF_OUT.isEmpty()) return;
+		Block mera = ModBlocks.MERA_FIRE;
+		int found = 0;
+		double r2 = MF_RANGE * MF_RANGE, f2 = MF_FORGET * MF_FORGET;
+		var it = MF.long2DoubleEntrySet().fastIterator();
+		while (it.hasNext()) {
+			Long2DoubleMap.Entry e = it.next();
+			long l = e.getLongKey();
+			MF_POS.set(l);
+			double dx = MF_POS.getX() + 0.5 - camX, dy = MF_POS.getY() + 0.5 - camY, dz = MF_POS.getZ() + 0.5 - camZ;
+			double d2 = dx * dx + dy * dy + dz * dz;
+			if (d2 > f2) {
+				// muy lejos: se olvida (si sigue ahí cuando vuelvas, la búsqueda de cerca lo encuentra)
+				it.remove();
+				continue;
+			}
+			if (d2 > r2) continue;
+			if (!w.getBlockState(MF_POS).isOf(mera)) {
+				it.remove();
+				continue;
+			}
+			int k = Math.min(found, MF_MAX - 1);
+			if (found == MF_MAX && d2 >= MF_D[k]) continue;
+			while (k > 0 && MF_D[k - 1] > d2) {
+				MF_PICK[k] = MF_PICK[k - 1];
+				MF_D[k] = MF_D[k - 1];
+				k--;
+			}
+			MF_PICK[k] = l;
+			MF_D[k] = d2;
+			if (found < MF_MAX) found++;
+		}
+		for (int i = 0; i < found; i++) {
+			long l = MF_PICK[i];
+			meraFlame(w, l, (float) (now - MF.get(l)), 1f, v3, dt);
+		}
+		if (MF_OUT.isEmpty()) return;
+		var out = MF_OUT.long2DoubleEntrySet().fastIterator();
+		while (out.hasNext()) {
+			Long2DoubleMap.Entry e = out.next();
+			double u = (now - e.getDoubleValue()) / MF_OUT_T;
+			if (u >= 1.0) {
+				out.remove();
+				continue;
+			}
+			MF_POS.set(e.getLongKey());
+			double dx = MF_POS.getX() + 0.5 - camX, dy = MF_POS.getY() + 0.5 - camY, dz = MF_POS.getZ() + 0.5 - camZ;
+			if (dx * dx + dy * dy + dz * dz > r2) continue;
+			float fade = (float) (1.0 - u);
+			meraFlame(w, e.getLongKey(), 3f, fade * fade, v3, dt);
+		}
+	}
+
+	/** La llama de un bloque de fuego de Ace (age: segundos desde que prendió; fade: 1 → 0 al apagarse). */
+	private static void meraFlame(ClientWorld w, long l, float age, float fade, boolean v3, double dt) {
+		MF_POS.set(l);
+		int x = MF_POS.getX(), y = MF_POS.getY(), z = MF_POS.getZ();
+		int seed = (int) (l ^ (l >>> 32)) * 31 + 11;
+		float hsh = ((seed * 0x9E3779B9) >>> 8) / 16777216f;
+		// en el suelo, desde abajo; sin suelo (pegada a algo que arde), un poco más arriba y arrimada a ese lado
+		MF_POS.set(x, y - 1, z);
+		boolean floor = w.getBlockState(MF_POS).isSideSolidFullSquare(w, MF_POS, Direction.UP);
+		double cx = x + 0.5, cy = y, cz = z + 0.5;
+		if (!floor) {
+			cy += 0.15;
+			for (Direction d : SIDES) {
+				MF_POS.set(x + d.getOffsetX(), y, z + d.getOffsetZ());
+				if (w.getBlockState(MF_POS).isBurnable()) {
+					cx += d.getOffsetX() * 0.3;
+					cz += d.getOffsetZ() * 0.3;
+					break;
+				}
+			}
+		}
+		// prende alta de golpe, se asienta y, con los segundos, va bajando
+		float grow = smooth(age / 0.22f);
+		float settle = 1f - 0.4f * smooth((age - 1.0f) / 4.0f);
+		float h = (floor ? 1.45f : 1.0f) * (0.8f + 0.45f * hsh) * (0.35f + 0.65f * grow) * settle * fade;
+		float rad = (floor ? 0.62f : 0.45f) * (0.85f + 0.3f * hsh) * (0.65f + 0.35f * grow);
+		if (h < 0.06f) return;
+		if (v3) {
+			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx, cy, cz), FWD, rad, h, 0, 0, seed, 0.92f * (0.35f + 0.65f * fade));
+			return;
+		}
+		// sin fuego 3D: llamas sueltas que suben del bloque
+		if (R.nextFloat() < dt * 16 * fade) {
+			fire(cx + rs() * rad * 0.5, cy + 0.05, cz + rs() * rad * 0.5, rs() * 0.08, 1.4 + R.nextFloat() * 0.6, rs() * 0.08,
+				0.3f + 0.15f * R.nextFloat(), 0.4f + 0.2f * R.nextFloat());
 		}
 	}
 
