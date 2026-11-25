@@ -54,7 +54,8 @@ out vec4 fragColor;
 //    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
 //    6 CROSS     x brazo, y grosor
 //    7 LANCE     x largo, y radio (la punta en +x/2, centrada)
-//    8 FLAME     x radio, y alto, z 1 = sale del suelo (la base, metida en él)
+//    8 FLAME     x radio, y alto, z 1 = sale del suelo (la base, metida en él: varias lenguas), w el
+//                ritmo de su vaivén 0..1 (cada llama a destiempo)
 // =====================================================================
 
 // ---------------------------------------------------------------------
@@ -213,12 +214,18 @@ float mf_sdFist(vec3 q)
 //   mf_dFar otra distancia segura, buena de lejos (-1e9 = ninguna)
 float mf_lip;
 float mf_dFar;
+// la columna de Hibashira vista desde el hueco (primera persona): el ruido de sus rendijas (mf_str) y cuánto se mete
+// cada punto en su banda de fuego, en grosores de pared (mf_core): el centro de cada lengua, más caliente
+float mf_str;
+float mf_core;
 
 void mf_shape(vec3 p, float shape, vec4 prm, float time,
               out float d, out float L, out float u, out vec3 nb, out vec3 nq, out float amp)
 {
     mf_lip = 1.0;
     mf_dFar = -1e9;
+    mf_str = 0.0;
+    mf_core = 0.0;
     if (shape < 0.5) {
         // ---------------- 0: BOLA / SOL / EXPLOSIÓN ----------------
         float R  = max(prm.x, 0.05);
@@ -282,15 +289,32 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float band2 = sin(9.0 * ang - p.y / R * 2.6 + time * 2.6);
         // (pegado al eje no: ahí dentro está Ace, y allí las bandas cambiarían demasiado deprisa)
         float g = smoothstep(0.22 * R, 0.55 * R, r);
-        float sy = smoothstep(0.4, 1.4, p.y) * g;
+        // desde el hueco (primera persona) las bandas bajan hasta el suelo: entre ellas se ve el suelo con llamas
+        // sueltas, no un anillo continuo que desde dentro parecía un charco de lava
+        float zS = clamp(prm.z, 0.0, 1.0);
+        float sy = smoothstep(0.4 - 0.6 * zS, 1.4 - 0.9 * zS, p.y) * g;
         // visto desde el hueco (prm.z = 1, la primera persona de Ace) los huecos entre las bandas son más anchos: se
         // ven las cintas de fuego subiendo alrededor y el mundo entre ellas, no una pantalla llena de fuego
-        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45 + 0.9 * clamp(prm.z, 0.0, 1.0)) * sy;
+        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45 + 0.7 * zS) * sy;
+        // y desde ahí la pared se rompe en lenguas que suben: un ruido sobre la superficie del cilindro (el mismo en todo
+        // el grosor, así las rendijas la atraviesan y se ve el mundo), estirado hacia arriba, que sube y gira con las
+        // bandas (si no, de cerca la pared parecía lava lisa)
+        float sy2 = smoothstep(-0.3, 0.5, p.y) * g;
+        float nS = 0.0;
+        if (zS > 0.001) {
+            vec2 sS = mf_rot(c, p.y / R * 0.32 - time * 0.8);
+            float n1 = mf_gnoise(vec3(sS / max(length(sS), 1e-3) * (R * 1.6), p.y * 0.45 - time * 1.6));
+            mf_str = n1;
+            nS = zS * 1.2;
+            d += th * nS * (-0.1 - n1) * sy2;
+            mf_core = (d0 - d) / th;
+        }
         float yCut = max(p.y - H, -p.y - 0.3 * R);
         d = max(d, yCut);
         // las bandas acercan la pared como mucho 1.45 th, y cambian hasta (1.35*5 + 0.55*9)·th/r por bloque
-        mf_lip = 1.0 + th * (7.0 * sy / max(r, 0.22 * R) + 9.0 * g * (1.0 - g) / R);
-        mf_dFar = max(d0 - 1.45 * th * sy, yCut);
+        // (y ese ruido, hasta 1.1·nS·th más, y cambia hasta 2.5·1.6·R/r·nS·th por bloque)
+        mf_lip = 1.0 + th * (7.0 * sy / max(r, 0.22 * R) + 9.0 * g * (1.0 - g) / R + nS * sy2 * 4.0 * R / max(r, 0.3 * R));
+        mf_dFar = max(d0 - (1.45 * sy + 1.1 * nS * sy2) * th, yCut);
         L = clamp(th * 0.30, 0.18, 0.40);
         u = p.y / H;
         // el remolino: el ruido gira alrededor del eje, se tuerce en hélice y se estira hacia arriba (vetas)
@@ -409,27 +433,53 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
     else {
         // ---------------- 8: LLAMA (pequeña, natural) ----------------
         // una lágrima más fina y alta que se abre arriba en dos o tres puntas (antes, de cerca, bolas redondas). La
-        // que sale del suelo (z = 1) tiene la base metida en él: nace ancha del suelo, no es una bola apoyada encima
+        // que sale del suelo (z = 1) son varias lenguas de distinta altura que nacen juntas del suelo, cada una con su
+        // vaivén (antes, una sola con la base redonda: de lejos, una cebolla naranja). w: el ritmo de cada llama
         float R = max(prm.x, 0.03) * 0.72;
         float H = max(prm.y, 0.1);
-        float sink = mix(1.0, 0.35, clamp(prm.z, 0.0, 1.0));
+        float fl = clamp(prm.z, 0.0, 1.0);
+        float ph = prm.w * 17.0;
+        float tt = time + ph;
+        float sink = mix(1.0, 0.35, fl);
         vec3 q = p;
         float v = clamp(q.y / H, 0.0, 1.0);
-        q.x -= (sin(time * 2.1) * 0.6 + sin(time * 5.3) * 0.25) * v * v * R * 0.5;
-        q.z -= cos(time * 1.7) * 0.5 * v * v * R * 0.5;
-        d = mf_sdRoundCone(q - vec3(0.0, R * sink, 0.0), R, R * 0.05, max(H * mix(0.92, 0.95, clamp(prm.z, 0.0, 1.0)) - R * sink, R * 0.2));
+        q.x -= (sin(tt * 2.1) * 0.6 + sin(tt * 5.3) * 0.25) * v * v * R * 0.5;
+        q.z -= cos(tt * 1.7) * 0.5 * v * v * R * 0.5;
+        float rm = R * mix(1.0, 0.6, fl);
+        d = mf_sdRoundCone(q - vec3(0.0, rm * sink, 0.0), rm, rm * 0.05, max(H * mix(0.92, 0.95, fl) - rm * sink, rm * 0.2));
+        float uu = q.y / H;
+        if (fl > 0.5) {
+            // tres lenguas alrededor de la del centro, más bajas, que crecen y menguan a destiempo; donde se juntan
+            // con la del centro, la altura (u) es la de cada una: sus puntas también se enfrían
+            for (int i = 0; i < 3; i++) {
+                float fi = float(i);
+                float a = 2.094 * fi + ph * 1.3 + 0.4 * sin(tt * 0.7 + fi);
+                vec2 o = vec2(cos(a), sin(a)) * R * 0.5;
+                float ht = H * (0.5 + 0.35 * (0.5 + 0.5 * sin(tt * (2.3 + 0.9 * fi) + 1.7 * fi + ph)));
+                float rt = R * 0.5;
+                vec3 qt = q - vec3(o.x, 0.0, o.y);
+                float vt = clamp(qt.y / ht, 0.0, 1.0);
+                qt.x -= sin(tt * (3.1 + fi) + fi * 2.0) * vt * vt * rt * 0.8;
+                qt.z -= cos(tt * (2.7 + 0.5 * fi) + fi) * vt * vt * rt * 0.8;
+                float dt = mf_sdRoundCone(qt - vec3(0.0, rt * sink, 0.0), rt, rt * 0.04, max(ht - rt * sink, rt * 0.2));
+                float kk = R * 0.3;
+                uu = mix(uu, qt.y / ht, clamp(0.5 + 0.5 * (d - dt) / kk, 0.0, 1.0));
+                d = mf_smin(d, dt, kk);
+            }
+        }
         // las puntas: arriba, alrededor del eje, se abren huecos que giran y suben (en el eje no: queda la del centro)
         float ang = atan(q.z, q.x);
-        d += 0.9 * R * smoothstep(0.25, 0.9, v) * smoothstep(0.05 * R, 0.45 * R, length(q.xz))
-           * (0.5 + 0.5 * sin(3.0 * ang + q.y / H * 2.0 - time * 3.0));
+        d += mix(0.9, 0.3, fl) * R * smoothstep(0.25, 0.9, v) * smoothstep(0.05 * R, 0.45 * R, length(q.xz))
+           * (0.5 + 0.5 * sin(3.0 * ang + q.y / H * 2.0 - tt * 3.0));
         // (con eso la distancia ya no es exacta)
         mf_lip = 1.6;
-        L = R * 0.9;
-        u = q.y / H;
+        L = R * mix(0.9, 0.7, fl);
+        u = uu;
         // el ruido estirado hacia arriba: vetas que suben, no grumos
         nq = vec3(q.x / (L * 1.2), q.y / (L * 3.6) - time * 3.8, q.z / (L * 1.2));
         nb = vec3(q.x / (L * 1.6), q.y / (L * 3.6) - time * 2.2, q.z / (L * 1.6));
-        amp = L * (0.25 + 1.1 * v);
+        // (la del suelo, menos deshilachada: se ven sus lenguas, no jirones sueltos)
+        amp = L * (mix(0.25, 0.15, fl) + mix(1.1, 0.7, fl) * v);
     }
 }
 
@@ -525,6 +575,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     // un golpe pequeño (las balas de Higan) acaba en una bocanada de humo gris claro y fino, no en una bola negra
     float lsB = isBall * clamp(prm.w, 0.0, 1.0);
+    // la columna de Hibashira vista desde su hueco (primera persona), y la llama que sale del suelo
+    float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    float flo = (shape > 7.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
 
     // entrada escalonada por píxel, sin cortes. Con un número sin patrón (antes, interleaved gradient noise: con
     // una tarjeta de verdad su rejilla de puntos se veía como ondas en las zonas finas)
@@ -575,6 +628,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 
         // ¿cuerpo (masa) o borde que se deshace (lenguas)?
         float w = smoothstep(0.55, 0.95, u) * (1.0 - cool);
+        // la columna desde el hueco: toda ella son lenguas que suben (sin las bolsas de la masa: de cerca parecían la
+        // costra de la lava); la llama del suelo, lenguas desde la mitad
+        w = max(w, selfPil);
+        w = mix(w, smoothstep(0.30, 0.75, u), flo);
         float tb = 0.35; float bhi = 0.0; float lo = 0.0; float hi = 0.0;
         if (w < 0.995) mf_billow(nb + so, tm * 0.6, tb, bhi);
         if (w > 0.005) mf_fbm2(nq * 1.15 + so.zxy, tm, lo, hi);
@@ -610,7 +667,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         }
 
         // el borde: nítido en el cuerpo, muy suave donde el fuego ya se deshace en humo (sin bordes duros)
-        float dens = max(smoothstep(0.0, L * mix(mix(0.30, 0.17, isFist), 0.14, step(1.5, shape) * step(shape, 2.5)) * (1.0 + 2.5 * smoothstep(0.70, 1.15, u)), -dd), skin);
+        // (la llama del suelo, con el borde más nítido hasta cerca de la punta: si no, de lejos era una nube)
+        float dens = max(smoothstep(0.0, L * mix(mix(mix(0.30, 0.17, isFist), 0.14, step(1.5, shape) * step(shape, 2.5)), 0.14, flo)
+                                         * (1.0 + mix(2.5, 1.5, flo) * smoothstep(mix(0.70, 0.85, flo), mix(1.15, 1.25, flo), u)), -dd), skin);
         if (dens > 0.001) {
             // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
@@ -627,7 +686,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // corazón amarillo de dentro: si no, la pared aclarada era una bruma crema que lavaba la pantalla
             if (nearFade > 0.0) depth = min(depth, max(t - 0.35 * nearFade, 0.0) / (L * look.x));
             float hotLong = (isFist > 0.5 || (shape > 4.5 && shape < 5.5)) ? 1.0 : 0.0;
-            float coolU = 1.0 - 0.85 * smoothstep(mix(0.45, 0.55, hotLong), 1.1, u);
+            // (la llama del suelo se enfría más arriba: si no, de su mitad para arriba casi no se veía)
+            float coolU = 1.0 - 0.85 * smoothstep(mix(mix(0.45, 0.55, hotLong), 0.70, flo), mix(1.1, 1.3, flo), u);
             float temp = (look.y + (1.0 - look.y) * depth * (2.0 - depth)) * coolU;
             // y lo que se aclara junto a la cámara, más frío: queda un velo rojizo, no una bruma amarilla
             temp *= mix(0.5, 1.0, nfk);
@@ -640,6 +700,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // las cortinas (el muro y el cerco de Enjōmō): igual, y la base, donde nace el fuego, más caliente
             float isCur = (shape > 3.5 && shape < 4.5) ? 1.0 : ((shape > 2.5 && shape < 3.5) ? clamp(prm.w, 0.0, 1.0) : 0.0);
             temp += isCur * (0.45 * (tb - 0.35) - 0.10 * bhi + 0.22 * (1.0 - smoothstep(0.0, 0.40, u)));
+            // la columna desde el hueco: el centro de cada lengua, amarillo; su borde, rojo; y vetas que suben
+            temp += selfPil * (0.25 * mf_str + 0.32 * smoothstep(0.15, 1.1, mf_core) - 0.10 * (1.0 - smoothstep(0.0, 0.15, mf_core)));
+            // la llama del suelo: la base, donde nace, casi amarilla
+            temp += flo * 0.26 * (1.0 - smoothstep(0.0, 0.5, u));
             temp *= 1.0 - 0.18 * crease;
             float gran = (shape < 0.5) ? 1.5 : mix(1.0, 0.85, isFist);
             temp -= (0.10 * lo + 0.22 * hi) * coolU * gran * w;
@@ -665,7 +729,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             }
 
             // las puntas se vuelven transparentes y dejan un hilo de humo
-            float tip   = smoothstep(0.70, 1.15, u);
+            float tip   = smoothstep(mix(0.70, 0.85, flo), mix(1.15, 1.25, flo), u);
             float smoke = smoothstep(0.85, 1.2, u) * (1.0 - temp) * mix(1.0, 0.3, isBall * (1.0 - cool));
             dens *= mix(1.0, mix(0.10, 0.22, smoke), tip);
             smoke = max(smoke, smokeX);

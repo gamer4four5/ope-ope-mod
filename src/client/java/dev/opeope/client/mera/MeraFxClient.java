@@ -963,7 +963,7 @@ public final class MeraFxClient {
 			float hsh = ((seed * 0x9E3779B9) >>> 8) / 16777216f;
 			float hgt = (floor ? 1.1f : 0.8f) + 0.4f * hsh;
 			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx + tx * 0.42, y + (floor ? 0.0 : 0.2), cz + tz * 0.42), FWD,
-				floor ? 0.55f : 0.42f, hgt, floor ? 1f : 0f, 0, seed, 0.85f);
+				floor ? 0.55f : 0.42f, hgt, floor ? 1f : 0f, hsh, seed, 0.85f);
 		}
 	}
 
@@ -1119,7 +1119,8 @@ public final class MeraFxClient {
 		if (h < 0.06f) return;
 		if (v3) {
 			// (en el suelo, la base metida en él: la llama nace ancha del suelo)
-			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx, cy, cz), FWD, rad, h, floor ? 1f : 0f, 0, seed, 0.92f * (0.35f + 0.65f * fade));
+			// (y cada llama con su ritmo: si no, todas las de un incendio se mecían a la vez)
+			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx, cy, cz), FWD, rad, h, floor ? 1f : 0f, hsh, seed, 0.92f * (0.35f + 0.65f * fade));
 			return;
 		}
 		// sin fuego 3D: llamas sueltas que suben del bloque
