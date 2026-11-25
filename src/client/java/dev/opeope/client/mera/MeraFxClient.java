@@ -54,6 +54,8 @@ public final class MeraFxClient {
 
 	/** El color del humo y del vapor según la luz que haya: de día gris claro, de noche casi negro. */
 	private static int smokeRGB = 0x9A938B, steamRGB = 0xE8ECF0;
+	/** Con el fuego en 3D el humo ya lo pone el volumen: las nubes planas se bajan para que no se vean como discos. */
+	private static float smokeMul = 1f;
 
 	private static int mixRGB(int dark, int lit, float k) {
 		float u = MathHelper.clamp(k, 0f, 1f);
@@ -452,6 +454,7 @@ public final class MeraFxClient {
 			plain = true;
 		}
 
+		smokeMul = embers ? 0.45f : 1f;
 		float amb = MeraVolumes.skyAt(camX, camY + 1, camZ);
 		smokeRGB = mixRGB(0x2B2724, 0x9A938B, amb);
 		steamRGB = mixRGB(0x454B52, 0xE8ECF0, amb);
@@ -873,12 +876,12 @@ public final class MeraFxClient {
 			case SMOKE -> {
 				s = SIZE[i] * (0.6f + 1.4f * t);
 				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.38f;
-				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], smokeRGB, alpha);
+				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], smokeRGB, alpha * smokeMul);
 			}
 			case STEAM -> {
 				s = SIZE[i] * (0.6f + 1.6f * t);
 				alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t) * 0.42f;
-				quad(b, x, y, z, s * 1.2f, ROT[i], CELL[i], steamRGB, alpha);
+				quad(b, x, y, z, s * 1.2f, ROT[i], CELL[i], steamRGB, alpha * smokeMul);
 			}
 			case SPARK -> {
 				s = SIZE[i];

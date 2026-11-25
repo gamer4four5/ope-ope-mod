@@ -398,8 +398,7 @@ public final class AutoTest {
 		if (farCam != null) farCamera(mc, farBack, farUp);
 		// el fotograma de la captura guarda qué vio el fuego 3D (estado de GL y algunos píxeles)
 		if (MERA) dev.opeope.client.mera.MeraVolumes.diagArm = true;
-		// dos fotogramas, no uno: con uno solo, alguna captura salía en blanco (la cámara acababa de moverse)
-		if (frames <= p.frame + 1) return;
+		if (frames <= p.frame) return;
 		PENDING.poll();
 		shot(mc, p.name);
 		if (p.after != null) p.after.run();
