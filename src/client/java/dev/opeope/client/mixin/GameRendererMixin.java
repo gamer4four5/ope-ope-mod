@@ -35,5 +35,6 @@ public abstract class GameRendererMixin {
 		+ "Lnet/minecraft/client/render/LightmapTextureManager;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"), require = 0)
 	private void opeope$meraAfterWorld(RenderTickCounter tickCounter, CallbackInfo ci) {
 		dev.opeope.client.mera.MeraVolumes.afterWorld();
+		dev.opeope.client.mera.MeraFxClient.afterWorld();
 	}
 }

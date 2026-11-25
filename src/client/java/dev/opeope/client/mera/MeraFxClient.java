@@ -460,19 +460,57 @@ public final class MeraFxClient {
 		if (count == 0 && !vols) return;
 		// el fuego 3D primero: las chispas y el humo van encima
 		if (vols) MeraVolumes.render(ctx, camX, camY, camZ, (float) (now % 3600.0));
+		particlesPending = false;
 		if (count == 0 || hideFlames) return;
+		if (MeraVolumes.shaderPackInUse()) {
+			// con un shaderpack las chispas, brasas y humo también van al final, sobre la imagen terminada: dentro
+			// del mundo el shaderpack las metía en sus buffers y salían como discos planos de borde duro
+			DEF_POS.set(ctx.positionMatrix());
+			DEF_PROJ.set(ctx.projectionMatrix());
+			defNow = now;
+			particlesPending = true;
+			return;
+		}
+		drawParticles(mc, ctx.positionMatrix(), now);
+	}
+
+	private static boolean particlesPending;
+	private static final Matrix4f DEF_POS = new Matrix4f(), DEF_PROJ = new Matrix4f();
+	private static double defNow;
+
+	/** Justo después de dibujar el mundo (GameRendererMixin), tras el fuego 3D: con un shaderpack, las llamas sueltas. */
+	public static void afterWorld() {
+		if (!particlesPending) return;
+		particlesPending = false;
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.world == null || count == 0) return;
+		Matrix4f prevProj = new Matrix4f(RenderSystem.getProjectionMatrix());
+		com.mojang.blaze3d.systems.VertexSorter prevSort = RenderSystem.getVertexSorting();
+		mc.getFramebuffer().beginWrite(true);
+		// la profundidad del mundo (la copia que usa el fuego 3D): que lo de detrás de una pared siga tapado
+		MeraVolumes.restoreDepth();
+		RenderSystem.setProjectionMatrix(DEF_PROJ, com.mojang.blaze3d.systems.VertexSorter.BY_DISTANCE);
+		try {
+			drawParticles(mc, DEF_POS, defNow);
+		} finally {
+			RenderSystem.setProjectionMatrix(prevProj, prevSort);
+		}
+	}
+
+	private static void drawParticles(MinecraftClient mc, Matrix4f positionMatrix, double now) {
 		boolean embers = MeraVolumes.ready();
 
 		Matrix4f mv = RenderSystem.getModelViewMatrix();
 		if (Math.abs(mv.m00() - 1) < 1e-4f && Math.abs(mv.m11() - 1) < 1e-4f && Math.abs(mv.m22() - 1) < 1e-4f) {
-			BASE.set(ctx.positionMatrix());
+			BASE.set(positionMatrix);
 			plain = false;
 		} else {
 			BASE.identity();
 			plain = true;
 		}
 
-		smokeMul = embers ? 0.45f : 1f;
+		// con el fuego 3D el humo de las llamas sueltas es más suave, pero que se vea: el fuego acaba en humo
+		smokeMul = embers ? 0.7f : 1f;
 		float amb = MeraVolumes.skyAt(camX, camY + 1, camZ);
 		smokeRGB = mixRGB(0x2B2724, 0x9A938B, amb);
 		steamRGB = mixRGB(0x454B52, 0xE8ECF0, amb);
@@ -734,8 +772,9 @@ public final class MeraFxClient {
 	 */
 	public static boolean fireSmoke(double x, double y, double z) {
 		if (!vol()) return false;
-		// de cada tres soplos, uno; y si hay muchas llamas en el aire, ninguno (antes que quitarle sitio a una técnica)
-		if (count > MAX * 0.6f || R.nextFloat() < 0.62f) return true;
+		// algo más de la mitad de los soplos; y si hay muchas llamas en el aire, ninguno (antes que quitarle sitio a
+		// una técnica)
+		if (count > MAX * 0.6f || R.nextFloat() < 0.45f) return true;
 		smoke(x, y, z, rs() * 0.12, 0.55 + R.nextFloat() * 0.35, rs() * 0.12, 0.32f + R.nextFloat() * 0.25f, 2.4f + R.nextFloat() * 1.4f);
 		return true;
 	}
@@ -913,6 +952,16 @@ public final class MeraFxClient {
 	private static final BlockPos.Mutable MF_POS = new BlockPos.Mutable();
 	private static final Direction[] SIDES = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
 	private static ClientWorld mfWorld;
+	/** Los que este fotograma lleva una llama 3D: a los demás (lejos, demasiados) el bloque les pone llamitas. */
+	private static final LongOpenHashSet MF_DRAWN = new LongOpenHashSet();
+
+	static {
+		dev.opeope.block.MeraFireBlock.drawn3D = MeraFxClient::meraFireDrawn;
+	}
+
+	public static boolean meraFireDrawn(net.minecraft.world.World w, BlockPos pos) {
+		return w == mfWorld && MF_DRAWN.contains(pos.asLong());
+	}
 
 	/**
 	 * Desde ClientWorld#updateListeners (en el hilo del juego): un bloque cambió. Así se sabe al momento dónde prende y
@@ -958,6 +1007,7 @@ public final class MeraFxClient {
 			MF_OUT.clear();
 			mfWorld = w;
 		}
+		MF_DRAWN.clear();
 		if (MF.isEmpty() && MF_OUT.isEmpty()) return;
 		Block mera = ModBlocks.MERA_FIRE;
 		int found = 0;
@@ -992,6 +1042,7 @@ public final class MeraFxClient {
 		}
 		for (int i = 0; i < found; i++) {
 			long l = MF_PICK[i];
+			MF_DRAWN.add(l);
 			meraFlame(w, l, (float) (now - MF.get(l)), 1f, v3, dt);
 		}
 		if (MF_OUT.isEmpty()) return;
@@ -1571,7 +1622,12 @@ public final class MeraFxClient {
 				if (head == null) return false;
 				sun(f, head, f.radius, dt, density, now, true);
 				// lanzado: las llamas se van hacia atrás, como una bola de fuego que vuela
-				if (vol()) vol(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, f, 1f);
+				if (vol()) {
+					vol(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, f, 1f);
+					// en primera persona el sol sale por encima de la cara: lo que pasa pegado a la cámara se aclara (se
+					// ve el sol alejándose, no la pantalla lavada de naranja)
+					if (selfView(mc, user)) MeraVolumes.nearFade(Math.max(2.2f, f.radius * 1.1f));
+				}
 				return true;
 			}
 			case MeraFx.ENTEI_BLAST -> {

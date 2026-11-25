@@ -104,6 +104,7 @@ public final class MeraVolumes {
 	public static void begin() {
 		n = 0;
 		nl = 0;
+		depthFresh = false;
 		if (diagArm) lastDiag = "sin volúmenes";
 	}
 
@@ -444,12 +445,15 @@ public final class MeraVolumes {
 		mat(lp, "InvViewProj", INV);
 		vec(lp, "ViewSize", viewW, viewH);
 		vec(lp, "VolTime", time0);
-		vec(lp, "LightColor", 1f, 0.42f, 0.12f);
-		double e = Math.sqrt(e2);
+		// con un shaderpack (Photon…) la imagen sale más oscura y con más contraste: la misma luz casi no se notaba
+		boolean pack = shaderPackInUse();
+		float gain = pack ? 1.5f : 1f;
+		vec(lp, "LightColor", gain, 0.42f * gain, 0.12f * gain);
+		double e = Math.sqrt(e2) * gain;
 		double most = 1 + e / (1 + 0.12 * e);
 		int passes = most <= 2.02 ? 1 : most <= 4.04 ? 2 : 3;
-		// y si hay bastante luz, el resplandor que se suma (de noche)
-		boolean glow = e > 0.6;
+		// y si hay bastante luz, el resplandor que se suma (de noche; con un shaderpack, siempre que haya algo)
+		boolean glow = e > (pack ? 0.3 : 0.6);
 		for (int p = 0; p < passes + (glow ? 1 : 0); p++) {
 			if (p == passes) {
 				RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE,
@@ -646,6 +650,7 @@ public final class MeraVolumes {
 		pending = false;
 		if (n == 0 || !ready()) return;
 		if (!grabDepth()) return;
+		depthFresh = true;
 		VP.set(ctx.projectionMatrix()).mul(ctx.positionMatrix());
 		INV.set(VP).invert();
 		camX0 = camX;
@@ -657,6 +662,34 @@ public final class MeraVolumes {
 			return;
 		}
 		draw();
+	}
+
+	private static boolean restoreBroken;
+	// la copia de la profundidad es de este fotograma (si no hubo fuego 3D, es de otro y no vale)
+	private static boolean depthFresh;
+
+	/**
+	 * Vuelve a poner en el framebuffer principal la profundidad del mundo que se copió para el fuego 3D (con un
+	 * shaderpack, para dibujar encima de la imagen terminada lo que sí usa la profundidad: chispas, brasas, humo).
+	 */
+	static void restoreDepth() {
+		if (!depthFresh || restoreBroken || depthTex < 0 || viewW <= 0 || viewH <= 0) return;
+		int read = depthTex == grabTex ? grabFbo : (depthCopy != null ? depthCopy.fbo : -1);
+		if (read < 0) return;
+		Framebuffer main = MinecraftClient.getInstance().getFramebuffer();
+		if (main.textureWidth != viewW || main.textureHeight != viewH) return;
+		for (int k = 0; k < 8 && GL11.glGetError() != GL11.GL_NO_ERROR; k++) {
+			// errores viejos de otros
+		}
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, read);
+		GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, main.fbo);
+		GL30.glBlitFramebuffer(0, 0, viewW, viewH, 0, 0, viewW, viewH, GL11.GL_DEPTH_BUFFER_BIT, GL11.GL_NEAREST);
+		int err = GL11.glGetError();
+		main.beginWrite(true);
+		if (err != GL11.GL_NO_ERROR) {
+			restoreBroken = true;
+			OpeOpeMod.LOG.warn("Mera: no pude devolver la profundidad al framebuffer principal (error GL {}); las chispas usan la que haya", err);
+		}
 	}
 
 	/** Justo después de dibujar el mundo (GameRendererMixin): con un shaderpack, aquí ya está la imagen final. */

@@ -206,9 +206,18 @@ float mf_sdFist(vec3 q)
 //   nq  : coordenada del ruido de las LENGUAS (estiradas con el flujo)
 //   amp : amplitud de la turbulencia (bloques)
 // ---------------------------------------------------------------------
+// Para saltar el espacio vacío cuando d no es una distancia exacta (la columna: sus bandas en hélice cambian varias
+// veces más rápido que la distancia; saltar con d tal cual se pasaba del borde y salían anillos como vetas de madera):
+//   mf_lip  cuánto más rápido que una distancia puede cambiar d (1 = distancia de verdad)
+//   mf_dFar otra distancia segura, buena de lejos (-1e9 = ninguna)
+float mf_lip;
+float mf_dFar;
+
 void mf_shape(vec3 p, float shape, vec4 prm, float time,
               out float d, out float L, out float u, out vec3 nb, out vec3 nq, out float amp)
 {
+    mf_lip = 1.0;
+    mf_dFar = -1e9;
     if (shape < 0.5) {
         // ---------------- 0: BOLA / SOL / EXPLOSIÓN ----------------
         float R  = max(prm.x, 0.05);
@@ -265,14 +274,20 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float Ro = R * (1.0 + 0.40 * pow(1.0 - v, 8.0) - 0.22 * v * v);   // se abre pegado al suelo
         float Ri = R * (0.44 - 0.10 * v);                                   // el hueco de dentro
         float th = 0.5 * (Ro - Ri);
-        d = abs(r - 0.5 * (Ro + Ri)) - th;
+        float d0 = abs(r - 0.5 * (Ro + Ri)) - th;
         // bandas de fuego en hélice que suben girando, con huecos entre ellas (se ve a través)
         float ang = atan(c.y, c.x);
         float band = sin(5.0 * ang + p.y / R * 1.6 - time * 4.0);
         float band2 = sin(9.0 * ang - p.y / R * 2.6 + time * 2.6);
-        d += th * (1.35 * band + 0.55 * band2 + 0.45) * smoothstep(0.4, 1.4, p.y);
-        d = max(d, p.y - H);
-        d = max(d, -p.y - 0.3 * R);
+        // (pegado al eje no: ahí dentro está Ace, y allí las bandas cambiarían demasiado deprisa)
+        float g = smoothstep(0.22 * R, 0.55 * R, r);
+        float sy = smoothstep(0.4, 1.4, p.y) * g;
+        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45) * sy;
+        float yCut = max(p.y - H, -p.y - 0.3 * R);
+        d = max(d, yCut);
+        // las bandas acercan la pared como mucho 1.45 th, y cambian hasta (1.35*5 + 0.55*9)·th/r por bloque
+        mf_lip = 1.0 + th * (7.0 * sy / max(r, 0.22 * R) + 9.0 * g * (1.0 - g) / R);
+        mf_dFar = max(d0 - 1.45 * th * sy, yCut);
         L = clamp(th * 0.30, 0.18, 0.40);
         u = p.y / H;
         // el remolino: el ruido gira alrededor del eje, se tuerce en hélice y se estira hacia arriba (vetas)
@@ -391,7 +406,7 @@ vec4 mf_look(float shape, vec3 p, vec4 prm)
     if (shape < 1.5) { float S = max(prm.x, 0.2);
                        return vec4(mix(1.2, 0.55, smoothstep(-0.7 * S, -0.25 * S, p.z)), 0.26,
                                    0.6 * smoothstep(-0.30 * S, 0.0, p.z), 1.0); }
-    if (shape > 1.5 && shape < 2.5) return vec4(3.6, 0.10, 0.45, 1.0);
+    if (shape > 1.5 && shape < 2.5) return vec4(2.4, 0.16, 0.45, 1.0);
     if (shape > 5.5 && shape < 6.5) return vec4(0.8, 0.28, 0.35, 1.0);
     if (shape > 6.5 && shape < 7.5) return vec4(0.6, 0.28, 0.30, 1.0);
     return vec4(1.1, 0.25, 0.0, 1.0);
@@ -501,12 +516,14 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         // las formas grandes son masa; las finas (puño, cruz, lanza, llama) guardan su forma
         float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
         float ampB = mix(amp * 1.1, max(amp, L * 0.55), massy);
-        float dEnv = d - max(amp * 1.05, ampB * 1.05) - isFist * L * 0.9;
+        float envW = max(amp * 1.05, ampB * 1.05) + isFist * L * 0.9;
+        float dEnv = d - envW;
         float stepIn = L * mix(0.12, 0.10, isFist);
         if (dEnv > 0.0) {
             // espacio vacío: saltar hasta la envoltura (el halo, según lo cerca que pasa; no pegado a la cámara)
             if (t > 1.2 && d < minD) { minD = d; Lref = L; }
-            t += max(dEnv * 0.85, stepIn * 0.5);
+            float sk = max(dEnv / mf_lip, mf_dFar + (1.0 - intensity) * L * 0.9 - envW);
+            t += max(sk * 0.85, stepIn * 0.5);
             first = true;
             continue;
         }

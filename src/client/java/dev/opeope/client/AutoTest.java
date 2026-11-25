@@ -544,6 +544,8 @@ public final class AutoTest {
 			}
 			OpeOpeMod.LOG.info("AUTOTEST galería {} fuego en el suelo: de Ace={} de Minecraft={}", s.name(), mine, vanilla);
 			if (s.name().equals("entei") && mine == 0) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: Entei no dejó fuego de Ace en el suelo");
+			// lo que prende el fuego de Ace sigue siendo fuego de Ace (en 3D), no el pixelado de Minecraft
+			if (vanilla > 0) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: tras {} hay {} bloques de fuego de Minecraft (pixelado)", s.name(), vanilla);
 		});
 		if (!MERA && s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
 		// Scan otra vez con el Scan aún activo: Shambles a todo lo que llevan en las manos
