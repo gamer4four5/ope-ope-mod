@@ -161,8 +161,9 @@ public final class MeraPowers {
 	}
 
 	/**
-	 * Las explosiones atraviesan a un Logia: tampoco lo lanzan por los aires (Minecraft empuja con la onda aunque el daño
-	 * no entre). Mojado no hay Logia y la onda sí lo mueve.
+	 * La explosión que atraviesa a un Logia tampoco lo lanza por los aires. Minecraft hace el daño y, justo después,
+	 * empuja con la onda aunque el daño no haya entrado: al parar ese daño se pone esta resistencia, que es lo que mira
+	 * la onda, y se quita un par de ticks después (las cargas de viento, que no hacen daño, lo siguen empujando).
 	 */
 	private static void blastProof(ServerPlayerEntity p, boolean on) {
 		EntityAttributeInstance inst = p.getAttributeInstance(EntityAttributes.GENERIC_EXPLOSION_KNOCKBACK_RESISTANCE);
@@ -293,7 +294,13 @@ public final class MeraPowers {
 			|| source.isOf(DamageTypes.SWEET_BERRY_BUSH) || source.isOf(DamageTypes.GENERIC)
 			|| source.isOf(DamageTypes.FLY_INTO_WALL) || source.isOf(DamageTypes.LIGHTNING_BOLT);
 		if (!physical) return true;
-		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, source.isIn(DamageTypeTags.IS_EXPLOSION));
+		boolean blast = source.isIn(DamageTypeTags.IS_EXPLOSION);
+		if (blast) {
+			// la onda tampoco lo mueve (se calcula nada más volver de aquí)
+			blastProof(sp, true);
+			st.blastProofTicks = 2;
+		}
+		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, blast);
 		// quien golpea con la mano a un cuerpo de fuego se quema
 		if (attacker instanceof LivingEntity le && attacker != sp && attacker == direct && le.squaredDistanceTo(sp) < 25) {
 			le.setOnFireFor(st.fireBody ? 6f : 2f);
@@ -924,8 +931,8 @@ public final class MeraPowers {
 		// es fuego: no arde
 		if (p.isOnFire() && !p.isTouchingWater()) p.extinguish();
 
+		if (st.blastProofTicks > 0 && --st.blastProofTicks == 0) blastProof(p, false);
 		boolean wet = p.isTouchingWater();
-		blastProof(p, !wet);
 		if (wet && !st.wasWet) {
 			snd(w, p.getPos(), SoundEvents.BLOCK_FIRE_EXTINGUISH, 1f, 0.9f);
 			send(w, MeraFx.STEAM, p.getId(), 0, p.getPos().add(0, 1, 0), Vec3d.ZERO, 1.4f, 1f, 30, 0);

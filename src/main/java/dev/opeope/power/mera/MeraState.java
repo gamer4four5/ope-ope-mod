@@ -36,6 +36,8 @@ public final class MeraState {
 
 	/** Avisos y efectos que no deben repetirse cada tick. */
 	public int scatterCooldown;
+	/** Ticks que quedan de no dejarse empujar por la onda de una explosión que acaba de atravesarle. */
+	public int blastProofTicks;
 	public int wetNoticeCooldown;
 	public int logiaNoticeCooldown;
 	public boolean wasWet;

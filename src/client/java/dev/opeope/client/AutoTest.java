@@ -151,12 +151,15 @@ public final class AutoTest {
 				float h0 = sp.getHealth();
 				boolean golpe = galleryZombie != null && sp.damage(sp.getDamageSources().mobAttack(galleryZombie), 4f);
 				boolean fuego = sp.damage(sp.getDamageSources().inFire(), 4f);
-				// una caída, una explosión que provoca él mismo (no lleva Haki contra él) y el fuego de otro Ace
+				// una caída
 				boolean caida = sp.damage(sp.getDamageSources().fall(), 6f);
+				// una explosión de verdad a su lado (sin romper bloques): ni daña ni lo lanza por los aires
+				net.minecraft.util.math.Vec3d v0 = sp.getVelocity();
+				sp.getServerWorld().createExplosion(null, sp.getX() + 1.5, sp.getY() + 0.5, sp.getZ(), 3f, net.minecraft.world.World.ExplosionSourceType.NONE);
+				boolean empuja = sp.getVelocity().subtract(v0).lengthSquared() > 1e-4 || sp.getHealth() < h0;
+				// una explosión que provoca él mismo (no lleva Haki contra él) y el fuego de otro Ace
 				boolean propia = sp.damage(sp.getDamageSources().explosion(null, sp), 6f);
 				boolean ace = sp.damage(dev.opeope.power.mera.MeraPowers.burn(sp), 6f);
-				// y la onda de una explosión no lo lanza por los aires
-				boolean empuja = sp.getAttributeValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_EXPLOSION_KNOCKBACK_RESISTANCE) < 1.0;
 				OpeOpeMod.LOG.info("AUTOTEST mera logia: golpe={} fuego={} caída={} explosión propia={} fuego de Ace={} onda={} vida {}->{}",
 					golpe ? "DAÑA" : "atraviesa", fuego ? "DAÑA" : "inmune", caida ? "DAÑA" : "cae en llamas",
 					propia ? "DAÑA" : "atraviesa", ace ? "DAÑA" : "inmune", empuja ? "EMPUJA" : "no empuja", h0, sp.getHealth());
