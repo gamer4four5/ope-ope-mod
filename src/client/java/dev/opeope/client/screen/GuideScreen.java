@@ -288,7 +288,7 @@ public class GuideScreen extends Screen {
 
 		title("Logia");
 		note("Los golpes, las flechas y las explosiones te atraviesan: el cuerpo se abre en llamas donde pegan y se vuelve a cerrar. Quien te pega con la mano se quema.");
-		note("El fuego, la lava, el magma y el hielo no te hacen daño.");
+		note("El fuego, la lava, el magma y el hielo no te hacen daño. Las caídas tampoco: al tocar el suelo las piernas se deshacen en llamas y vuelven a formarse.");
 		note("El agua te apaga: mientras estés mojado no hay Logia ni técnicas. Y el Haki sí te toca: el Warden, el Wither, el Dragón del End y el Guardián Anciano, y los jugadores que tienen una fruta o empuñan la Kikoku o la Yakuza Kasen.");
 
 		title("Puño y llamas");
@@ -316,7 +316,7 @@ public class GuideScreen extends Screen {
 		title("Moverte como el fuego");
 		row("impulso: el cuerpo se vuelve un chorro de llamas y sale disparado hacia donde miras. Mientras dura nada te golpea, y quemas a quien atraviesas", g(Keys.SHAMBLES));
 		row("Hikyaku: un estallido en los pies te lanza hacia arriba y adelante. En el aire puedes repetirlo dos veces antes de tocar el suelo", g(Keys.MARKER));
-		note("Después de un impulso o de un Hikyaku, la caída no te hace daño durante unos segundos.");
+		note("Caigas desde donde caigas, no te haces daño: eres fuego.");
 
 		title("Cuerpo de llamas");
 		row("lo enciende y lo apaga. Corres más, ves en la oscuridad, prendes a quien te toca y derrites el hielo y la nieve a tu paso", g(Keys.AWAKEN));

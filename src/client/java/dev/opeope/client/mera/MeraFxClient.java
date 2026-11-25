@@ -156,6 +156,18 @@ public final class MeraFxClient {
 		MeraAnim.clear();
 		MeraVolumes.clear();
 		hideFlames = false;
+		lastWorld = null;
+	}
+
+	/** El mundo que se dibujó la última vez: al pasar a otro (un portal) lo que ardía se queda en el anterior. */
+	private static net.minecraft.client.world.ClientWorld lastWorld;
+
+	private static void worldChanged() {
+		FX.clear();
+		FIREFLIES.clear();
+		count = 0;
+		originSet = false;
+		MeraVolumes.clear();
 	}
 
 	/** Para las pruebas: cuántas llamas vivas y cuántos efectos. */
@@ -423,6 +435,10 @@ public final class MeraFxClient {
 	public static void renderWorld(WorldRenderContext ctx) {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.world == null || mc.player == null) return;
+		if (mc.world != lastWorld) {
+			if (lastWorld != null) worldChanged();
+			lastWorld = mc.world;
+		}
 		double now = RoomFxClient.time();
 		double dt = lastFrame < 0 ? 0.016 : MathHelper.clamp(now - lastFrame, 0.0, 0.1);
 		lastFrame = now;

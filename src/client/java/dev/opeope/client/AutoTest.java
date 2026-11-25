@@ -151,9 +151,16 @@ public final class AutoTest {
 				float h0 = sp.getHealth();
 				boolean golpe = galleryZombie != null && sp.damage(sp.getDamageSources().mobAttack(galleryZombie), 4f);
 				boolean fuego = sp.damage(sp.getDamageSources().inFire(), 4f);
-				OpeOpeMod.LOG.info("AUTOTEST mera logia: golpe={} fuego={} vida {}->{}", golpe ? "DAÑA" : "atraviesa",
-					fuego ? "DAÑA" : "inmune", h0, sp.getHealth());
-				if (golpe || fuego) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: la Logia no paró el daño");
+				// una caída, una explosión que provoca él mismo (no lleva Haki contra él) y el fuego de otro Ace
+				boolean caida = sp.damage(sp.getDamageSources().fall(), 6f);
+				boolean propia = sp.damage(sp.getDamageSources().explosion(null, sp), 6f);
+				boolean ace = sp.damage(dev.opeope.power.mera.MeraPowers.burn(sp), 6f);
+				// y la onda de una explosión no lo lanza por los aires
+				boolean empuja = sp.getAttributeValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_EXPLOSION_KNOCKBACK_RESISTANCE) < 1.0;
+				OpeOpeMod.LOG.info("AUTOTEST mera logia: golpe={} fuego={} caída={} explosión propia={} fuego de Ace={} onda={} vida {}->{}",
+					golpe ? "DAÑA" : "atraviesa", fuego ? "DAÑA" : "inmune", caida ? "DAÑA" : "cae en llamas",
+					propia ? "DAÑA" : "atraviesa", ace ? "DAÑA" : "inmune", empuja ? "EMPUJA" : "no empuja", h0, sp.getHealth());
+				if (golpe || fuego || caida || propia || ace || empuja) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: la Logia no paró el daño");
 				sp.getAbilities().invulnerable = inv;
 			});
 		}

@@ -1,5 +1,6 @@
 package dev.opeope.power.mera;
 
+import dev.opeope.OpeOpeMod;
 import dev.opeope.net.MeraFx;
 import dev.opeope.power.PlayerPower;
 import dev.opeope.power.PowerManager;
@@ -8,14 +9,20 @@ import dev.opeope.registry.ModAttachments;
 import dev.opeope.registry.ModBlocks;
 import dev.opeope.registry.ModDamage;
 import dev.opeope.registry.ModItems;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributeModifier;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.boss.WitherEntity;
 import net.minecraft.entity.boss.dragon.EnderDragonEntity;
 import net.minecraft.entity.damage.DamageSource;
@@ -41,6 +48,7 @@ import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
@@ -65,8 +73,9 @@ import java.util.UUID;
  * <p>
  * <b>Logia:</b> los golpes, flechas, tridentes y explosiones atraviesan el cuerpo (se abre un hueco de llamas y se cierra);
  * el fuego, la lava y el hielo no le hacen nada. Lo que sí le toca: quien tiene Haki (el Warden, el Wither, el Dragón,
- * el Guardián Anciano, otro usuario de fruta o quien empuña Kikoku o Yakuza Kasen), el agua (mojado no hay Logia y el
- * mar le quita la fruta), el vacío, el hambre, el veneno y la magia.
+ * el Guardián Anciano, otro usuario de fruta o quien empuña Kikoku o Yakuza Kasen), el agua (mojado no hay Logia y
+ * sumergido la fruta no funciona), el vacío, el hambre, el veneno y ahogarse. Las caídas no le rompen: cae hecho
+ * llamas. Y el fuego de otro usuario de la Mera Mera no le quema.
  * <p>
  * <b>Técnicas (las del anime):</b> Hiken, Dai Enkai: Entei, Higan, Jūjika, Hotarubi → Hidaruma, Kyokaen, Enjōmō,
  * Shinka: Shiranui, Enkai: Hibashira, Kagerō, Hikyaku, el cuerpo hecho chorro de llamas y el Cuerpo de llamas.
@@ -77,6 +86,7 @@ public final class MeraPowers {
 	public static final int KIND = 3;
 
 	static final int HIKEN_FULL = 30, ENTEI_FULL = 70, KAGERO_MAX = 34, DASH_TICKS = 6;
+	private static final Identifier LOGIA_BLAST_ID = OpeOpeMod.id("mera_logia_blast");
 
 	private static final Map<UUID, MeraState> STATES = new HashMap<>();
 	private static final List<Shot> SHOTS = new ArrayList<>();
@@ -145,9 +155,55 @@ public final class MeraPowers {
 
 	/** Al dejar la fruta (cambiar a otra o quitarla). */
 	public static void onRevoke(ServerPlayerEntity p) {
-		MeraState st = STATES.remove(p.getUuid());
-		if (st != null && st.fireBody) send(p.getServerWorld(), MeraFx.BODY, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 0, 0);
-		if (st != null && st.hotarubiId >= 0) send(p.getServerWorld(), MeraFx.ZONE_END, p.getId(), st.hotarubiId, st.hotarubiCenter, Vec3d.ZERO, 0f, 0f, 0, 0);
+		quench(p, p.getServerWorld(), true);
+		blastProof(p, false);
+		STATES.remove(p.getUuid());
+	}
+
+	/**
+	 * Las explosiones atraviesan a un Logia: tampoco lo lanzan por los aires (Minecraft empuja con la onda aunque el daño
+	 * no entre). Mojado no hay Logia y la onda sí lo mueve.
+	 */
+	private static void blastProof(ServerPlayerEntity p, boolean on) {
+		EntityAttributeInstance inst = p.getAttributeInstance(EntityAttributes.GENERIC_EXPLOSION_KNOCKBACK_RESISTANCE);
+		if (inst == null || inst.hasModifier(LOGIA_BLAST_ID) == on) return;
+		if (on) inst.addTemporaryModifier(new EntityAttributeModifier(LOGIA_BLAST_ID, 1.0, EntityAttributeModifier.Operation.ADD_VALUE));
+		else inst.removeModifier(LOGIA_BLAST_ID);
+	}
+
+	/**
+	 * Se apaga lo que Ace tiene en marcha: las cargas, el chorro, el impulso y las luciérnagas. Al morir, al salir del
+	 * servidor o al dejar la fruta, también el Cuerpo de llamas (body); al cambiar de mundo el cuerpo sigue encendido.
+	 * w es el mundo donde se veía (el que deja).
+	 */
+	private static void quench(ServerPlayerEntity p, ServerWorld w, boolean body) {
+		MeraState st = STATES.get(p.getUuid());
+		if (st == null) return;
+		boolean changed = false;
+		if (st.hikenCharging || st.enteiCharging) {
+			st.hikenCharging = st.enteiCharging = false;
+			send(w, MeraFx.CHARGE_CANCEL, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 0, 0);
+			changed = true;
+		}
+		if (st.kageroTicks > 0) {
+			st.kageroTicks = 0;
+			send(w, MeraFx.KAGERO_END, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 0, 0);
+		}
+		st.dashTicks = 0;
+		if (st.hotarubiId >= 0) {
+			send(w, MeraFx.ZONE_END, p.getId(), st.hotarubiId, st.hotarubiCenter, Vec3d.ZERO, 0f, 0f, 0, 0);
+			st.hotarubiId = -1;
+			st.hotarubiTicks = 0;
+		}
+		if (body && st.fireBody) {
+			st.fireBody = false;
+			send(w, MeraFx.BODY, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 0, 0);
+			changed = true;
+		}
+		if (changed) {
+			PlayerPower pw = PowerManager.peek(p.getUuid());
+			if (pw != null) pw.dirty = true;
+		}
 	}
 
 	/** Para la galería de pruebas: fuera todo lo de la técnica anterior (cuerpo, cargas, disparos y zonas). */
@@ -164,6 +220,19 @@ public final class MeraPowers {
 
 	public static void init() {
 		ServerLivingEntityEvents.ALLOW_DAMAGE.register(MeraPowers::allowDamage);
+		// las llamas mueren con él: nada de puños ni soles que salen de un cuerpo ya caído
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (entity instanceof ServerPlayerEntity sp) quench(sp, sp.getServerWorld(), true);
+		});
+		// lo que tenía en marcha se queda en el mundo del que sale (las luciérnagas tienen un sitio en ese mundo)
+		ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register((player, origin, destination) -> quench(player, origin, false));
+		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> quench(newPlayer, oldPlayer.getServerWorld(), !alive));
+		// si se va con un puño a medio cargar, al volver no se dispara solo
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			ServerPlayerEntity sp = handler.getPlayer();
+			quench(sp, sp.getServerWorld(), true);
+			STATES.remove(sp.getUuid());
+		});
 		AttackEntityCallback.EVENT.register((player, world, hand, entity, hit) -> {
 			if (!world.isClient && player instanceof ServerPlayerEntity sp && isMera(sp) && !sp.isSpectator()
 				&& sp.getMainHandStack().isEmpty() && entity instanceof LivingEntity le && le.isAlive()) {
@@ -184,13 +253,20 @@ public final class MeraPowers {
 		if (!(entity instanceof ServerPlayerEntity sp) || !isMera(sp)) return true;
 		MeraState st = state(sp);
 		if (source.isIn(DamageTypeTags.BYPASSES_INVULNERABILITY)) return true;
-		// el fuego no quema al fuego, y las llamas deshacen el hielo
-		if (source.isIn(DamageTypeTags.IS_FIRE) || source.isOf(DamageTypes.HOT_FLOOR) || source.isIn(DamageTypeTags.IS_FREEZING)) {
+		// el fuego no quema al fuego (tampoco el de otro usuario de la Mera Mera), y las llamas deshacen el hielo
+		if (source.isIn(DamageTypeTags.IS_FIRE) || source.isOf(DamageTypes.HOT_FLOOR) || source.isIn(DamageTypeTags.IS_FREEZING)
+			|| source.isOf(ModDamage.MERA)) {
 			if (sp.isOnFire()) sp.extinguish();
 			return false;
 		}
-		if (source.isIn(DamageTypeTags.IS_FALL) && st.fallSafeTicks > 0) {
-			sp.fallDistance = 0f;
+		if (source.isIn(DamageTypeTags.IS_FALL)) {
+			if (st.fallSafeTicks > 0) {
+				sp.fallDistance = 0f;
+				return false;
+			}
+			if (sp.isTouchingWater() || sp.isSubmergedInWater()) return true;   // mojado: sin Logia
+			// un Logia no se rompe al caer: las piernas se deshacen en llamas contra el suelo y vuelven a formarse
+			land(sp, st, amount);
 			return false;
 		}
 		// hecho un chorro de llamas no hay cuerpo que golpear
@@ -198,7 +274,9 @@ public final class MeraPowers {
 		if (sp.isTouchingWater() || sp.isSubmergedInWater()) return true;   // mojado: sin Logia
 		Entity attacker = source.getAttacker();
 		Entity direct = source.getSource();
-		if (hasHaki(attacker) || hasHaki(direct)) {
+		// lo que provoca él mismo (su dinamita, su flecha que vuelve a caer) no lleva Haki contra él
+		boolean own = attacker == sp || (attacker == null && direct == sp);
+		if (!own && (hasHaki(attacker) || hasHaki(direct))) {
 			// Haki: el golpe encuentra el cuerpo. Las llamas parpadean y el daño entra.
 			Vec3d at = hitPoint(sp, attacker != null ? attacker : direct);
 			send(sp.getServerWorld(), MeraFx.HAKI_HIT, sp.getId(), 0, at, Vec3d.ZERO, 0.8f, 1f, 10, 0);
@@ -215,9 +293,9 @@ public final class MeraPowers {
 			|| source.isOf(DamageTypes.SWEET_BERRY_BUSH) || source.isOf(DamageTypes.GENERIC)
 			|| source.isOf(DamageTypes.FLY_INTO_WALL) || source.isOf(DamageTypes.LIGHTNING_BOLT);
 		if (!physical) return true;
-		scatter(sp, st, attacker != null ? attacker : direct, source.isIn(DamageTypeTags.IS_EXPLOSION));
+		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, source.isIn(DamageTypeTags.IS_EXPLOSION));
 		// quien golpea con la mano a un cuerpo de fuego se quema
-		if (attacker instanceof LivingEntity le && attacker == direct && le.squaredDistanceTo(sp) < 25) {
+		if (attacker instanceof LivingEntity le && attacker != sp && attacker == direct && le.squaredDistanceTo(sp) < 25) {
 			le.setOnFireFor(st.fireBody ? 6f : 2f);
 			if (st.fireBody) {
 				le.timeUntilRegen = 0;
@@ -245,6 +323,18 @@ public final class MeraPowers {
 		}
 	}
 
+	/** Cae desde alto: en vez de romperse, las piernas estallan en llamas contra el suelo y se rehacen. */
+	private static void land(ServerPlayerEntity sp, MeraState st, float amount) {
+		sp.fallDistance = 0f;
+		if (st.scatterCooldown > 0) return;
+		st.scatterCooldown = 6;
+		ServerWorld w = sp.getServerWorld();
+		Vec3d at = sp.getPos().add(0, 0.35, 0);
+		send(w, MeraFx.SCATTER, sp.getId(), 0, at, new Vec3d(0, 1, 0), Math.min(1.4f, 0.7f + amount * 0.04f), 1f, 12, 0);
+		snd(w, at, SoundEvents.ENTITY_BLAZE_SHOOT, 0.45f, 1.7f);
+		snd(w, at, SoundEvents.BLOCK_FIRE_AMBIENT, 0.9f, 1.3f);
+	}
+
 	private static Vec3d hitPoint(ServerPlayerEntity sp, Entity from) {
 		Vec3d mid = sp.getPos().add(0, 1.05, 0);
 		if (from == null) return mid;
@@ -258,8 +348,8 @@ public final class MeraPowers {
 	/** Para el mixin de proyectiles: ¿este proyectil atraviesa a ese jugador? */
 	public static boolean projectilePasses(ProjectileEntity pr, Entity target) {
 		if (!(target instanceof ServerPlayerEntity sp) || !logia(sp)) return false;
+		if (pr.getOwner() == sp) return true;   // lo suyo no lleva Haki contra él
 		if (hasHaki(pr.getOwner()) || hasHaki(pr)) return false;
-		if (pr.getOwner() == sp) return true;
 		Integer seen = PASSED.get(pr.getId());
 		if (seen == null || seen != sp.getId()) {
 			PASSED.put(pr.getId(), sp.getId());
@@ -272,6 +362,8 @@ public final class MeraPowers {
 
 	/** Las órdenes del cliente para la Mera Mera. Devuelve true si la orden era de la fruta (no sigue a Law). */
 	public static boolean handle(ServerPlayerEntity p, PlayerPower pw, int action, int arg) {
+		// ni muerto ni de espectador (al morir ya se apagó lo que tenía en marcha: soltar la tecla no dispara nada)
+		if (!p.isAlive() || p.isSpectator()) return action >= MeraActions.HIKEN_START && action <= MeraActions.BODY;
 		MeraState st = state(p);
 		switch (action) {
 			case MeraActions.HIKEN_START -> hikenStart(p, pw, st);
@@ -570,7 +662,7 @@ public final class MeraPowers {
 		for (int i = 0; i < 12; i++) {
 			final int n = i;
 			DELAYED.add(new Delayed(3 + i, () -> {
-				if (p.isRemoved() || !isMera(p) || p.isTouchingWater()) return;
+				if (!p.isAlive() || !isMera(p) || p.isTouchingWater()) return;
 				int side = (n % 2 == 0) ? 1 : -1;
 				Vec3d dir = p.getRotationVec(1f);
 				// pequeña dispersión, como la ráfaga del manga
@@ -596,7 +688,7 @@ public final class MeraPowers {
 		snd(w, at, SoundEvents.BLOCK_RESPAWN_ANCHOR_CHARGE, 0.9f, 1.6f);
 		cool(pw, MeraTechs.JUJIKA, MeraTechs.JUJIKA_CD);
 		DELAYED.add(new Delayed(9, () -> {
-			if (p.isRemoved() || !isMera(p)) return;
+			if (!p.isAlive() || !isMera(p)) return;
 			Vec3d dir = p.getRotationVec(1f);
 			Vec3d start = p.getEyePos().add(dir.multiply(1.1)).add(0, -0.25, 0);
 			Shot s = new Shot(Shot.JUJIKA, p, start, dir.multiply(2.0), 1.6, 14f, 40);
@@ -770,7 +862,7 @@ public final class MeraPowers {
 		snd(w, p.getPos(), SoundEvents.ENTITY_BLAZE_AMBIENT, 1f, 0.6f);
 		cool(pw, MeraTechs.HIBASHIRA, MeraTechs.HIBASHIRA_CD);
 		DELAYED.add(new Delayed(14, () -> {
-			if (p.isRemoved() || !isMera(p)) return;
+			if (!p.isAlive() || !isMera(p)) return;
 			boolean down = !p.isOnGround() && p.getPitch() > 35;
 			Vec3d base, top;
 			if (down) {
@@ -823,6 +915,7 @@ public final class MeraPowers {
 		if (st.scatterCooldown > 0) st.scatterCooldown--;
 		if (st.wetNoticeCooldown > 0) st.wetNoticeCooldown--;
 		if (st.logiaNoticeCooldown > 0) st.logiaNoticeCooldown--;
+		if (!p.isAlive()) return;
 		if (st.fallSafeTicks > 0) {
 			st.fallSafeTicks--;
 			p.fallDistance = 0f;
@@ -832,6 +925,7 @@ public final class MeraPowers {
 		if (p.isOnFire() && !p.isTouchingWater()) p.extinguish();
 
 		boolean wet = p.isTouchingWater();
+		blastProof(p, !wet);
 		if (wet && !st.wasWet) {
 			snd(w, p.getPos(), SoundEvents.BLOCK_FIRE_EXTINGUISH, 1f, 0.9f);
 			send(w, MeraFx.STEAM, p.getId(), 0, p.getPos().add(0, 1, 0), Vec3d.ZERO, 1.4f, 1f, 30, 0);
@@ -886,7 +980,7 @@ public final class MeraPowers {
 			st.hotarubiId = -1;
 		}
 
-		if (st.fireBody) bodyTick(p, st, w);
+		if (st.fireBody && !p.isSpectator()) bodyTick(p, st, w);
 	}
 
 	private static void bodyTick(ServerPlayerEntity p, MeraState st, ServerWorld w) {
@@ -1156,7 +1250,12 @@ public final class MeraPowers {
 
 	private static boolean tickZone(MinecraftServer server, Zone z) {
 		ServerWorld w = server.getWorld(z.dim);
-		if (w == null || z.owner.isRemoved()) return false;
+		if (w == null) return false;
+		if (!z.owner.isAlive()) {
+			// el muro, el cerco y la columna se apagan con quien los encendió (y dejan de verse, no solo de quemar)
+			send(w, MeraFx.ZONE_END, z.owner.getId(), z.id, z.center, Vec3d.ZERO, 0f, 0f, 0, 0);
+			return false;
+		}
 		z.age++;
 		boolean burnTick = z.age % 10 == 0;
 		switch (z.kind) {
