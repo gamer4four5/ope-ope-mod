@@ -35,6 +35,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		OpeKeyBindings.register();   // el libro (H) y los ajustes como teclas de Minecraft, y el botón en Controles
 		HudRoot.init();              // los avisos de la fruta en la barra de acción pasan a ser avisos del HUD
 		RoomFxClient.init();         // los momentos del ROOM (crear, fijar, lanzar…) que cuenta el servidor
+		dev.opeope.client.mera.MeraVolumes.register();   // el shader del fuego 3D de la Mera Mera no Mi
 
 		EntityRendererRegistry.register(ModEntities.PIECE, PieceRenderer::new);
 		dev.opeope.entity.PieceEntity.CLIENT_SURF_TICK = dev.opeope.client.render.GravitySurfClient::tickRock;

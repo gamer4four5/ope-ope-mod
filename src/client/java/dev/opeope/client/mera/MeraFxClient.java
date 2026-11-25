@@ -117,6 +117,7 @@ public final class MeraFxClient {
 		count = 0;
 		originSet = false;
 		MeraAnim.clear();
+		MeraVolumes.clear();
 	}
 
 	/** Para las pruebas: cuántas llamas vivas y cuántos efectos. */
@@ -393,10 +394,15 @@ public final class MeraFxClient {
 		// los efectos sueltan llamas
 		boolean calm = OpeSettings.reducedMotion();
 		float density = calm ? 0.5f : 1f;
+		MeraVolumes.begin();
+		boolean v3 = vol();
 		Iterator<Fx> it = FX.iterator();
 		while (it.hasNext()) {
 			Fx f = it.next();
-			if (!emit(mc, f, now, dt, td, density)) it.remove();
+			thin = v3 && volumetric(f) ? THIN : 1f;
+			boolean alive = emit(mc, f, now, dt, td, density);
+			thin = 1f;
+			if (!alive) it.remove();
 		}
 		FIREFLIES.values().removeIf(f -> f.ended && now - f.endAt > 3.0);
 		// los cuerpos de llamas
@@ -414,7 +420,12 @@ public final class MeraFxClient {
 		}
 
 		simulate((float) dt);
+		boolean vols = MeraVolumes.count() > 0;
+		if (count == 0 && !vols) return;
+		// el fuego 3D primero: las chispas y el humo van encima
+		if (vols) MeraVolumes.render(ctx, camX, camY, camZ, (float) (now % 3600.0));
 		if (count == 0) return;
+		boolean embers = MeraVolumes.ready();
 
 		Matrix4f mv = RenderSystem.getModelViewMatrix();
 		if (Math.abs(mv.m00() - 1) < 1e-4f && Math.abs(mv.m11() - 1) < 1e-4f && Math.abs(mv.m22() - 1) < 1e-4f) {
@@ -436,15 +447,17 @@ public final class MeraFxClient {
 		try {
 			// 1) el fuego, en 3D: bolas y lenguas sólidas que escriben profundidad (se tapan entre ellas y con el mundo)
 			RenderSystem.defaultBlendFunc();
-			RenderSystem.depthMask(true);
-			RenderSystem.setShader(GameRenderer::getPositionColorProgram);
-			Flame3D.begin(BASE, plain);
-			flameTime = (float) (now % 1000.0);
-			BufferBuilder s3 = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
-			for (int i = 0; i < count; i++) if (KIND[i] == FIRE || KIND[i] == GREEN || KIND[i] == TONGUE || KIND[i] == CORE) draw3D(s3, i);
-			var built3 = s3.endNullable();
-			if (built3 != null) BufferRenderer.drawWithGlobalProgram(built3);
-			RenderSystem.depthMask(false);
+			if (!embers) {
+				RenderSystem.depthMask(true);
+				RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+				Flame3D.begin(BASE, plain);
+				flameTime = (float) (now % 1000.0);
+				BufferBuilder s3 = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+				for (int i = 0; i < count; i++) if (KIND[i] == FIRE || KIND[i] == GREEN || KIND[i] == TONGUE || KIND[i] == CORE) draw3D(s3, i);
+				var built3 = s3.endNullable();
+				if (built3 != null) BufferRenderer.drawWithGlobalProgram(built3);
+				RenderSystem.depthMask(false);
+			}
 
 			// 2) humo y vapor (suaves, mezcla normal)
 			RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
@@ -460,6 +473,7 @@ public final class MeraFxClient {
 			for (int i = 0; i < count; i++) {
 				byte k = KIND[i];
 				if (k == GLOW || k == FLY || k == SPARK) drawPuff(g, i);
+				else if (embers) ember(g, i);   // con el fuego 3D, las llamas sueltas son brasas y lenguas pequeñas
 				else if (k == CORE || (k == FIRE && SIZE[i] > 0.3f)) bloom(g, i);   // el calor alrededor del fuego
 			}
 			NEAR = 1f;
@@ -602,18 +616,23 @@ public final class MeraFxClient {
 	}
 
 	private static void fire(double x, double y, double z, double vx, double vy, double vz, float size, float life) {
+		if (thin < 1f && R.nextFloat() > thin) return;
 		spawn(FIRE, x, y, z, vx, vy, vz, size, life);
 	}
 
 	private static void tongue(double x, double y, double z, double vx, double vy, double vz, float size, float life) {
+		if (thin < 1f && R.nextFloat() > thin) return;
 		spawn(TONGUE, x, y, z, vx, vy, vz, size, life);
 	}
 
 	private static void core(double x, double y, double z, double vx, double vy, double vz, float size, float life) {
+		if (thin < 1f && R.nextFloat() > thin) return;
 		spawn(CORE, x, y, z, vx, vy, vz, size, life);
 	}
 
 	private static void glow(double x, double y, double z, double vx, double vy, double vz, float size, float life, float r, float g, float bl) {
+		// con el fuego 3D el resplandor grande ya lo pone el shader: aquí solo quedan los pequeños
+		if (thin < 1f && size > 0.9f) return;
 		int i = spawn(GLOW, x, y, z, vx, vy, vz, size, life);
 		if (i < 0) return;
 		CR[i] = r;
@@ -646,6 +665,89 @@ public final class MeraFxClient {
 		int n = (int) f.acc;
 		f.acc -= n;
 		return n;
+	}
+
+	// ------------------------------------------------------------------ el fuego 3D (volúmenes del shader)
+
+	/**
+	 * Qué parte de las llamas sueltas se siguen soltando mientras emite una técnica que ya dibuja su forma en 3D
+	 * (1 = todas). Las que quedan son chispas y lenguas pequeñas alrededor del volumen.
+	 */
+	private static float thin = 1f;
+	private static final float THIN = 0.1f;
+	private static final Vec3d FWD = new Vec3d(0, 0, 1), DOWN = new Vec3d(0, -1, 0);
+
+	private static boolean vol() {
+		return MeraVolumes.ready();
+	}
+
+	/** Las técnicas que el fuego 3D dibuja como un volumen (las demás siguen con llamas sueltas). */
+	private static boolean volumetric(Fx f) {
+		return switch (f.kind) {
+			case MeraFx.HIKEN_CHARGE, MeraFx.HIKEN_SHOT, MeraFx.HIGAN_BULLET, MeraFx.JUJIKA_FLASH, MeraFx.JUJIKA_SHOT,
+				 MeraFx.SHIRANUI, MeraFx.ENTEI_CHARGE, MeraFx.ENTEI_SHOT, MeraFx.ENTEI_BLAST, MeraFx.KYOKAEN, MeraFx.ENJOMO,
+				 MeraFx.ENKAI_GATHER, MeraFx.HIBASHIRA, MeraFx.KAGERO, MeraFx.DASH, MeraFx.SCATTER, MeraFx.BODY,
+				 MeraFx.HIKYAKU, MeraFx.PUNCH, MeraFx.EMBER_HIT -> true;
+			case MeraFx.IMPACT -> f.style != MeraFx.STYLE_STEAM;
+			default -> false;
+		};
+	}
+
+	private static void vol(int shape, Vec3d c, Vec3d dir, float p0, float p1, float p2, Fx f, float intensity) {
+		MeraVolumes.add(shape, c, dir, p0, p1, p2, 0f, f.id * 31 + f.kind * 7 + f.userId, intensity);
+	}
+
+	/** 0 → 1 suave (smoothstep) entre 0 y 1. */
+	private static float smooth(float x) {
+		float v = MathHelper.clamp(x, 0f, 1f);
+		return v * v * (3f - 2f * v);
+	}
+
+	/** Sube rápido y frena (para lo que crece al estallar). */
+	private static float easeOut(double u) {
+		double v = 1 - MathHelper.clamp(u, 0, 1);
+		return (float) (1 - v * v * v);
+	}
+
+	private static boolean selfView(MinecraftClient mc, Entity e) {
+		return e != null && e == mc.getCameraEntity() && mc.options.getPerspective().isFirstPerson();
+	}
+
+	/** Los estallidos (IMPACT) en 3D: la bola de fuego que se abre, o la cruz que se abre (Jūjika). */
+	private static boolean impactVolume(Fx f, double age) {
+		float r = f.radius;
+		Vec3d d = f.b.lengthSquared() > 1e-4 ? f.b : FWD;
+		switch (f.style) {
+			case MeraFx.STYLE_CROSS -> {
+				double T = 0.65;
+				if (age > T) return false;
+				float u = (float) (age / T), e = easeOut(u * 1.4);
+				vol(MeraVolumes.CROSS, f.a, d, r * (0.35f + 0.65f * e), r * (0.12f + 0.08f * e), 0, f, (float) Math.pow(1 - u, 1.3) * 1.15f);
+			}
+			case MeraFx.STYLE_LANCE -> {
+				double T = 0.5;
+				if (age > T) return false;
+				float u = (float) (age / T), e = easeOut(u * 1.3);
+				vol(MeraVolumes.FIREBALL, f.a, d, r * (0.25f + 0.45f * e), 0.6f * u, 0, f, (float) Math.pow(1 - u, 1.5) * (1f + 0.3f * Math.max(0f, 1f - u / 0.15f)));
+			}
+			case MeraFx.STYLE_FIZZLE -> {
+				double T = 0.45;
+				if (age > T) return false;
+				float u = (float) (age / T), e = easeOut(u);
+				vol(MeraVolumes.FIREBALL, f.a, d, r * (0.18f + 0.22f * e), 0.8f * u, 0, f, 0.6f * (float) Math.pow(1 - u, 1.5));
+			}
+			default -> {
+				// como una explosión de verdad: destello, se abre de golpe, hierve y sube como un hongo mientras se
+				// enfría de fuera hacia dentro y acaba en humo
+				double T = 0.95 + 0.1 * r;
+				if (age > T) return false;
+				float u = (float) (age / T), e = easeOut(u * 1.6);
+				float cool = smooth((u - 0.12f) / 0.88f);
+				float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.1f)) * (1f - smooth((u - 0.72f) / 0.28f));
+				vol(MeraVolumes.FIREBALL, f.a, FWD, r * (0.28f + 0.55f * e), cool, 0, f, inten);
+			}
+		}
+		return true;
 	}
 
 	// ------------------------------------------------------------------ dibujar una llama
@@ -771,6 +873,23 @@ public final class MeraFxClient {
 				quad(b, x, y, z, s, 0f, (byte) 3, rgb(CR[i], CG[i], CB[i]), alpha * 0.85f);
 			}
 		}
+	}
+
+	/** Una llama suelta junto al fuego 3D: una brasa brillante y pequeña que sube (aditiva). */
+	private static void ember(BufferBuilder b, int i) {
+		byte k = KIND[i];
+		if (k != FIRE && k != TONGUE && k != CORE && k != GREEN) return;
+		float t = AGE[i] / LIFE[i];
+		float x = (float) (PX[i] + ox - camX), y = (float) (PY[i] + oy - camY), z = (float) (PZ[i] + oz - camZ);
+		if (x * fx + y * fy + z * fz < -0.5f) return;
+		float d = (float) Math.sqrt(x * x + y * y + z * z);
+		NEAR = MathHelper.clamp((d - 0.4f) / 1.2f, 0f, 1f);
+		if (NEAR <= 0.01f) return;
+		float s = MathHelper.clamp(SIZE[i] * 0.28f, 0.035f, 0.11f) * (1f - 0.5f * t);
+		float alpha = (t < 0.08f ? t / 0.08f : 1f) * (1f - t);
+		int rgb = k == GREEN ? greenInner(t) : (t < 0.4f ? fireInner(t) : fireOuter(t));
+		quad(b, x, y, z, s * 2.4f, 0f, (byte) 3, rgb, alpha * 0.35f);
+		quad(b, x, y, z, s, 0f, (byte) 3, rgb, alpha);
 	}
 
 	/** Rampa del borde: naranja → rojo anaranjado → rojo oscuro. */
@@ -948,6 +1067,14 @@ public final class MeraFxClient {
 				}
 				if (R.nextFloat() < dt * 25 * k) glow(h.x, h.y, h.z, 0, 0, 0, 0.6f + 0.6f * k, 0.25f, 1f, 0.6f, 0.2f);
 				if (R.nextFloat() < dt * 10 * k) spark(h.x, h.y, h.z, rs() * 3, 2 + R.nextFloat() * 3, rs() * 3, 0.5f);
+				if (vol()) {
+					// el puño envuelto en una llama que sube, y el antebrazo ardiendo
+					vol(MeraVolumes.FLAME, h.add(0, -0.1 - 0.1 * k, 0), FWD, 0.14f + 0.2f * k, 0.5f + 0.9f * k, 0, f, 0.55f + 0.45f * k);
+					if (!selfView(mc, user)) {
+						Vec3d arm = h.subtract(sh);
+						vol(MeraVolumes.JET, sh, arm, (float) arm.length(), 0.1f + 0.12f * k, 0, f, 0.3f + 0.45f * k);
+					}
+				}
 				return true;
 			}
 			case MeraFx.HIKEN_SHOT -> {
@@ -958,6 +1085,7 @@ public final class MeraFxClient {
 					burst(f, f.a, f.b, f.radius, f.power, f.style);
 					f.last = f.a;
 				}
+				if (vol() && f.style != MeraFx.STYLE_STEAM) return impactVolume(f, age);
 				return age < 0.1;
 			}
 			case MeraFx.HIGAN_BULLET -> {
@@ -971,6 +1099,8 @@ public final class MeraFxClient {
 				}
 				trail(f, head, 0.09f, 0.18f, 18, dt, density, true);
 				core(head.x, head.y, head.z, 0, 0, 0, 0.16f, 0.06f);
+				// la lanza va centrada: la punta queda en la cabeza de la bala
+				if (vol()) vol(MeraVolumes.LANCE, head.subtract(f.b.normalize().multiply(0.6)), f.b, 0.8f, 0.075f, 0, f, 1f);
 				glow(head.x, head.y, head.z, 0, 0, 0, 0.45f, 0.05f, 1f, 0.7f, 0.3f);
 				f.last = head;
 				return true;
@@ -982,6 +1112,10 @@ public final class MeraFxClient {
 				Vec3d[] ax = axes(dir);
 				float u = (float) MathHelper.clamp(age / f.dur, 0, 1);
 				float len = 0.4f + 1.6f * u;
+				if (vol()) {
+					vol(MeraVolumes.CROSS, f.a, dir, len * 0.9f, 0.06f + 0.03f * u, 0, f, 1.3f);
+					return true;
+				}
 				int n = many(f, 260 * density, dt);
 				for (int i = 0; i < n; i++) {
 					boolean vert = R.nextBoolean();
@@ -1009,6 +1143,7 @@ public final class MeraFxClient {
 				for (int i = 0; i < 2; i++) {
 					core(head.x, head.y, head.z, 0, 0, 0, r * 0.6f, 0.08f);
 				}
+				if (vol()) vol(MeraVolumes.CROSS, head, dir, r * 1.5f, r * 0.3f, 0, f, 1f);
 				if (R.nextFloat() < dt * 30) glow(head.x, head.y, head.z, 0, 0, 0, r * 2.2f, 0.12f, 1f, 0.65f, 0.25f);
 				return true;
 			}
@@ -1021,6 +1156,13 @@ public final class MeraFxClient {
 				Vec3d base = user.getLerpedPos(td);
 				Vec3d sun = base.add(0, user.getHeight() + 1.2 + r, 0);
 				sun(f, sun, r, dt, density, now, false);
+				if (vol()) {
+					vol(MeraVolumes.FIREBALL, sun, FWD, r, 0, 0, f, 1f);
+					Vec3d hh = hand(mc, user, 1, td);
+					Vec3d to = sun.subtract(hh);
+					double L = to.length() - r * 0.7;
+					if (L > 0.6 && !selfView(mc, user)) vol(MeraVolumes.JET, hh, to, (float) L, 0.3f + 0.08f * r, 0, f, 0.75f);
+				}
 				// los hilos de fuego que suben de la mano al sol y de alrededor hacia él
 				Vec3d h = hand(mc, user, 1, td);
 				int n = many2(f, 140 * density, dt);
@@ -1043,6 +1185,8 @@ public final class MeraFxClient {
 				Vec3d head = shotHead(f, now, 0);
 				if (head == null) return false;
 				sun(f, head, f.radius, dt, density, now, true);
+				// lanzado: las llamas se van hacia atrás, como una bola de fuego que vuela
+				if (vol()) vol(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, f, 1f);
 				return true;
 			}
 			case MeraFx.ENTEI_BLAST -> {
@@ -1080,6 +1224,7 @@ public final class MeraFxClient {
 				// un remolino de llamas que gira alrededor de Ace y se va cerrando
 				Vec3d base = user.getLerpedPos(td);
 				float u = (float) (age / f.dur);
+				if (vol()) vol(MeraVolumes.RING, base, FWD, (float) (f.radius * (1.2 - 0.8 * u)), 2.6f, 0.5f, f, 0.85f);
 				int n = many(f, 520 * density, dt);
 				for (int i = 0; i < n; i++) {
 					double ang = R.nextDouble() * Math.PI * 2 + age * 9;
@@ -1098,6 +1243,10 @@ public final class MeraFxClient {
 				if (f.ended || age > f.dur + 0.1 || user == null) return false;
 				Vec3d h = hand(mc, user, 1, td);
 				Vec3d dir = user.getRotationVec(td);
+				if (vol()) {
+					float grow = easeOut(age / 0.18);
+					vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.5f, 0, f, 1f);
+				}
 				int n = many(f, 620 * density, dt);
 				for (int i = 0; i < n; i++) {
 					double spread = 0.16;
@@ -1127,6 +1276,7 @@ public final class MeraFxClient {
 						else tongue(p.x + rs() * r, p.y + rs() * r, p.z + rs() * r, -dir.x * 6, -dir.y * 6, -dir.z * 6, 0.3f, 0.3f);
 					}
 					core(pos.x, pos.y, pos.z, 0, 0, 0, 0.55f, 0.06f);
+					if (vol() && !selfView(mc, user)) vol(MeraVolumes.FIST, pos, dir, 0.55f, 2.8f, 0, f, 1f);
 					f.last = pos;
 				} else if (f.acc2 == 0) {
 					// vuelve a tomar forma: las llamas se juntan en el cuerpo
@@ -1145,6 +1295,7 @@ public final class MeraFxClient {
 					f.last = f.a;
 					scatterBurst(f.a, f.b, f.radius, density);
 				}
+				if (vol()) vol(MeraVolumes.FIREBALL, f.a, FWD, f.radius * (0.35f + 0.45f * easeOut(age / 0.3)), (float) (age / 0.3) * 0.7f, 0, f, 0.85f * (float) (1 - age / 0.3));
 				// las llamas que vuelven a cerrar el hueco
 				if (age > 0.12 && f.acc2 == 0) {
 					f.acc2 = 1;
@@ -1172,6 +1323,12 @@ public final class MeraFxClient {
 					}
 					glow(c.x, c.y + 1, c.z, 0, 0, 0, 3.2f, 0.4f, 1f, 0.55f, 0.15f);
 				}
+				if (vol() && age < 0.5) {
+					Vec3d c = user != null ? user.getLerpedPos(td) : f.a;
+					float u = (float) (age / 0.5);
+					vol(MeraVolumes.RING, c, FWD, 0.5f + 2.6f * easeOut(u), 1.8f * (1 - u) + 0.4f, 0.35f, f, (selfView(mc, user) ? 0.55f : 1f) * (1 - u));
+					return true;
+				}
 				return false;
 			}
 			case MeraFx.HIKYAKU -> {
@@ -1186,9 +1343,14 @@ public final class MeraFxClient {
 					for (int i = 0; i < 30 * density; i++) fire(c.x + rs() * 0.2, c.y, c.z + rs() * 0.2, rs() * 1.5, -2 - R.nextDouble() * 4, rs() * 1.5, 0.25f, 0.3f);
 					glow(c.x, c.y + 0.2, c.z, 0, 0, 0, 2.2f, 0.25f, 1f, 0.6f, 0.2f);
 				}
+				if (vol() && age < 0.4) {
+					float u = (float) (age / 0.4);
+					vol(MeraVolumes.RING, f.a, FWD, 0.3f + 2.2f * easeOut(u), 0.9f * (1 - u) + 0.3f, 0.3f, f, 1 - u);
+				}
 				// fuego en los pies mientras sube
 				if (age < 0.5 && user != null) {
 					Vec3d feet = user.getLerpedPos(td);
+					if (vol()) vol(MeraVolumes.JET, feet.add(0, 0.1, 0), DOWN, 1.7f, 0.5f, 0, f, (float) (1 - age / 0.5));
 					int n = many(f, 160 * density, dt);
 					for (int i = 0; i < n; i++) fire(feet.x + rs() * 0.25, feet.y + 0.05, feet.z + rs() * 0.25, rs() * 0.6, -3 - R.nextDouble() * 2, rs() * 0.6, 0.18f, 0.3f);
 				}
@@ -1215,6 +1377,12 @@ public final class MeraFxClient {
 							0.16f + 0.1f * f.radius, 0.3f);
 					}
 					for (int i = 0; i < 6; i++) spark(f.a.x, f.a.y, f.a.z, rs() * 5 + d.x * 4, R.nextDouble() * 4, rs() * 5 + d.z * 4, 0.45f);
+				}
+				if (vol() && age < 0.28) {
+					float u = (float) (age / 0.28);
+					vol(MeraVolumes.FIREBALL, f.a, FWD, (0.25f + 0.2f * f.radius) * (0.6f + 0.6f * easeOut(u)), 0.5f * u, 0, f,
+						(1f + 0.35f * Math.max(0f, 1f - u / 0.25f)) * (1 - u));
+					return true;
 				}
 				return false;
 			}
@@ -1316,6 +1484,11 @@ public final class MeraFxClient {
 				size * (0.7f + R.nextFloat() * 0.6f), 0.28f + R.nextFloat() * 0.22f);
 			else tongue(p.x, p.y, p.z, -dir.x * back * 1.3 + rs(), -dir.y * back * 1.3 + rs(), -dir.z * back * 1.3 + rs(), size, 0.3f);
 		}
+		if (vol()) {
+			// el puño de fuego en 3D, con la cola de llamas que deja detrás
+			float tail = (float) Math.min(head.distanceTo(f.a) + 0.8, 2.4 * r);
+			vol(MeraVolumes.FIST, head, dir, 0.62f * r, tail, 0, f, 1f);
+		}
 		// núcleo blanco y resplandor
 		core(head.x, head.y, head.z, 0, 0, 0, 0.55f * r, 0.05f);
 		if (R.nextFloat() < dt * 40) glow(head.x, head.y, head.z, 0, 0, 0, r * 2.6f, 0.15f, 1f, 0.55f, 0.18f);
@@ -1334,6 +1507,10 @@ public final class MeraFxClient {
 		double len = h.distanceTo(head);
 		if (len < 0.3) return true;
 		float fade = (float) MathHelper.clamp(1.0 - age / 0.45, 0.2, 1.0);
+		if (vol()) {
+			float gone = f.endAt > 0 ? (float) MathHelper.clamp(1 - (RoomFxClient.time() - f.endAt) / 0.25, 0, 1) : 1f;
+			vol(MeraVolumes.JET, h, head.subtract(h), (float) len, r * 0.42f, 0, f, 0.85f * fade * gone);
+		}
 		int n = many2(f, (float) (len * 60 * density * fade), dt);
 		for (int i = 0; i < n; i++) {
 			double u = R.nextDouble();
@@ -1374,6 +1551,8 @@ public final class MeraFxClient {
 		}
 		Vec3d tip = head.add(dir.multiply(0.25 * len));
 		core(tip.x, tip.y, tip.z, 0, 0, 0, 0.22f, 0.05f);
+		// la lanza 3D va centrada (punta en +0,775·largo): mismo sitio y largo que las llamas de la lanza
+		if (vol() && len > 0.2) vol(MeraVolumes.LANCE, head.add(dir.multiply(-0.25 * len)), dir, (float) (len * 0.645), 0.19f, 0, f, 0.6f + 0.4f * form);
 		if (R.nextFloat() < dt * 30) glow(head.x, head.y, head.z, 0, 0, 0, 1.4f, 0.12f, 1f, 0.6f, 0.2f);
 		if (flyTicks >= 0) trail(f, head, 0.18f, 0.3f, 10, dt, density, false);
 		f.last = head;
@@ -1411,6 +1590,19 @@ public final class MeraFxClient {
 	private static boolean emitEnteiBlast(Fx f, double age, double dt, float density) {
 		Vec3d c = f.a;
 		float area = f.radius;
+		if (vol() && age < 2.4) {
+			// la bola de fuego que se abre de golpe, hierve y sube como un hongo enfriándose en humo,
+			// y el anillo que corre por el suelo
+			float u = (float) (age / 2.4), e = easeOut(u * 1.7);
+			float cool = smooth((u - 0.1f) / 0.9f);
+			float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.06f)) * (1f - smooth((u - 0.75f) / 0.25f));
+			vol(MeraVolumes.FIREBALL, c, FWD, area * (0.22f + 0.5f * e), cool, 0, f, inten);
+			float uw = (float) (age / 1.6);
+			if (uw < 0.75f) {
+				float w = uw / 0.75f;
+				vol(MeraVolumes.RING, c.add(0, -f.power * 0.5, 0), FWD, area * (0.3f + 0.95f * easeOut(w)), 1.6f * (1 - w) + 0.4f, 0.7f, f, (1 - w) * (1 - w));
+			}
+		}
 		if (f.last == null) {
 			f.last = c;
 			// el destello y la bola de fuego que se abre
@@ -1511,6 +1703,7 @@ public final class MeraFxClient {
 		Vec3d n = f.b.normalize();
 		Vec3d side = new Vec3d(-n.z, 0, n.x);
 		double half = f.radius, height = f.power * (0.3 + 0.7 * k);
+		if (vol()) vol(MeraVolumes.WALL, f.a, n, (float) half, (float) height, 0.35f, f, k);
 		int cnt = many(f, (float) (half * 2 * 85 * density * k), dt);
 		for (int i = 0; i < cnt; i++) {
 			double s = rs() * half;
@@ -1528,6 +1721,7 @@ public final class MeraFxClient {
 		if ((f.ended && now - f.endAt > 0.5) || age > f.dur + 0.5) return false;
 		float k = zoneFade(f, now, age);
 		double r = f.radius, height = f.power * (0.3 + 0.7 * k);
+		if (vol()) vol(MeraVolumes.RING, f.a, FWD, (float) r, (float) height, 0.42f, f, k);
 		int cnt = many(f, (float) (2 * Math.PI * r * 45 * density * k), dt);
 		for (int i = 0; i < cnt; i++) {
 			double ang = R.nextDouble() * Math.PI * 2;
@@ -1556,6 +1750,12 @@ public final class MeraFxClient {
 				fire(g.x, g.y + 0.2, g.z, Math.cos(ang) * sp, 0.5 + R.nextDouble(), Math.sin(ang) * sp, 0.45f, 0.45f);
 			}
 			glow(g.x, g.y + 1, g.z, 0, 0, 0, f.radius * 3, 0.35f, 1f, 0.6f, 0.2f);
+		}
+		if (vol()) {
+			// la columna crece desde el suelo (o baja del cielo) en un instante
+			float grow = easeOut(age / 0.3);
+			Vec3d foot = down ? new Vec3d(base.x, top.y - h * grow, base.z) : base;
+			vol(MeraVolumes.PILLAR, foot, FWD, f.radius, (float) (h * grow), 0, f, k);
 		}
 		double sp = down ? -h * 2.4 : h * 2.4;
 		float life = (float) (h / Math.abs(sp));
@@ -1656,6 +1856,14 @@ public final class MeraFxClient {
 		double yr = Math.toRadians(by);
 		double rX = -Math.cos(yr), rZ = -Math.sin(yr);
 		double fX = -Math.sin(yr), fZ = Math.cos(yr);
+		if (vol() && !self) {
+			// los hombros y los brazos se vuelven llamas (en 3D); las llamas sueltas quedan de adorno
+			for (int sd = -1; sd <= 1; sd += 2) {
+				Vec3d sh = new Vec3d(base.x + rX * 0.36 * sd, base.y + (pl.isInSneakingPose() ? 0.8 : 1.02), base.z + rZ * 0.36 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.2f, 0.85f, 0, 0, pl.getId() * 13 + sd, 0.75f);
+			}
+			thin = 0.3f;
+		}
 		float rate = (self ? 50 : 260) * density;
 		int n = (int) (rate * dt + R.nextFloat());
 		for (int i = 0; i < n; i++) {
@@ -1694,6 +1902,7 @@ public final class MeraFxClient {
 			fire(base.x + rs() * 0.2, base.y + 0.15, base.z + rs() * 0.2, -v.x * 4, 0.4, -v.z * 4, 0.22f, 0.5f);
 		}
 		if (!self && R.nextFloat() < dt * 6) glow(base.x, base.y + 1, base.z, 0, 0, 0, 1.6f, 0.3f, 1f, 0.5f, 0.15f);
+		thin = 1f;
 	}
 
 	private static void emitHiddenParts(MinecraftClient mc, PlayerEntity pl, int bits, float td, double dt, float density) {

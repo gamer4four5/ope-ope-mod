@@ -3,6 +3,7 @@ package dev.opeope.client.mixin;
 import dev.opeope.client.room.CameraFx;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.GameRenderer;
+import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.client.util.math.MatrixStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -26,5 +27,13 @@ public abstract class GameRendererMixin {
 	@Inject(method = "tiltViewWhenHurt", at = @At("HEAD"))
 	private void opeope$roomShake(MatrixStack matrices, float tickDelta, CallbackInfo ci) {
 		CameraFx.apply(matrices, tickDelta);
+	}
+
+	/** El fuego 3D de la Mera Mera con un shaderpack: se dibuja cuando el shaderpack ya terminó la imagen del mundo. */
+	@Inject(method = "renderWorld", at = @At(value = "INVOKE", shift = At.Shift.AFTER, target = "Lnet/minecraft/client/render/WorldRenderer;render("
+		+ "Lnet/minecraft/client/render/RenderTickCounter;ZLnet/minecraft/client/render/Camera;Lnet/minecraft/client/render/GameRenderer;"
+		+ "Lnet/minecraft/client/render/LightmapTextureManager;Lorg/joml/Matrix4f;Lorg/joml/Matrix4f;)V"), require = 0)
+	private void opeope$meraAfterWorld(RenderTickCounter tickCounter, CallbackInfo ci) {
+		dev.opeope.client.mera.MeraVolumes.afterWorld();
 	}
 }
