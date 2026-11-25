@@ -106,8 +106,22 @@ jobs:
           rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
           mkdir -p capturas/mera
           set +e
+          command -v ffmpeg > /dev/null || sudo apt-get install -y -qq ffmpeg > /dev/null
+          # el video de la galería: se graba la pantalla mientras Ace usa cada técnica
+          ffmpeg -loglevel error -y -f x11grab -framerate 30 -video_size 1280x720 -i :99 -c:v libx264 -preset ultrafast -crf 20 /tmp/mera-crudo.mp4 &
+          FPID=$!
+          GRAB0=$(date -u +%s)
           timeout 540 ./gradlew runMeraGalleryClient --console=plain > galeria-mera.log 2>&1
           echo "exit=$?"
+          kill -INT $FPID; wait $FPID
+          # sin la pantalla de carga: desde un poco antes de la primera técnica
+          T1=$(grep -m1 'AUTOTEST galería hiken' galeria-mera.log | sed -E 's/^\[([0-9:]+)\].*/\1/')
+          SS=0
+          if [ -n "$T1" ]; then SS=$(( $(date -u -d "$(date -u +%F) $T1" +%s) - GRAB0 - 3 )); fi
+          [ "$SS" -lt 0 ] && SS=0
+          echo "recorte inicial: $SS s"
+          ffmpeg -loglevel error -y -ss "$SS" -i /tmp/mera-crudo.mp4 -vf "scale=1280:720" -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart capturas/mera-video.mp4 || true
+          ls -la capturas/mera-video.mp4 || true
           set -e
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue

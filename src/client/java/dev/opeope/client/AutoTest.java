@@ -170,7 +170,7 @@ public final class AutoTest {
 	/** Una técnica de la galería: qué hacer en el servidor y en qué ticks (desde que empieza) sacar capturas. */
 	private record Shot(String name, BiConsumer<ServerPlayerEntity, PlayerPower> use, float pitch, int[] at, int[] third) {}
 
-	private static final int GALLERY_STEP = 64;
+	private static final int GALLERY_STEP = Boolean.getBoolean("opeope.gallery.mera") ? 100 : 64;   // Ace: más tiempo para ver cada técnica en el video
 	private static ZombieEntity galleryZombie;
 
 	private static List<Shot> galleryShots() {
