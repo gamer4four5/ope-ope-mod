@@ -1840,8 +1840,9 @@ public final class MeraFxClient {
 				if (vol()) {
 					// (w = 2: un sol, con el centro casi blanco y más resplandor; no la bola anaranjada de una explosión)
 					MeraVolumes.add(MeraVolumes.FIREBALL, sun, FWD, r, 0, 0, 2f, f.id * 31 + f.kind * 7 + f.userId, 1f);
-					// en primera persona, las llamas que cuelgan del sol no se pegan a la cara
-					if (selfView(mc, user)) MeraVolumes.nearFade(2.2f);
+					// a quien lo carga (lo tiene justo encima), las llamas que cuelgan del sol no se le pegan a la cara; y
+					// cuanto más grande el sol, más bajan
+					if (user == mc.getCameraEntity()) MeraVolumes.nearFade(Math.max(2.2f, r * 0.55f));
 					Vec3d hh = hand(mc, user, 1, td);
 					Vec3d to = sun.subtract(hh);
 					double L = to.length() - r * 0.7;
@@ -1872,9 +1873,14 @@ public final class MeraFxClient {
 				// lanzado: las llamas se van hacia atrás, como una bola de fuego que vuela
 				if (vol()) {
 					MeraVolumes.add(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, 2f, f.id * 31 + f.kind * 7 + f.userId, 1f);
-					// en primera persona el sol sale por encima de la cara: lo que pasa pegado a la cámara se aclara (se
-					// ve el sol alejándose, no la pantalla lavada de naranja)
-					if (selfView(mc, user)) MeraVolumes.nearFade(Math.max(2.2f, f.radius * 1.1f));
+					// quien lo lanza lo tiene encima al salir, y su cola de llamas (llega a más de tres radios por detrás)
+					// le pasa por la cara: se aclara lo que queda entre la cámara y el sol, vaya por donde vaya (se ve la
+					// bola alejándose, no la pantalla lavada de naranja mientras se va)
+					if (user != null && user == mc.getCameraEntity()) {
+						double hx = head.x - camX, hy = head.y - camY, hz = head.z - camZ;
+						double cd = Math.sqrt(hx * hx + hy * hy + hz * hz);
+						MeraVolumes.nearFade((float) Math.max(Math.max(2.2, f.radius * 1.1), cd - f.radius * 0.9));
+					}
 				}
 				return true;
 			}
@@ -2360,7 +2366,15 @@ public final class MeraFxClient {
 			double cdx = camX - c.x, cdz = camZ - c.z;
 			double bx = camX - cb.x, by = camY - cb.y, bz = camZ - cb.z;
 			double cd = Math.sqrt(bx * bx + by * by + bz * bz);
-			if (cd < rb * 1.6) MeraVolumes.nearFade(MathHelper.clamp(rb * 0.45f, 2.2f, 5f));
+			if (cd < rb * 1.6) {
+				// quien queda dentro (el sol cayó cerca) ve el fogonazo y enseguida vuelve a ver: desde el cuarto de segundo
+				// el hueco alrededor de la cámara crece hasta abarcar la bola (el fuego se sigue viendo al fondo, lejos; antes,
+				// más de un segundo de pantalla naranja y luego varios de humo). Al salir de la bola el hueco se cierra poco
+				// a poco, sin saltos
+				float within = 1f - smooth((float) ((cd - rb * 0.9) / (rb * 0.6)));
+				float open = smooth((float) ((age - 0.25) / 0.6)) * within;
+				MeraVolumes.nearFade(MathHelper.lerp(open, MathHelper.clamp(rb * 0.45f, 2.2f, 5f), rb * 2.3f + 2f));
+			}
 			float uw = (float) (age / 1.6);
 			if (uw < 0.75f) {
 				float w = uw / 0.75f;
