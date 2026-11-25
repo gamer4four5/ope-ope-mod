@@ -32,6 +32,9 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -105,6 +108,9 @@ public final class MeraFxClient {
 		Vec3d endPos;
 		float acc, acc2;
 		Vec3d last;
+		/** Estallidos: el punto de la pared o el suelo que tocan y la normal de esa cara (wallP null = al aire). */
+		boolean wallChecked;
+		Vec3d wallP, wallN;
 
 		Fx(MeraFx p, double now) {
 			kind = p.kind();
@@ -1146,6 +1152,30 @@ public final class MeraFxClient {
 		return e != null && e == mc.getCameraEntity() && mc.options.getPerspective().isFirstPerson();
 	}
 
+	/**
+	 * Un estallido contra una pared o el suelo sale hacia fuera de esa cara: centrado en el punto del golpe, media bola
+	 * quedaba dentro del bloque y se veía un disco plano pegado a la pared. Al aire (o contra alguien), donde fue.
+	 */
+	private static Vec3d outOfWall(Fx f, Vec3d d, float radiusNow) {
+		if (!f.wallChecked) {
+			f.wallChecked = true;
+			MinecraftClient mc = MinecraftClient.getInstance();
+			if (mc.world != null && mc.player != null) {
+				// sin dirección (golpes desde arriba), hacia abajo: el suelo
+				Vec3d dir = d.lengthSquared() > 1e-4 && f.b.lengthSquared() > 1e-4 ? d.normalize() : new Vec3d(0, -1, 0);
+				BlockHitResult hit = mc.world.raycast(new RaycastContext(f.a.subtract(dir.multiply(1.5)), f.a.add(dir.multiply(0.8)),
+					RaycastContext.ShapeType.COLLIDER, RaycastContext.FluidHandling.NONE, mc.player));
+				if (hit.getType() == HitResult.Type.BLOCK) {
+					Direction side = hit.getSide();
+					f.wallP = hit.getPos();
+					f.wallN = new Vec3d(side.getOffsetX(), side.getOffsetY(), side.getOffsetZ());
+				}
+			}
+		}
+		if (f.wallP == null) return f.a;
+		return f.wallP.add(f.wallN.multiply(radiusNow * 0.6));
+	}
+
 	/** Los estallidos (IMPACT) en 3D: la bola de fuego que se abre, o la cruz que se abre (Jūjika). */
 	private static boolean impactVolume(Fx f, double age) {
 		float r = f.radius;
@@ -1161,7 +1191,8 @@ public final class MeraFxClient {
 				double T = 0.5;
 				if (age > T) return false;
 				float u = (float) (age / T), e = easeOut(u * 1.3);
-				vol(MeraVolumes.FIREBALL, f.a, d, r * (0.25f + 0.45f * e), 0.6f * u, 0, f, (float) Math.pow(1 - u, 1.5) * (1f + 0.3f * Math.max(0f, 1f - u / 0.15f)));
+				float R = r * (0.25f + 0.45f * e);
+				vol(MeraVolumes.FIREBALL, outOfWall(f, d, R), d, R, 0.6f * u, 0, f, (float) Math.pow(1 - u, 1.5) * (1f + 0.3f * Math.max(0f, 1f - u / 0.15f)));
 			}
 			case MeraFx.STYLE_FIZZLE -> {
 				double T = 0.45;
@@ -1172,12 +1203,17 @@ public final class MeraFxClient {
 			default -> {
 				// como una explosión de verdad: destello, se abre de golpe, hierve y sube como un hongo mientras se
 				// enfría de fuera hacia dentro y acaba en humo
-				double T = 0.95 + 0.1 * r;
+				// los pequeños (las balas de Higan) duran menos: un fogonazo y una bocanada de humo que se va enseguida;
+				// si no, muchos seguidos en el mismo sitio se juntaban en una bola marrón quieta
+				boolean small = r < 1.2f;
+				double T = (small ? 0.55 : 0.95) + 0.1 * r;
 				if (age > T) return false;
 				float u = (float) (age / T), e = easeOut(u * 1.6);
 				float cool = smooth((u - 0.12f) / 0.88f);
 				float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.1f)) * (1f - smooth((u - 0.72f) / 0.28f));
-				vol(MeraVolumes.FIREBALL, f.a, FWD, r * (0.28f + 0.55f * e), cool, 0, f, inten);
+				if (small) inten *= 1f - 0.5f * smooth((u - 0.35f) / 0.65f);
+				float R = r * (0.28f + 0.55f * e);
+				vol(MeraVolumes.FIREBALL, outOfWall(f, d, R), FWD, R, cool, 0, f, inten);
 			}
 		}
 		return true;
