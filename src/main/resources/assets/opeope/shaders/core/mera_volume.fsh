@@ -46,7 +46,7 @@ out vec4 fragColor;
 //
 //  Parámetros de cada forma (prm):
 //    0 FIREBALL  x radio, y enfriado de explosión 0..1, z velocidad 0..1,
-//                w humo claro y fino 0..1 (los golpes pequeños: una bocanada gris)
+//                w humo claro y fino 0..1 (los golpes pequeños: una bocanada gris); 2 = el sol de Entei
 //    1 FIST      x tamaño, y largo de la estela
 //    2 PILLAR    x radio, y alto, z 1 = visto desde el hueco de dentro
 //    3 RING      x radio, y alto, z grosor, w 1 = cortina de lenguas (el cerco de Enjōmō)
@@ -576,10 +576,13 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float isBall = (shape < 0.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     // un golpe pequeño (las balas de Higan) acaba en una bocanada de humo gris claro y fino, no en una bola negra
-    float lsB = isBall * clamp(prm.w, 0.0, 1.0);
+    // w = 2: el sol de Entei (más caliente, el centro casi blanco, el borde que no se enfría tanto y más resplandor)
+    float sunM = isBall * step(1.5, prm.w);
+    float lsB = isBall * clamp(prm.w, 0.0, 1.0) * (1.0 - sunM);
     // la columna de Hibashira vista desde su hueco (primera persona), y la llama que sale del suelo
     float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
     float flo = (shape > 7.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    float isJet = (shape > 4.5 && shape < 5.5) ? 1.0 : 0.0;
     // la que está pegada a una pared no tiene suelo que le tape la base: abajo se deshace (si no, una bola colgada)
     float wallF = (shape > 7.5) ? step(1.5, prm.z) : 0.0;
 
@@ -599,6 +602,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float tsum = 0.0;
     float t = tNear + jit * min(0.25, B * 0.03);   // también el halo, sin anillos
     bool first = true;
+    // la última muestra con fuego (para lo que está metido dentro del fuego; ver después del bucle)
+    float engT = -1e9; float engD = 0.0; float engL = 1.0; float engS = 0.0; float engTemp = 0.0; float engSm = 0.0;
+    float engTp = -1e9; float engDp = 0.0;
+    vec3 engC = vec3(0.0);
 
     for (int i = 0; i < 56; i++) {
         if (t >= tFar || T < 0.02) break;
@@ -614,6 +621,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         float envW = max(amp * 1.05, ampB * 1.05) + isFist * L * 0.9;
         float dEnv = d - envW;
         float stepIn = L * mix(0.12, 0.10, isFist);
+        // el chorro de Kagerō visto a lo largo (en primera persona): su ruido es 2,4 veces más largo a lo largo que a lo
+        // ancho, así que el paso también puede serlo. Si no, los pasos se acababan al bloque de la mano y del chorro
+        // solo se veía el principio, una bola
+        stepIn *= 1.0 + 1.4 * isJet * rd.z * rd.z;
         if (dEnv > 0.0) {
             // espacio vacío: saltar hasta la envoltura (el halo, según lo cerca que pasa; no pegado a la cámara)
             if (t > 1.2 && d < minD) { minD = d; Lref = L; }
@@ -678,7 +689,6 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
             float nfk = smoothstep(0.35 * nearFade, nearFade + 0.15, t);
-            dens *= gf * nfk;
             dens *= mix(1.0, smoothstep(-0.06, 0.14, u), wallF);
             vec4 look = mf_look(shape, p, prm);
             // solo el borde se rompe en jirones; la masa es continua
@@ -696,6 +706,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             float temp = (look.y + (1.0 - look.y) * depth * (2.0 - depth)) * coolU;
             // y lo que se aclara junto a la cámara, más frío: queda un velo rojizo, no una bruma amarilla
             temp *= mix(0.5, 1.0, nfk);
+            temp += sunM * (0.06 + 0.40 * depth * depth) * (1.0 - w);
             // bolsas más calientes; los pliegues entre ellas, más oscuros (hollín)
             float crease = (1.0 - smoothstep(0.03, 0.24, tb)) * (1.0 - w) * massy;
             temp += 0.45 * (tb - 0.35) * (1.0 - w);
@@ -740,6 +751,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             smoke = max(smoke, smokeX);
 
             dens *= 1.0 - 0.55 * lsB * smoke;
+            float densE = dens;
+            dens *= gf * nfk;
             float sigma = dens * intensity * 2.8 / L * thin;
             float aE = 1.0 - exp(-sigma * stepIn);
             // la masa caliente tapa lo de detrás; la llama fina y fría sobre todo brilla (transparente)
@@ -749,7 +762,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             vec3 bbc = mf_blackbody(temp);
             vec3 hueC = mix(mf_ramp(temp), bbc / max(bbc.r, 1e-3), 0.25);
             vec3 emit = hueC * (0.6 + 2.0 * t2 + 1.4 * t2 * t2 * t2);
-            emit *= 1.0 + 1.5 * flash;
+            emit *= 1.0 + 1.5 * flash + 0.5 * sunM;
             // el humo no brilla: se ve con la luz que haya (de día gris, de noche casi negro) y le entra más
             // luz por arriba que por abajo. Antes era casi negro siempre: de día salían manchones oscuros.
             float amb = 0.10 + 0.90 * clamp(VolSky, 0.0, 1.0);
@@ -768,6 +781,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             }
             emit = mix(emit, smokeCol, smoke);
             aA = mix(aA, aE * 0.92, smoke);
+            engTp = engT; engDp = engD;
+            engT = t; engD = dd; engL = L; engC = emit; engTemp = temp; engSm = smoke;
+            engS = clamp(densE * intensity * 1.5, 0.0, 1.0) * aA / max(aE, 1e-5);
             col += T * emit * aE;
             float vis = T * aE * (1.0 - smoke);
             wsum += vis;
@@ -778,12 +794,32 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         t += stepIn;
     }
 
+    // lo que está metido dentro de la masa de fuego (el poste contra el que estalla Hiken, el suelo bajo la bola, quien
+    // está dentro de la columna): el rayo choca con ello a medio camino y solo cuenta el fuego de delante. Hondo en el
+    // fuego, el fuego que lo rodea lo tapa y lo ilumina: se ve fuego (antes se veía el poste a través de la explosión,
+    // con sus bordes rectos marcados en ella). Solo en las masas: en una llama fina, quien arde se sigue viendo
+    float massyE = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
+    if (massyE > 0.5 && onGround > 0.5 && t >= tFar && engT > tFar - 0.4 * engL) {
+        // (lo hondo que está, llevado hasta donde choca el rayo con las dos últimas muestras: con la última sola, el
+        // borde salía granulado, porque cada píxel la toma a una distancia distinta)
+        float dEnd = engD;
+        if (engT - engTp < 0.3 * engL) dEnd += (engD - engDp) / max(engT - engTp, 1e-4) * (tFar - engT);
+        float eng = smoothstep(0.0, engL * 0.8, -dEnd) * engS * (1.0 - smoothstep(0.0, 1.0, nearFade));
+        col += T * engC * eng;
+        float vis = T * eng * (1.0 - engSm);
+        wsum += vis;
+        tsum += vis * engTemp;
+        ssum += T * eng * engSm;
+        T *= 1.0 - eng;
+    }
+
     // halo alrededor del fuego (como bloom), según lo cerca que pasó el rayo
     float look_w = mf_look(shape, vec3(0.0), prm).w;
     // (la nube de humo que queda después ya no brilla)
     float glow = exp(-max(minD, 0.0) / (Lref * 0.9)) * edgeFade * intensity * look_w * (1.0 - 0.7 * cool)
                * (1.0 - smoothstep(0.85, 1.0, cool));
-    vec3 glowCol = vec3(1.0, 0.42, 0.10);
+    vec3 glowCol = mix(vec3(1.0, 0.42, 0.10), vec3(1.0, 0.58, 0.18), sunM);
+    glow *= 1.0 + 0.7 * sunM;
     col += T * glowCol * glow * 0.13;
 
     // tono que guarda el color (naranja vivo); lo muy brillante quema hacia blanco

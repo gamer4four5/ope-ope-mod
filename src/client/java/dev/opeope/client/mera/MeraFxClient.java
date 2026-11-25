@@ -1753,7 +1753,8 @@ public final class MeraFxClient {
 				Vec3d sun = base.add(0, user.getHeight() + 1.6 + r * 1.15, 0);
 				sun(f, sun, r, dt, density, now, false);
 				if (vol()) {
-					vol(MeraVolumes.FIREBALL, sun, FWD, r, 0, 0, f, 1f);
+					// (w = 2: un sol, con el centro casi blanco y más resplandor; no la bola anaranjada de una explosión)
+					MeraVolumes.add(MeraVolumes.FIREBALL, sun, FWD, r, 0, 0, 2f, f.id * 31 + f.kind * 7 + f.userId, 1f);
 					// en primera persona, las llamas que cuelgan del sol no se pegan a la cara
 					if (selfView(mc, user)) MeraVolumes.nearFade(2.2f);
 					Vec3d hh = hand(mc, user, 1, td);
@@ -1785,7 +1786,7 @@ public final class MeraFxClient {
 				sun(f, head, f.radius, dt, density, now, true);
 				// lanzado: las llamas se van hacia atrás, como una bola de fuego que vuela
 				if (vol()) {
-					vol(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, f, 1f);
+					MeraVolumes.add(MeraVolumes.FIREBALL, head, f.b, f.radius, 0, 0.85f, 2f, f.id * 31 + f.kind * 7 + f.userId, 1f);
 					// en primera persona el sol sale por encima de la cara: lo que pasa pegado a la cámara se aclara (se
 					// ve el sol alejándose, no la pantalla lavada de naranja)
 					if (selfView(mc, user)) MeraVolumes.nearFade(Math.max(2.2f, f.radius * 1.1f));
@@ -2348,8 +2349,12 @@ public final class MeraFxClient {
 			Vec3d p = fireflyPos(f, i, now);
 			// el parpadeo de una luciérnaga
 			float blink = 0.55f + 0.45f * (float) Math.sin(now * (5 + i % 4) + i * 1.7);
-			int fi = spawn(FLY, p.x, p.y, p.z, 0, 0, 0, 0.32f * (0.7f + 0.6f * blink), 0.05f);
+			// (el punto de luz dura un fotograma y se dibuja una vez, con su brillo entero: antes nacía con 0,05 s de vida
+			// y, a menos de 20 fotogramas por segundo, moría en el mismo fotograma sin llegar a dibujarse)
+			float life = (float) Math.max(0.05, dt * 1.6);
+			int fi = spawn(FLY, p.x, p.y, p.z, 0, 0, 0, 0.32f * (0.7f + 0.6f * blink), life);
 			if (fi >= 0) {
+				AGE[fi] = (float) (0.4 * life - dt);
 				CR[fi] = 0.75f * fade;
 				CG[fi] = 1f * fade;
 				CB[fi] = 0.3f * fade;
@@ -2357,8 +2362,11 @@ public final class MeraFxClient {
 			if (R.nextFloat() < dt * 22 * density * fade) {
 				spawn(GREEN, p.x + rs() * 0.04, p.y, p.z + rs() * 0.04, rs() * 0.2, 0.25, rs() * 0.2, 0.11f * (0.8f + blink * 0.4f), 0.35f);
 			}
-			int ci = spawn(GREEN, p.x, p.y, p.z, 0, 0, 0, 0.12f * (0.8f + 0.4f * blink) * Math.max(0.2f, fade), 0.04f);
-			if (ci >= 0) LIFT[ci] = 0f;
+			int ci = spawn(GREEN, p.x, p.y, p.z, 0, 0, 0, 0.12f * (0.8f + 0.4f * blink) * Math.max(0.2f, fade), life);
+			if (ci >= 0) {
+				LIFT[ci] = 0f;
+				AGE[ci] = (float) (0.4 * life - dt);
+			}
 		}
 		return true;
 	}
