@@ -45,11 +45,30 @@ loom {
 	}
 }
 
+repositories {
+	// para probar el mod con un shaderpack (Iris + Sodium bajados de Modrinth)
+	exclusiveContent {
+		forRepository {
+			maven {
+				name = "Modrinth"
+				url = "https://api.modrinth.com/maven"
+			}
+		}
+		filter {
+			includeGroup "maven.modrinth"
+		}
+	}
+}
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	// Prueba con shaderpack: ./gradlew runMeraGalleryClient -Psodium=<versión> -Piris=<versión>
+	// (Gradle los traduce a los nombres del entorno de desarrollo; copiarlos a run/mods no funciona).
+	if (project.hasProperty("sodium")) modRuntimeOnly "maven.modrinth:sodium:${project.sodium}"
+	if (project.hasProperty("iris")) modRuntimeOnly "maven.modrinth:iris:${project.iris}"
 }
 
 processResources {

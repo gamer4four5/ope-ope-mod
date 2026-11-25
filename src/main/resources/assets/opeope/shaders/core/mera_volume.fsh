@@ -229,8 +229,9 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         vec3 st = vec3(1.0, mix(0.85, 0.45, up), mix(1.0, 0.45, mv * back));
         vec3 flow = vec3(0.0, 0.9 * (1.0 - mv) + 0.25 * cl, -2.4 * mv);
         nq = (pr * st) / (R * 0.38) - flow * (time * 0.6);
-        nb = pr / (R * (0.62 + 0.25 * cl)) - flow * (time * 0.22);
-        amp = R * (0.11 + 0.50 * smoothstep(R * 0.88, R * 1.5, r)) * (1.0 + 1.3 * max(dir.y, 0.0) * (1.0 - mv) + 1.2 * mv * back);
+        nb = pr / (R * (0.62 - 0.22 * cl)) - flow * (time * 0.22);   // al enfriarse, bolsas más pequeñas (coliflor)
+        // al enfriarse, el borde se deshilacha más (el humo no tiene borde liso)
+        amp = R * (0.11 + 0.30 * cl * cl + 0.50 * smoothstep(R * 0.88, R * 1.5, r)) * (1.0 + 1.3 * max(dir.y, 0.0) * (1.0 - mv) + 1.2 * mv * back);
     }
     else if (shape < 1.5) {
         // ---------------- 1: PUÑO (Hiken) ----------------
@@ -476,6 +477,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float minD = 1e5;
     float Lref = 1.0;
     float wsum = 0.0;
+    float ssum = 0.0;   // cuánto de lo que se ve es humo
     float tsum = 0.0;
     float t = tNear + jit * min(0.25, B * 0.03);   // también el halo, sin anillos
     bool first = true;
@@ -555,8 +557,12 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             float gran = (shape < 0.5) ? 1.5 : mix(1.0, 0.85, isFist);
             temp -= (0.10 * lo + 0.22 * hi) * coolU * gran * w;
             temp -= 0.10 * bhi * (1.0 - w);
-            // la explosión se enfría de fuera hacia dentro
-            temp *= 1.0 - 0.85 * cool * (1.0 - 0.50 * depth);
+            // la explosión vieja se vuelve humo de fuera hacia dentro y por los pliegues, mientras las bolsas que
+            // abultan aún arden (manchas de fuego vivo entre humo negro, no todo marrón)
+            float sx = cool * 1.55 - 0.62 - 0.75 * (tb - 0.35) - 0.40 * depth;
+            float smokeX = (cool > 0.001) ? smoothstep(0.0, 0.30, sx) : 0.0;
+            float tempFire = clamp(temp, 0.0, 1.0);
+            temp *= (1.0 - 0.90 * smokeX) * (1.0 - 0.45 * cool);
             temp = clamp(mix(temp, 1.0, flash * 0.55), 0.0, 1.0);
 
             if (isFist > 0.5) {
@@ -575,8 +581,6 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             float tip   = smoothstep(0.70, 1.15, u);
             float smoke = smoothstep(0.85, 1.2, u) * (1.0 - temp) * mix(1.0, 0.3, isBall * (1.0 - cool));
             dens *= mix(1.0, mix(0.10, 0.22, smoke), tip);
-            // la explosión vieja: humo oscuro por fuera
-            float smokeX = smoothstep(0.25, 0.85, cool) * (1.0 - 0.60 * depth) * (1.0 - temp);
             smoke = max(smoke, smokeX);
 
             float sigma = dens * intensity * 2.8 / L;
@@ -590,11 +594,20 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             vec3 emit = hueC * (0.6 + 2.0 * t2 + 1.4 * t2 * t2 * t2);
             emit *= 1.0 + 1.5 * flash;
             vec3 smokeCol = mix(vec3(0.11, 0.10, 0.095), vec3(0.06, 0.05, 0.045), smokeX);
+            if (isBall > 0.5) {
+                // el humo de la explosión: gris, con la luz del cielo arriba y oscuro abajo; junto al fuego, naranja
+                float Rb = max(prm.x, 0.05);
+                float hgt = smoothstep(-0.8 * Rb, 0.9 * Rb, p.y - cool * cool * Rb * 0.55);
+                vec3 lit = mix(vec3(0.085, 0.080, 0.078), vec3(0.52, 0.50, 0.49), hgt * (0.45 + 0.55 * tb / 0.6));
+                // pegado a lo que aún arde, el humo se ve naranja por debajo
+                smokeCol = mix(smokeCol, lit + mf_ramp(tempFire) * (0.7 * tempFire * (1.0 - smokeX)), smokeX);
+            }
             emit = mix(emit, smokeCol, smoke);
             aA = mix(aA, aE * 0.92, smoke);
             col += T * emit * aE;
             float vis = T * aE * (1.0 - smoke);
             wsum += vis;
+            ssum += T * aE * smoke;
             tsum += vis * temp;
             T *= 1.0 - aA;
         }
@@ -619,7 +632,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float tv = tsum / max(wsum, 1e-4);
     float coverage = clamp(wsum, 0.0, 1.0);
     vec3 band = mf_bands(tv) * coverage * (0.82 + 0.25 * flash);
-    rgb = mix(rgb, max(rgb, band), 0.40 * smoothstep(0.05, 0.4, coverage));
+    // (lo que es humo no se pinta con las bandas del fuego: seguiría rojo)
+    float smokeFrac = ssum / max(ssum + wsum, 1e-4);
+    rgb = mix(rgb, max(rgb, band), 0.40 * smoothstep(0.05, 0.4, coverage) * (1.0 - smokeFrac));
 
     float alpha = clamp(a + min(glow, 1.0) * 0.12, 0.0, 1.0);
     return vec4(min(rgb, vec3(1.0)), alpha);

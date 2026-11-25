@@ -26,6 +26,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 
@@ -223,8 +224,8 @@ public final class MeraVolumes {
 
 	/** Para comparar en pruebas: apaga la luz del fuego. */
 	public static boolean lights = !Boolean.getBoolean("opeope.mera.nolight");
-	/** Fuerza de la luz a oscuras (de día se queda en ~1/8). */
-	private static final float LIGHT_BASE = 6f;
+	/** Fuerza de la luz a oscuras (de día se queda en ~1/20). */
+	private static final float LIGHT_BASE = 12f;
 	private static final int MAXL = 24;
 	/** Punto A y B de cada luz (mundo), eje del aro, y alcance, fuerza, semilla, radio del aro (0 = segmento), alto del aro. */
 	private static final double[] LA = new double[MAXL * 3], LB = new double[MAXL * 3];
@@ -242,7 +243,8 @@ public final class MeraVolumes {
 				ay = by = cool * cool * r * 0.55f;
 				bz = -0.6f * r * mv;
 				range = r * 3f + 5f;
-				power = Math.min(1.3f, 0.75f + 0.12f * r) * (1f - 0.75f * cool);
+				// una bola pequeña (una bala del Higan) da poca luz; el sol del Entei, mucha
+				power = MathHelper.clamp(0.25f + 0.5f * r, 0.25f, 1.3f) * (1f - 0.75f * cool);
 			}
 			case FIST -> {
 				float sz = Math.max(p0, 0.2f);
@@ -323,7 +325,7 @@ public final class MeraVolumes {
 		LRINGH[k] = ringH;
 	}
 
-	/** Lo oscuro que está alrededor (0,12 a pleno sol … 1 en una cueva): el fuego ilumina más cuanto más oscuro. */
+	/** Lo oscuro que está alrededor (0,07 a pleno sol … 1 en una cueva): el fuego ilumina más cuanto más oscuro. */
 	private static float darkness(double x, double y, double z) {
 		ClientWorld w = MinecraftClient.getInstance().world;
 		if (w == null) return 1f;
@@ -331,53 +333,97 @@ public final class MeraVolumes {
 		float sky = w.getLightLevel(LightType.SKY, LPOS) / 15f * w.getSkyBrightness(1f);
 		float blk = w.getLightLevel(LightType.BLOCK, LPOS) / 15f;
 		float d = 1f - MathHelper.clamp(Math.max(sky, blk), 0f, 1f);
-		return 0.12f + 0.88f * d * (float) Math.sqrt(d);
+		return 0.07f + 0.93f * d * (float) Math.sqrt(d);
 	}
 
 	public static int lightCount() {
 		return nl;
 	}
 
-	/** La luz de cada fuego sobre lo que ya está dibujado: multiplica el mundo por un factor que lo aclara y lo calienta. */
+	/** Las luces van al shader como arrays, directamente con OpenGL (Minecraft no maneja arrays de uniforms). */
+	private static final java.nio.FloatBuffer LBUF = org.lwjgl.BufferUtils.createFloatBuffer(MAXL * 4);
+	private static int lightRef = -1, locCount, locA, locB, locX, locSeed;
+
+	/**
+	 * La luz de todos los fuegos sobre lo que ya está dibujado, en un solo dibujo: multiplica el mundo por un factor que
+	 * lo aclara con el color del fuego. Las luces suman entre ellas (no se multiplican, que pintaba el suelo de
+	 * amarillo). Cada dibujo aclara como mucho ×2: si hay mucha luz (de noche) se repite para llegar a ×4 o ×8.
+	 */
 	private static void drawLights(double camX, double camY, double camZ) {
 		ShaderProgram lp = lightProgram;
 		if (lp == null || nl == 0 || !lights) return;
+		int prog = lp.getGlRef();
+		if (prog != lightRef) {
+			lightRef = prog;
+			locCount = GL20.glGetUniformLocation(prog, "LightCount");
+			locA = GL20.glGetUniformLocation(prog, "LightsA");
+			locB = GL20.glGetUniformLocation(prog, "LightsB");
+			locX = GL20.glGetUniformLocation(prog, "LightsX");
+			locSeed = GL20.glGetUniformLocation(prog, "LightsSeed");
+		}
+		if (locCount < 0 || locA < 0 || locB < 0 || locX < 0) return;
+		// la caja que envuelve todas las luces (relativa a la cámara) y lo más que puede aclarar su suma
+		float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, z0 = Float.MAX_VALUE;
+		float x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE, z1 = -Float.MAX_VALUE;
+		double e2 = 0;
+		for (int k = 0; k < nl; k++) {
+			float ax = (float) (LA[k * 3] - camX), ay = (float) (LA[k * 3 + 1] - camY), az = (float) (LA[k * 3 + 2] - camZ);
+			float bx = (float) (LB[k * 3] - camX), by = (float) (LB[k * 3 + 1] - camY), bz = (float) (LB[k * 3 + 2] - camZ);
+			float range = LINFO[k * 4], ring = LINFO[k * 4 + 3];
+			if (ring > 0) {
+				float e = ring + LRINGH[k] + range;
+				x0 = Math.min(x0, ax - e); y0 = Math.min(y0, ay - e); z0 = Math.min(z0, az - e);
+				x1 = Math.max(x1, ax + e); y1 = Math.max(y1, ay + e); z1 = Math.max(z1, az + e);
+			} else {
+				x0 = Math.min(x0, Math.min(ax, bx) - range); y0 = Math.min(y0, Math.min(ay, by) - range); z0 = Math.min(z0, Math.min(az, bz) - range);
+				x1 = Math.max(x1, Math.max(ax, bx) + range); y1 = Math.max(y1, Math.max(ay, by) + range); z1 = Math.max(z1, Math.max(az, bz) + range);
+			}
+			e2 += (double) LINFO[k * 4 + 1] * LINFO[k * 4 + 1];
+		}
+		GlStateManager._glUseProgram(prog);
+		GL20.glUniform1i(locCount, nl);
+		LBUF.clear();
+		for (int k = 0; k < nl; k++) {
+			LBUF.put((float) (LA[k * 3] - camX)).put((float) (LA[k * 3 + 1] - camY)).put((float) (LA[k * 3 + 2] - camZ)).put(LINFO[k * 4]);
+		}
+		GL20.glUniform4fv(locA, LBUF.flip());
+		LBUF.clear();
+		for (int k = 0; k < nl; k++) {
+			if (LINFO[k * 4 + 3] > 0) LBUF.put(LRINGH[k]).put(0f).put(0f);
+			else LBUF.put((float) (LB[k * 3] - camX)).put((float) (LB[k * 3 + 1] - camY)).put((float) (LB[k * 3 + 2] - camZ));
+			LBUF.put(LINFO[k * 4 + 1]);
+		}
+		GL20.glUniform4fv(locB, LBUF.flip());
+		LBUF.clear();
+		for (int k = 0; k < nl; k++) LBUF.put(LAXIS[k * 3]).put(LAXIS[k * 3 + 1]).put(LAXIS[k * 3 + 2]).put(LINFO[k * 4 + 3]);
+		GL20.glUniform4fv(locX, LBUF.flip());
+		if (locSeed >= 0) {
+			LBUF.clear();
+			for (int k = 0; k < nl; k++) LBUF.put(LINFO[k * 4 + 2]);
+			GL20.glUniform1fv(locSeed, LBUF.flip());
+		}
+		GlStateManager._glUseProgram(0);
+
 		RenderSystem.setShader(() -> lp);
 		RenderSystem.setShaderTexture(0, depthTex);
-		// color = mundo × 2·salida (la salida va de 0 a 1): la luz aclara y calienta lo que ya está dibujado
+		// color = mundo × 2·salida (la salida va de 0,5 a 1): la luz aclara lo que ya está dibujado con su color
 		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.SRC_COLOR,
 			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 		mat(lp, "ViewProj", VP);
 		mat(lp, "InvViewProj", INV);
 		vec(lp, "ViewSize", viewW, viewH);
 		vec(lp, "VolTime", time0);
-		vec(lp, "LightColor", 1f, 0.55f, 0.22f);
-		for (int k = 0; k < nl; k++) {
-			float ax = (float) (LA[k * 3] - camX), ay = (float) (LA[k * 3 + 1] - camY), az = (float) (LA[k * 3 + 2] - camZ);
-			float bx = (float) (LB[k * 3] - camX), by = (float) (LB[k * 3 + 1] - camY), bz = (float) (LB[k * 3 + 2] - camZ);
-			float range = LINFO[k * 4], ring = LINFO[k * 4 + 3];
-			vec(lp, "LightA", ax, ay, az);
-			if (ring > 0) vec(lp, "LightB", LRINGH[k], 0f, 0f);
-			else vec(lp, "LightB", bx, by, bz);
-			vec(lp, "LightAxis", LAXIS[k * 3], LAXIS[k * 3 + 1], LAXIS[k * 3 + 2]);
-			vec4(lp, "LightInfo", range, LINFO[k * 4 + 1], LINFO[k * 4 + 2], ring);
-			float x0, y0, z0, x1, y1, z1;
-			if (ring > 0) {
-				float e = ring + LRINGH[k] + range;
-				x0 = ax - e;
-				y0 = ay - e;
-				z0 = az - e;
-				x1 = ax + e;
-				y1 = ay + e;
-				z1 = az + e;
-			} else {
-				x0 = Math.min(ax, bx) - range;
-				y0 = Math.min(ay, by) - range;
-				z0 = Math.min(az, bz) - range;
-				x1 = Math.max(ax, bx) + range;
-				y1 = Math.max(ay, by) + range;
-				z1 = Math.max(az, bz) + range;
+		vec(lp, "LightColor", 1f, 0.42f, 0.12f);
+		double most = 1 + Math.sqrt(e2);
+		int passes = most <= 2.02 ? 1 : most <= 4.04 ? 2 : 3;
+		// y si hay bastante luz, el resplandor que se suma (de noche)
+		boolean glow = Math.sqrt(e2) > 0.6;
+		for (int p = 0; p < passes + (glow ? 1 : 0); p++) {
+			if (p == passes) {
+				RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE,
+					GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 			}
+			vec(lp, "LightPass", p == passes ? 3 : p);
 			BufferBuilder bb = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
 			// solo las caras «de detrás» de la caja (la cámara está en el origen): cada píxel, una sola vez
 			if (0 < x1) quad(bb, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1);
