@@ -702,6 +702,16 @@ void main() {
     float nearF = max(VolInfo.w, inside * max(2.6, 0.7 * ballR));
     // y desde dentro se ve a través (bruma de fuego): se sigue viendo el mundo, no una pantalla amarilla
     float thin = mix(1.0, 0.35, inside * smoothstep(3.0, 7.0, ballR));
+    // el remolino de Hibashira con la cámara en su pared o justo fuera (la tercera persona, a 4 bloques de Ace): la
+    // pared que queda entre la cámara y el hueco se aclara y se ve a Ace dentro, con el fondo del remolino detrás.
+    // Desde el hueco (primera persona) la pared se ve entera.
+    if (VolInfo.x > 1.5 && VolInfo.x < 2.5) {
+        float Rc = max(VolPrm.x, 0.1);
+        float rc = length(lro.xz);
+        float wc = (1.0 - smoothstep(1.2 * Rc + 0.5, 1.2 * Rc + 2.5, rc))
+                 * step(-1.0, lro.y) * step(lro.y, max(VolPrm.y, 0.5) + 1.0);
+        nearF = max(nearF, wc * max(rc - 0.21 * Rc, 0.0) * 1.6);
+    }
 
     vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
