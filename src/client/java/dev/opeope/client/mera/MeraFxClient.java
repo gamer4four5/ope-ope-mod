@@ -2107,11 +2107,20 @@ public final class MeraFxClient {
 			float u = (float) (age / 2.4), e = easeOut(u * 1.7);
 			float cool = smooth((u - 0.1f) / 0.9f);
 			float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.06f)) * (1f - smooth((u - 0.75f) / 0.25f));
-			vol(MeraVolumes.FIREBALL, c, FWD, area * (0.22f + 0.5f * e), cool, 0, f, inten);
+			float rb = area * (0.22f + 0.5f * e);
+			vol(MeraVolumes.FIREBALL, c, FWD, rb, cool, 0, f, inten);
+			// si la cámara queda dentro del estallido (el sol cayó cerca), el fuego pegado a ella se aclara: se ve la bola
+			// alrededor, no la pantalla entera lavada de naranja
+			double cdx = camX - c.x, cdy = camY - c.y, cdz = camZ - c.z;
+			double cd = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
+			if (cd < rb * 1.6) MeraVolumes.nearFade(MathHelper.clamp(rb * 0.45f, 2.2f, 5f));
 			float uw = (float) (age / 1.6);
 			if (uw < 0.75f) {
 				float w = uw / 0.75f;
-				vol(MeraVolumes.RING, c.add(0, -f.power * 0.5, 0), FWD, area * (0.3f + 0.95f * easeOut(w)), 1.6f * (1 - w) + 0.4f, 0.7f, f, (1 - w) * (1 - w));
+				float rr = area * (0.3f + 0.95f * easeOut(w));
+				vol(MeraVolumes.RING, c.add(0, -f.power * 0.5, 0), FWD, rr, 1.6f * (1 - w) + 0.4f, 0.7f, f, (1 - w) * (1 - w));
+				// el anillo de choque que pasa por donde estás, igual
+				if (Math.abs(Math.sqrt(cdx * cdx + cdz * cdz) - rr) < 3.0) MeraVolumes.nearFade(2.2f);
 			}
 		}
 		if (f.last == null) {
