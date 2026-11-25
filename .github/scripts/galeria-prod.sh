@@ -8,9 +8,10 @@ sleep 2
 set +e
 rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
 mkdir -p run/shaderpacks run/config "capturas/$NOMBRE"
+API=https://api.modrinth.com/v2
+PACK=""
 if [ "$PACK_MODE" = "photon" ]; then
-  if ! ls run/shaderpacks/*.zip > /dev/null 2>&1; then
-    API=https://api.modrinth.com/v2
+  if ! ls run/shaderpacks/photon*.zip > /dev/null 2>&1; then
     # el Photon del jugador es photon_v1.4.zip; si Modrinth no lo tiene con ese nombre, el más nuevo para 1.21.1
     URL=$(curl -fsSL "$API/project/photon-shader/version" | jq -r '[.[].files[] | select(.filename == "photon_v1.4.zip")][0].url // empty')
     if [ -z "$URL" ]; then
@@ -19,11 +20,23 @@ if [ "$PACK_MODE" = "photon" ]; then
     echo "photon: $URL"
     curl -fsSL -o "run/shaderpacks/${URL##*/}" "$URL"
   fi
-  PACK=$(basename "$(ls run/shaderpacks/*.zip | head -1)")
+  PACK=$(basename "$(ls run/shaderpacks/photon*.zip | head -1)")
+elif [ "$PACK_MODE" = "complementary" ]; then
+  # otro shaderpack muy usado, que sí compila sin tarjeta gráfica: con el Iris nuevo, Photon 1.4 no compila aquí
+  # (su shader de cómputo pide más memoria compartida de la que da llvmpipe)
+  if [ ! -f run/shaderpacks/Complementary.zip ]; then
+    URL=$(curl -fsSL "$API/project/complementary-reimagined/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
+    echo "complementary: $URL"
+    curl -fsSL -o "run/shaderpacks/Complementary.zip" "$URL"
+  fi
+  PACK=Complementary.zip
+fi
+if [ -n "$PACK" ]; then
   printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
 else
   printf 'enableShaders=false\n' > run/config/iris.properties
 fi
+ls -la run/shaderpacks
 EXTRA=()
 [ "$HORA" = "noche" ] && EXTRA+=("-Pnoche=true")
 # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
@@ -34,7 +47,7 @@ for f in run/screenshots/autotest-mera-*.png; do
   convert "$f" -quality 88 "capturas/$NOMBRE/$(basename "${f%.png}").jpg" || cp -f "$f" "capturas/$NOMBRE/"
 done
 ls "capturas/$NOMBRE" | wc -l
-grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Using shaderpack|Mera:|Exception|Incompatible|requires|Mixin apply" "galeria-$NOMBRE.log" | head -200 || true
+grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Using shaderpack|Failed to create shader|shaderpack failed|Mera:|Exception|Incompatible|requires|Mixin apply" "galeria-$NOMBRE.log" | head -200 || true
 echo "----- últimas líneas -----"
 grep -vE "Downloading|Download " "galeria-$NOMBRE.log" | tail -40
 rm -f run/config/iris.properties

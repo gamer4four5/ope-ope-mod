@@ -35,18 +35,15 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri jq > /dev/null
           mkdir -p run/saves capturas && cp -r run/world run/saves/Prueba && rm -f run/saves/Prueba/session.lock
           printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\ntutorialStep:none\n' > run/options.txt
-      - name: Galería como el juego real, sin shaderpack, de día
+      - name: Galería como el juego real, con Complementary, de día
         continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-sin sin dia
-      - name: Galería como el juego real, con Photon, de día
+        run: bash .github/scripts/galeria-prod.sh iris18-compl complementary dia
+      - name: Galería como el juego real, con Complementary, de noche
         continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-photon photon dia
+        run: bash .github/scripts/galeria-prod.sh iris18-compl-noche complementary noche
       - name: Galería como el juego real, sin shaderpack, de noche
         continue-on-error: true
         run: bash .github/scripts/galeria-prod.sh iris18-sin-noche sin noche
-      - name: Galería como el juego real, con Photon, de noche
-        continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-photon-noche photon noche
       - name: Guardar registros y capturas en la rama "ci-logs-iris18"
         if: always()
         run: |
