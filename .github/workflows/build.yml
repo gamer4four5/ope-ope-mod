@@ -35,62 +35,23 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri jq > /dev/null
           mkdir -p run/saves capturas && cp -r run/world run/saves/Prueba && rm -f run/saves/Prueba/session.lock
           printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\ntutorialStep:none\n' > run/options.txt
-      - name: Galería con el Iris y el Sodium del juego real, sin shaderpack
+      - name: Galería como el juego real, sin shaderpack, de día
         continue-on-error: true
-        run: |
-          export DISPLAY=:99
-          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
-          sleep 2
-          set +e
-          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
-          mkdir -p run/config capturas/iris18-sin
-          printf 'enableShaders=false\n' > run/config/iris.properties
-          timeout 1500 ./gradlew prodMeraGallery --console=plain "-PprodSodium=$SODIUM" "-PprodIris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-sin.log 2>&1
-          echo "exit=$?"
-          for f in run/screenshots/autotest-mera-*.png; do
-            [ -f "$f" ] || continue
-            convert "$f" -quality 88 "capturas/iris18-sin/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/iris18-sin/
-          done
-          ls capturas/iris18-sin | wc -l
-          grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Iris|Sodium|Mera:|Exception|Incompatible|requires|Mixin" galeria-iris18-sin.log | head -200 || true
-          echo "----- últimas líneas -----"
-          grep -vE "Downloading|Download " galeria-iris18-sin.log | tail -60
-      - name: Galería con el Iris y el Sodium del juego real, con Photon
+        run: bash .github/scripts/galeria-prod.sh iris18-sin sin dia
+      - name: Galería como el juego real, con Photon, de día
         continue-on-error: true
-        run: |
-          export DISPLAY=:99
-          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
-          sleep 2
-          set +e
-          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
-          mkdir -p run/shaderpacks run/config capturas/iris18-photon
-          API=https://api.modrinth.com/v2
-          # el Photon del jugador es photon_v1.4.zip; si Modrinth no lo tiene con ese nombre, el más nuevo para 1.21.1
-          URL=$(curl -fsSL "$API/project/photon-shader/version" | jq -r '[.[].files[] | select(.filename == "photon_v1.4.zip")][0].url // empty')
-          if [ -z "$URL" ]; then
-            URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
-          fi
-          PACK="${URL##*/}"
-          echo "photon: $URL"
-          curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
-          printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
-          # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
-          timeout 2400 ./gradlew prodMeraGallery --console=plain "-PprodSodium=$SODIUM" "-PprodIris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-photon.log 2>&1
-          echo "exit=$?"
-          for f in run/screenshots/autotest-mera-*.png; do
-            [ -f "$f" ] || continue
-            convert "$f" -quality 88 "capturas/iris18-photon/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/iris18-photon/
-          done
-          ls capturas/iris18-photon | wc -l
-          grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Iris|Sodium|Mera:|Exception|Incompatible|requires|Mixin" galeria-iris18-photon.log | head -200 || true
-          echo "----- últimas líneas -----"
-          grep -vE "Downloading|Download " galeria-iris18-photon.log | tail -60
-          rm -f run/config/iris.properties
+        run: bash .github/scripts/galeria-prod.sh iris18-photon photon dia
+      - name: Galería como el juego real, sin shaderpack, de noche
+        continue-on-error: true
+        run: bash .github/scripts/galeria-prod.sh iris18-sin-noche sin noche
+      - name: Galería como el juego real, con Photon, de noche
+        continue-on-error: true
+        run: bash .github/scripts/galeria-prod.sh iris18-photon-noche photon noche
       - name: Guardar registros y capturas en la rama "ci-logs-iris18"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          for f in compilar.log servidor.log galeria-iris18-sin.log galeria-iris18-photon.log; do
+          for f in compilar.log servidor.log galeria-*.log; do
             [ -f "$f" ] || continue
             tail -c 20000000 "$f" > "/tmp/ci-logs/$f"
           done
