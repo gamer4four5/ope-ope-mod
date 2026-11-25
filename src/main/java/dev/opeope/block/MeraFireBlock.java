@@ -8,6 +8,12 @@ import net.minecraft.block.BlockRenderType;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.TntBlock;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.ExperienceOrbEntity;
+import net.minecraft.entity.ItemEntity;
+import net.minecraft.entity.passive.AbstractHorseEntity;
+import net.minecraft.entity.passive.TameableEntity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.world.ServerWorld;
@@ -23,6 +29,9 @@ import net.minecraft.world.World;
 import net.minecraft.world.WorldAccess;
 import net.minecraft.world.WorldView;
 
+import dev.opeope.power.mera.MeraPowers;
+
+import java.util.UUID;
 import java.util.function.BiPredicate;
 
 /**
@@ -67,6 +76,26 @@ public class MeraFireBlock extends AbstractFireBlock {
 	@Override
 	protected boolean isFlammable(BlockState state) {
 		return state.isBurnable();
+	}
+
+	/**
+	 * Quema a quien lo pisa, como el de Minecraft, con dos salvedades: no destruye lo que hay tirado en el suelo (lo que
+	 * sueltan los que Ace derrota no se pierde en su propio fuego) ni quema a las mascotas y monturas de quien tiene la
+	 * fruta.
+	 */
+	@Override
+	protected void onEntityCollision(BlockState state, World world, BlockPos pos, Entity entity) {
+		if (entity instanceof ItemEntity || entity instanceof ExperienceOrbEntity || ofAce(world, entity)) return;
+		super.onEntityCollision(state, world, pos, entity);
+	}
+
+	/** ¿Es la mascota (domada) o la montura de alguien con la Mera Mera no Mi? */
+	private static boolean ofAce(World world, Entity e) {
+		if (e.getFirstPassenger() instanceof PlayerEntity rider && MeraPowers.isMera(rider)) return true;
+		UUID owner = e instanceof TameableEntity t ? t.getOwnerUuid() : e instanceof AbstractHorseEntity h ? h.getOwnerUuid() : null;
+		if (owner == null) return false;
+		PlayerEntity p = world.getPlayerByUuid(owner);
+		return p != null && MeraPowers.isMera(p);
 	}
 
 	/** Sobre suelo firme, o pegado a algo que arde. */

@@ -314,7 +314,7 @@ public class GuideScreen extends Screen {
 		row("Enjōmō: un cerco de fuego alrededor de quien miras, o de ti si no miras a nadie. Nadie entra ni sale", tab, "+", g(Keys.T_STERBEN));
 		row("Enkai: Hibashira: una columna de fuego que sube desde tus pies y lanza por los aires a quien pilla. En el aire y mirando abajo, baja hasta el suelo", tab, "+", g(Keys.T_RAIN));
 		note("Las técnicas dejan fuego donde golpean: prende a quien lo pisa, quema la madera, las hojas y la hierba de alrededor y se apaga solo, sin arrasar un bosque entero. El hielo y la nieve se derriten.");
-		note("El Hiken cargado, la Jūjika y el sol rompen el terreno, pero no los cofres ni lo que guarda cosas. Con /gamerule mobGriefing false no rompen ni prenden nada. Tu fuego no quema a tus mascotas ni a lo que montas.");
+		note("El Hiken cargado, la Jūjika y el sol rompen el terreno, pero no los cofres ni lo que guarda cosas. Con /gamerule mobGriefing false no rompen ni prenden nada. Tu fuego no quema a tus mascotas ni a lo que montas, ni destruye lo que sueltan tus enemigos.");
 
 		title("Moverte como el fuego");
 		row("impulso: el cuerpo se vuelve un chorro de llamas y sale disparado hacia donde miras. Mientras dura nada te golpea, y quemas a quien atraviesas", g(Keys.SHAMBLES));

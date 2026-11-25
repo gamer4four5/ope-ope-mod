@@ -153,13 +153,19 @@ public final class AutoTest {
 	private static ZombieEntity fuerzaZombie;
 	private static net.minecraft.entity.passive.WolfEntity fuerzaWolf;
 
-	/** Detrás del muñeco, un zombi normal (20 de vida) con armadura de hierro y, a su lado, un lobo de Ace; y empieza un Hiken. */
+	/**
+	 * En el sitio del muñeco (al aire libre, a 4 bloques: más allá está la torre, y dentro de ella se ahogaban), un zombi
+	 * normal (20 de vida) con armadura de hierro y, a su lado, un lobo de Ace; y empieza un Hiken.
+	 */
 	private static void fuerzaSetup(ServerPlayerEntity sp, PlayerPower pw) {
 		net.minecraft.server.world.ServerWorld w = sp.getServerWorld();
 		double yaw = Math.toRadians(sp.getYaw());
 		net.minecraft.util.math.Vec3d fwd = new net.minecraft.util.math.Vec3d(-Math.sin(yaw), 0, Math.cos(yaw));
 		net.minecraft.util.math.Vec3d side = new net.minecraft.util.math.Vec3d(fwd.z, 0, -fwd.x);
-		net.minecraft.util.math.Vec3d at = sp.getPos().add(fwd.multiply(6.5));
+		net.minecraft.util.math.Vec3d at = sp.getPos().add(fwd.multiply(4.0));
+		// (el muñeco fuera: es invulnerable, y si el puño lo toca antes a él, el golpe directo se queda en él)
+		if (galleryZombie != null) galleryZombie.discard();
+		galleryZombie = null;
 		ZombieEntity z = EntityType.ZOMBIE.create(w);
 		if (z != null) {
 			z.refreshPositionAndAngles(at.x, at.y, at.z, 0f, 0f);
@@ -174,7 +180,7 @@ public final class AutoTest {
 		fuerzaZombie = z;
 		net.minecraft.entity.passive.WolfEntity wolf = EntityType.WOLF.create(w);
 		if (wolf != null) {
-			net.minecraft.util.math.Vec3d wp = at.add(side.multiply(1.0));
+			net.minecraft.util.math.Vec3d wp = at.add(side.multiply(1.2));
 			wolf.refreshPositionAndAngles(wp.x, wp.y, wp.z, 0f, 0f);
 			wolf.setAiDisabled(true);
 			wolf.setPersistent();

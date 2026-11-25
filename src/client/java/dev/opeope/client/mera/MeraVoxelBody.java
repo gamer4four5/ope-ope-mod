@@ -634,10 +634,16 @@ public final class MeraVoxelBody {
 		if (HOLES.isEmpty()) return;
 		double t = now();
 		int seed = 0;
+		// en primera persona tus propios huecos quedan justo debajo de la cámara (con sombras de Iris el cuerpo se dibuja
+		// igual): su llama te subiría por la cara. Ahí la llamarada la pone MeraFxClient, abajo en la pantalla
+		MinecraftClient mc = MinecraftClient.getInstance();
+		Entity cam = mc.getCameraEntity();
+		int self = cam != null && mc.options.getPerspective().isFirstPerson() ? cam.getId() : Integer.MIN_VALUE;
 		for (Map.Entry<Integer, List<Hole>> en : HOLES.entrySet()) {
+			boolean own = en.getKey() == self;
 			for (Hole h : en.getValue()) {
 				seed++;
-				if (h.seenAt < 0 || t - h.seenAt > 0.25) continue;
+				if (own || h.seenAt < 0 || t - h.seenAt > 0.25) continue;
 				float r = radiusNow(h, t);
 				if (r <= 0.01f) continue;
 				Vec3d c = new Vec3d(h.wx, h.wy, h.wz);
