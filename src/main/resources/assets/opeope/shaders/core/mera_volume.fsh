@@ -15,7 +15,7 @@ uniform vec3 VolZ;
 uniform vec3 VolMin;          // la caja local que la envuelve
 uniform vec3 VolMax;
 uniform vec4 VolPrm;          // los parámetros de la forma
-uniform vec4 VolInfo;         // forma, semilla, intensidad, libre
+uniform vec4 VolInfo;         // forma, semilla, intensidad, bloques junto a la cámara donde se aclara
 
 out vec4 fragColor;
 
@@ -35,7 +35,10 @@ out vec4 fragColor;
 //    float mfBound (float shape, vec4 prm);
 //    vec4  mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 //                   float shape, vec4 prm, float time, float seed,
-//                   float intensity);
+//                   float intensity, float nearFade);
+//
+//  nearFade: a menos de estos bloques de la cámara el fuego se aclara
+//  (para el fuego que sale de la mano en primera persona); 0 = nada.
 //
 //  mfRender devuelve color PREMULTIPLICADO + cobertura (0..1);
 //  mezcla con ONE, ONE_MINUS_SRC_ALPHA.  intensity 0..1 (hasta 2 = destello).
@@ -432,7 +435,7 @@ vec3 mf_bands(float t)
 
 // ---------------------------------------------------------------------
 vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
-              float shape, vec4 prm, float time, float seed, float intensity)
+              float shape, vec4 prm, float time, float seed, float intensity, float nearFade)
 {
     float flash = clamp(intensity - 1.0, 0.0, 1.0);   // destello del golpe
     intensity = clamp(intensity, 0.0, 1.0);
@@ -463,7 +466,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float Lref = 1.0;
     float wsum = 0.0;
     float tsum = 0.0;
-    float t = tNear;
+    float t = tNear + jit * min(0.25, B * 0.03);   // también el halo, sin anillos
     bool first = true;
 
     for (int i = 0; i < 56; i++) {
@@ -473,8 +476,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         float d; float L; float u; vec3 nb; vec3 nq; float amp;
         mf_shape(p, shape, prm, tm, d, L, u, nb, nq, amp);
         d += (1.0 - intensity) * L * 0.9;          // se encoge al apagarse
-        minD = min(minD, d);
-        Lref = L;
+        if (t > 1.2 && d < minD) { minD = d; Lref = L; }   // el halo, no pegado a la cámara
 
         // las formas grandes son masa; las finas (puño, cruz, lanza, llama) guardan su forma
         float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
@@ -515,9 +517,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 
         float dens = max(smoothstep(0.0, L * mix(0.30, 0.17, isFist), -dd), skin);
         if (dens > 0.001) {
-            // toca el suelo suave, sin cortes
+            // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
-            dens *= gf;
+            dens *= gf * smoothstep(0.35 * nearFade, nearFade + 0.15, t);
             vec4 look = mf_look(shape, p, prm);
             // solo el borde se rompe en jirones; la masa es continua
             float uu = clamp(u, 0.0, 1.0);
@@ -585,7 +587,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float look_w = mf_look(shape, vec3(0.0), prm).w;
     float glow = exp(-max(minD, 0.0) / (Lref * 0.9)) * edgeFade * intensity * look_w * (1.0 - 0.7 * cool);
     vec3 glowCol = vec3(1.0, 0.42, 0.10);
-    col += T * glowCol * glow * 0.16;
+    col += T * glowCol * glow * 0.13;
 
     // tono que guarda el color (naranja vivo); lo muy brillante quema hacia blanco
     float mx = max(col.r, max(col.g, col.b));
@@ -601,7 +603,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     vec3 band = mf_bands(tv) * coverage * (0.82 + 0.25 * flash);
     rgb = mix(rgb, max(rgb, band), 0.40 * smoothstep(0.05, 0.4, coverage));
 
-    float alpha = clamp(a + min(glow, 1.0) * 0.18, 0.0, 1.0);
+    float alpha = clamp(a + min(glow, 1.0) * 0.12, 0.0, 1.0);
     return vec4(min(rgb, vec3(1.0)), alpha);
 }
 
@@ -640,10 +642,13 @@ void main() {
     float tf = min(-b + h, tScene);
     if (tf <= tn) discard;
 
-    // con la cámara dentro del fuego, se aclara para no tapar la vista
-    float inten = VolInfo.z * mix(0.35, 1.0, smoothstep(0.3, 1.0, length(lro) / B));
+    // con la cámara dentro del fuego (no solo cerca), se aclara para no tapar la vista
+    float dc; float Lc; float uc; vec3 nbc; vec3 nqc; float ampc;
+    mf_shape(lro, VolInfo.x, VolPrm, VolTime, dc, Lc, uc, nbc, nqc, ampc);
+    float inside = 1.0 - smoothstep(-0.25 * Lc, Lc * 0.8 + ampc, dc);
+    float inten = VolInfo.z * mix(1.0, 0.35, inside);
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, inten);
+    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, inten, VolInfo.w);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }

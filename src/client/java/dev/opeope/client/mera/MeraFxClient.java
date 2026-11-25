@@ -122,7 +122,8 @@ public final class MeraFxClient {
 
 	/** Para las pruebas: cuántas llamas vivas y cuántos efectos. */
 	public static String debug() {
-		return "llamas=" + count + " efectos=" + FX.size() + " cuerpos=" + BODY.size();
+		return "llamas=" + count + " efectos=" + FX.size() + " cuerpos=" + BODY.size()
+			+ " volumenes=" + MeraVolumes.count() + " luces=" + MeraVolumes.lightCount() + (MeraVolumes.ready() ? "" : " (sin fuego 3D)");
 	}
 
 	public static int flameCount() {
@@ -1245,7 +1246,13 @@ public final class MeraFxClient {
 				Vec3d dir = user.getRotationVec(td);
 				if (vol()) {
 					float grow = easeOut(age / 0.18);
-					vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.5f, 0, f, 1f);
+					if (selfView(mc, user)) {
+						// en primera persona el chorro nace un poco por delante y se aclara junto a la cámara
+						vol(MeraVolumes.JET, h.add(dir.multiply(0.6)), dir, 8.9f * grow, 1.5f, 0, f, 1f);
+						MeraVolumes.nearFade(1.4f);
+					} else {
+						vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.5f, 0, f, 1f);
+					}
 				}
 				int n = many(f, 620 * density, dt);
 				for (int i = 0; i < n; i++) {
@@ -1858,10 +1865,14 @@ public final class MeraFxClient {
 		double fX = -Math.sin(yr), fZ = Math.cos(yr);
 		if (vol() && !self) {
 			// los hombros y los brazos se vuelven llamas (en 3D); las llamas sueltas quedan de adorno
+			double y0 = base.y + (pl.isInSneakingPose() ? 0.8 : 1.02);
 			for (int sd = -1; sd <= 1; sd += 2) {
-				Vec3d sh = new Vec3d(base.x + rX * 0.36 * sd, base.y + (pl.isInSneakingPose() ? 0.8 : 1.02), base.z + rZ * 0.36 * sd);
-				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.2f, 0.85f, 0, 0, pl.getId() * 13 + sd, 0.75f);
+				Vec3d sh = new Vec3d(base.x + rX * 0.36 * sd, y0, base.z + rZ * 0.36 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.22f, 1.0f, 0, 0, pl.getId() * 13 + sd, 0.75f);
 			}
+			// y la espalda, como Ace cuando arde entero
+			Vec3d back = new Vec3d(base.x - fX * 0.2, y0 + 0.12, base.z - fZ * 0.2);
+			MeraVolumes.add(MeraVolumes.FLAME, back, FWD, 0.26f, 1.15f, 0, 0, pl.getId() * 13 + 5, 0.6f);
 			thin = 0.3f;
 		}
 		float rate = (self ? 50 : 260) * density;

@@ -162,6 +162,14 @@ public final class MeraVolumes {
 	}
 
 	/**
+	 * Para el último volumen añadido: a menos de {@code blocks} bloques de la cámara el fuego se aclara (el fuego que
+	 * sale de la mano en primera persona no tapa la vista).
+	 */
+	public static void nearFade(float blocks) {
+		if (n > 0) INFO[n - 1][3] = Math.max(0f, blocks);
+	}
+
+	/**
 	 * El radio de la esfera que envuelve cada forma, con margen para las lenguas de fuego y el resplandor. Es el mismo
 	 * cálculo que mfBound() del shader: la caja que se dibuja es el cubo que envuelve esa esfera.
 	 */
