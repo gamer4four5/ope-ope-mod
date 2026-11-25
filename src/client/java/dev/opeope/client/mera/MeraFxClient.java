@@ -535,7 +535,8 @@ public final class MeraFxClient {
 		RenderSystem.disableCull();
 		RenderSystem.enableDepthTest();
 		RenderSystem.depthMask(false);
-		RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+		// (con el programa propio: el de Minecraft recorta lo tenue y deja discos con el borde duro)
+		RenderSystem.setShader(MeraVolumes::spriteProgram);
 		RenderSystem.setShaderTexture(0, ATLAS);
 		try {
 			// 1) el fuego, en 3D: bolas y lenguas sólidas que escriben profundidad (se tapan entre ellas y con el mundo)
@@ -553,7 +554,7 @@ public final class MeraFxClient {
 			}
 
 			// 2) humo y vapor (suaves, mezcla normal)
-			RenderSystem.setShader(GameRenderer::getPositionTexColorProgram);
+			RenderSystem.setShader(MeraVolumes::spriteProgram);
 			RenderSystem.setShaderTexture(0, ATLAS);
 			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
 			for (int i = 0; i < count; i++) if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);

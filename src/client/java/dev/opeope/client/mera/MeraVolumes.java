@@ -12,6 +12,7 @@ import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.gl.SimpleFramebuffer;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
+import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
@@ -93,7 +94,22 @@ public final class MeraVolumes {
 				lightProgram = p;
 				OpeOpeMod.LOG.info("Mera: shader de luz del fuego cargado");
 			});
+			ctx.register(OpeOpeMod.id("mera_sprite"), VertexFormats.POSITION_TEXTURE_COLOR, p -> {
+				spriteProgram = p;
+				OpeOpeMod.LOG.info("Mera: shader de chispas y humo cargado");
+			});
 		});
+	}
+
+	private static ShaderProgram spriteProgram;
+
+	/**
+	 * El programa de las chispas, brasas, resplandores y humo sueltos: uno propio, igual que position_tex_color de
+	 * Minecraft pero sin tirar lo que tiene menos de 0,1 de alfa (ese corte dejaba lo suave y tenue como un disco con
+	 * el borde duro, con o sin shaderpack). Si el propio no cargó, el de Minecraft.
+	 */
+	public static ShaderProgram spriteProgram() {
+		return spriteProgram != null ? spriteProgram : GameRenderer.getPositionTexColorProgram();
 	}
 
 	/** ¿Se puede dibujar el fuego volumétrico? (si el shader no cargó, el fuego vuelve a las llamas sueltas). */
