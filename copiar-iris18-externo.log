@@ -1,0 +1,12 @@
+
+> Configure project :
+Fabric Loom: 1.16.3
+
+duplicate input class net/fabricmc/fabric/mixin/tag/package-info, from /home/runner/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-convention-tags-v2/2.12.0+c3656daa19/cae8ee9fc130df2be8d3aaefe04da974112a3510/fabric-convention-tags-v2-2.12.0+c3656daa19.jar and /home/runner/.gradle/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-tag-api-v1/1.3.0+1eb36c0719/b2c96fc9cdc805207ae3eee28d2950b41b4dc7ee/fabric-tag-api-v1-1.3.0+1eb36c0719.jar
+
+> Task :copiarModsProd
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_5-1795620257319.json
+
+BUILD SUCCESSFUL in 5s
+1 actionable task: 1 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.4.0/userguide/configuration_cache_enabling.html
