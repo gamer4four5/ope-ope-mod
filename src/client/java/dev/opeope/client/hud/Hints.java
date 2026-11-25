@@ -80,14 +80,9 @@ public final class Hints {
 		KeyLabels.Glyph click = KeyLabels.mouseLeft(), right = KeyLabels.mouseRight(), wheel = KeyLabels.wheel();
 		List<Ui.Line> rows = new ArrayList<>();
 		if ("mera_inicio".equals(id)) {
-			rows.add(row(key(Keys.ROOM), "mantén: Hiken (suelta para lanzar)"));
-			rows.add(row(key(Keys.TAKT), "mantén: Kagerō (chorro de llamas)"));
-			rows.add(row(key(Keys.RADIO_KNIFE), "mantén: Entei (el gran sol)"));
-			rows.add(row(key(Keys.INJECTION), "Higan · " + KeyLabels.text(Keys.GAMMA.key) + " Jujika · " + KeyLabels.text(Keys.CURTAIN.key) + " Kyokaen"));
-			rows.add(row(key(Keys.SCAN), "Hotarubi · Mayús: Hidaruma"));
-			rows.add(row(key(Keys.SHAMBLES), "impulso · " + KeyLabels.text(Keys.MARKER.key) + " salto en el aire"));
-			rows.add(row(key(Keys.AWAKEN), "Cuerpo de llamas"));
-			rows.add(row(key(Keys.ROW2), "Tab: Enjōmō / Shiranui / Hibashira"));
+			rows.add(row(key(Keys.ROOM), "Hiken"));
+			rows.add(row(key(Keys.TAKT), "Kagerō"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "Entei"));
 			return new Context(id, "MERA MERA · ACE", "gamma", Theme.ROOM, rows, false);
 		}
 		if ("grav_inicio".equals(id)) {

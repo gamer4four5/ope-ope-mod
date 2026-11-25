@@ -659,6 +659,19 @@ public final class MeraFxClient {
 		return SIZE[i] * (0.6f + 0.6f * (float) Math.sqrt(t)) * g * (float) Math.sqrt(Math.max(0f, shrink));
 	}
 
+	// la paleta del fuego de Ace en 3D: núcleo casi blanco, cuerpo naranja-amarillo, borde naranja rojizo
+	private static int in3(float t) {
+		return Flame3D.lerp(0xFFF7CC, 0xFFCF55, t);
+	}
+
+	private static int mid3(float t) {
+		return Flame3D.lerp(0xFFB12C, 0xF2701C, t);
+	}
+
+	private static int out3(float t) {
+		return Flame3D.lerp(0xF0561A, 0xA82410, t);
+	}
+
 	/** Una llama como cuerpo 3D (bola en punta o lengua que se retuerce). */
 	private static void draw3D(BufferBuilder b, int i) {
 		float t = AGE[i] / LIFE[i];
@@ -667,26 +680,27 @@ public final class MeraFxClient {
 		float s = life3D(i, t);
 		if (s < 0.012f) return;
 		float d = (float) Math.sqrt(x * x + y * y + z * z);
-		// detrás de la cámara, o la cámara dentro de la llama: nada (no tapa la pantalla)
+		// detrás de la cámara o pegada a ella: nada (el fuego no tapa la pantalla aunque estés dentro del sol)
 		if (x * fx + y * fy + z * fz < -s - 0.5f) return;
-		if (d < s * 1.15f + 0.35f) return;
+		if (d < 1.4f + s * 0.6f) return;
+		if (d < 3.2f) s *= (d - 1.4f - s * 0.6f) / (1.8f - s * 0.6f) * 0.6f + 0.4f;
 		float vx = VX[i], vy = VY[i], vz = VZ[i];
 		float sp = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
 		float seed = ROT[i] * 3.1f;
+		boolean hi = s > 0.16f;
 		switch (k) {
 			case TONGUE -> {
 				float len = s * (2.1f + Math.min(1.6f, sp * 0.12f));
-				Flame3D.tongue(b, x, y, z, s * 0.62f, len, vx, vy + 2.2f, vz, seed, flameTime,
-					fireInner(t * 0.7f), fireOuter(t * 0.45f), fireOuter(Math.min(1f, t + 0.3f)));
+				Flame3D.tongue(b, x, y, z, s * 0.55f, len, vx, vy + 2.2f, vz, seed, flameTime, in3(t), mid3(t), out3(t));
 			}
-			case CORE -> Flame3D.blob(b, x, y, z, s * 0.85f, vx, vy + 1.5f, vz, 0.35f, 0.18f, seed, flameTime, s > 0.3f,
-				hotInner(t), fireInner(t + 0.25f), fireOuter(t * 0.6f));
-			case GREEN -> Flame3D.blob(b, x, y, z, s * 0.8f, vx, vy + 1.5f, vz, 0.6f, 0.2f, seed, flameTime, s > 0.35f,
+			case CORE -> Flame3D.blob(b, x, y, z, s * 0.7f, vx, vy + 1.5f, vz, 0.3f, 0.14f, seed, flameTime, hi,
+				0xFFFFF0, in3(t), mid3(t));
+			case GREEN -> Flame3D.blob(b, x, y, z, s * 0.65f, vx, vy + 1.5f, vz, 0.6f, 0.16f, seed, flameTime, hi,
 				greenInner(t), Flame3D.lerp(greenInner(t), greenOuter(t), 0.55f), greenOuter(t));
 			default -> {   // FIRE
-				float stretch = 0.75f + Math.min(1.1f, sp * 0.12f);
-				Flame3D.blob(b, x, y, z, s * 0.8f, vx, vy + 2.4f, vz, stretch, 0.28f, seed, flameTime, s > 0.32f,
-					fireInner(t * 0.8f), fireOuter(t * 0.5f), fireOuter(Math.min(1f, t + 0.3f)));
+				float stretch = 0.8f + Math.min(1.1f, sp * 0.12f);
+				Flame3D.blob(b, x, y, z, s * 0.62f, vx, vy + 2.4f, vz, stretch, 0.2f, seed, flameTime, hi,
+					in3(t), mid3(t), out3(t));
 			}
 		}
 	}

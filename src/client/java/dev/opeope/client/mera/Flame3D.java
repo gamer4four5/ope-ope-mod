@@ -121,11 +121,11 @@ final class Flame3D {
 
 	/** Banda de color según lo que el punto mira a la cámara (1 = de frente) y lo cerca que está de la punta. */
 	private static int band(float facing, float tip, int inner, int mid, int outer) {
-		float f = facing - tip * 0.45f;
-		if (f > 0.62f) return inner;
-		if (f > 0.5f) return lerp(inner, mid, (0.62f - f) / 0.12f);
-		if (f > 0.3f) return mid;
-		if (f > 0.2f) return lerp(mid, outer, (0.3f - f) / 0.1f);
+		float f = facing - tip * 0.4f;
+		if (f > 0.55f) return inner;
+		if (f > 0.47f) return lerp(inner, mid, (0.55f - f) / 0.08f);
+		if (f > 0.24f) return mid;
+		if (f > 0.17f) return lerp(mid, outer, (0.24f - f) / 0.07f);
 		return outer;
 	}
 
