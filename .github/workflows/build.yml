@@ -45,7 +45,7 @@ jobs:
           rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
           mkdir -p run/config capturas/iris18-sin
           printf 'enableShaders=false\n' > run/config/iris.properties
-          timeout 1500 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-sin.log 2>&1
+          timeout 1500 ./gradlew prodMeraGallery --console=plain "-PprodSodium=$SODIUM" "-PprodIris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-sin.log 2>&1
           echo "exit=$?"
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue
@@ -75,7 +75,7 @@ jobs:
           curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
           printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
           # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
-          timeout 2400 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-photon.log 2>&1
+          timeout 2400 ./gradlew prodMeraGallery --console=plain "-PprodSodium=$SODIUM" "-PprodIris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-photon.log 2>&1
           echo "exit=$?"
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue

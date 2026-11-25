@@ -100,6 +100,22 @@ if (project.hasProperty("iris")) {
 	}
 }
 
+// PRUEBA: el juego como lo lanza el launcher del jugador (nombres intermedios, el jar final del mod y los otros mods tal
+// cual se bajan), con el Iris, el Sodium y la Fabric API de su juego real. En el entorno de desarrollo el Iris nuevo no
+// arranca (el remapeador de mixins de desarrollo de Fabric Loader falla con uno de sus mixins), y así además se prueba
+// exactamente lo que se instala.
+dependencies {
+	productionRuntimeMods "net.fabricmc.fabric-api:fabric-api:${project.findProperty('fabric_runtime') ?: project.fabric_version}"
+	if (project.hasProperty("prodSodium")) productionRuntimeMods "maven.modrinth:sodium:${project.prodSodium}"
+	if (project.hasProperty("prodIris")) productionRuntimeMods "maven.modrinth:iris:${project.prodIris}"
+}
+tasks.register("prodMeraGallery", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	jvmArgs.addAll("-Xmx3G", "-Dopeope.autotest=true", "-Dopeope.gallery=true", "-Dopeope.gallery.mera=true")
+	programArgs.addAll("--quickPlaySingleplayer", "Prueba")
+	// ya hay un Xvfb de 1280x720 en la pantalla :99; con xvfb-run se abriría otra, de otro tamaño
+	useXVFB = false
+}
+
 processResources {
 	inputs.property "version", project.version
 	filesMatching("fabric.mod.json") {
