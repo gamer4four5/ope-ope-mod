@@ -2647,8 +2647,9 @@ public final class MeraFxClient {
 	/**
 	 * Primera persona: la llamarada de lo que atraviesa tu cuerpo (el hueco se abre en ti y no lo ves). Va abajo en la
 	 * pantalla, sin tapar la mira: lo que te cruza de lado (una flecha, el tajo de una espada) deja una estela de fuego
-	 * en su mismo sentido; un golpe de frente, una llama del lado por donde entró; una caída, tres; y una explosión, que
-	 * te deshace medio cuerpo, una cortina de llamas por abajo y por los lados, más altas hacia donde estalló.
+	 * en su mismo sentido; un golpe de frente, un brote de tres llamas del lado por donde entró; una caída, cinco bajas a
+	 * lo ancho; y una explosión, que te deshace medio cuerpo, una cortina de siete por abajo y por los lados, más altas
+	 * hacia donde estalló. Ninguna llega a la mira.
 	 * Todo va a 0,8 bloques de los ojos y medido en pantalla (cae en el mismo sitio con cualquier campo de visión y
 	 * forma de ventana) y con las llamas derechas en la pantalla, se mire hacia donde se mire.
 	 */
@@ -2682,12 +2683,11 @@ public final class MeraFxClient {
 				float tall = 1f + 0.18f * side * Math.signum(q[0]);
 				selfFlame(q[0], q[1], q[2] * k, q[3] * tall * k, q[4], seed++, fade, q[0] == 0f);
 			}
-		} else if (f.style == MeraVoxelBody.FALL) {
-			selfFlame(0f, -0.42f, 0.13f * k, 0.40f * k, 0f, seed, fade, true);
-			selfFlame(-0.30f, -0.42f, 0.11f * k, 0.30f * k, 0.35f, seed + 1, fade, false);
-			selfFlame(0.30f, -0.42f, 0.11f * k, 0.30f * k, 0.7f, seed + 2, fade, false);
 		} else {
-			selfFlame(side * 0.4f, -0.42f, 0.12f * k, 0.36f * k, 0f, seed, fade, true);
+			// una caída, cinco llamas bajas a lo ancho; un golpe, un brote de tres alrededor de por donde entró
+			boolean fall = f.style == MeraVoxelBody.FALL;
+			float x0 = fall ? 0f : side * 0.4f;
+			for (float[] q : fall ? SELF_FALL : SELF_HIT) selfFlame(x0 + q[0], q[1], q[2] * k, q[3] * k, q[4], seed++, fade, q[0] == 0f);
 		}
 	}
 
@@ -2701,6 +2701,18 @@ public final class MeraFxClient {
 		{-0.27f, -0.44f, 0.13f, 0.44f, 0.85f}, {0.27f, -0.44f, 0.13f, 0.42f, 0.1f},
 		{-0.55f, -0.56f, 0.18f, 0.62f, 0.35f}, {0.55f, -0.56f, 0.18f, 0.58f, 0.7f},
 		{-0.90f, -0.64f, 0.24f, 0.88f, 0.2f}, {0.90f, -0.64f, 0.24f, 0.82f, 0.55f},
+	};
+
+	/** La de una caída, que te deshace las piernas: cinco llamas bajas a lo ancho (mismas medidas que la cortina). */
+	private static final float[][] SELF_FALL = {
+		{0f, -0.46f, 0.15f, 0.44f, 0f},
+		{-0.24f, -0.44f, 0.12f, 0.36f, 0.35f}, {0.24f, -0.44f, 0.12f, 0.38f, 0.7f},
+		{-0.47f, -0.44f, 0.10f, 0.30f, 0.6f}, {0.47f, -0.44f, 0.10f, 0.28f, 0.15f},
+	};
+
+	/** La de un golpe: un brote de tres (una sola parecía una vela). La x se cuenta desde por donde entró. */
+	private static final float[][] SELF_HIT = {
+		{0f, -0.44f, 0.14f, 0.42f, 0f}, {-0.17f, -0.43f, 0.10f, 0.30f, 0.35f}, {0.17f, -0.43f, 0.10f, 0.32f, 0.7f},
 	};
 
 	/** Una llama de la llamarada propia: su base en (x, y) de la pantalla (medidas de 16:9 a 70°), derecha en ella. */
