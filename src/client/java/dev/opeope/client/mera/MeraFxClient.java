@@ -683,6 +683,7 @@ public final class MeraFxClient {
 		// detrás de la cámara o pegada a ella: nada (el fuego no tapa la pantalla aunque estés dentro del sol)
 		if (x * fx + y * fy + z * fz < -s - 0.5f) return;
 		if (d < 1.4f + s * 0.6f) return;
+		if (k == CORE && d < 2.6f + s) return;   // dentro del sol de Entei: hueco, se sigue viendo alrededor
 		if (d < 3.2f) s *= (d - 1.4f - s * 0.6f) / (1.8f - s * 0.6f) * 0.6f + 0.4f;
 		float vx = VX[i], vy = VY[i], vz = VZ[i];
 		float sp = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);

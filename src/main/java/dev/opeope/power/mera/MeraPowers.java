@@ -402,6 +402,8 @@ public final class MeraPowers {
 		Vec3d dir = target.subtract(from);
 		if (dir.lengthSquared() < 1e-4) dir = p.getRotationVec(1f);
 		dir = dir.normalize();
+		// el sol sale ya por delante de Ace (no le pasa por encima de la cabeza tapándole la vista)
+		from = from.add(dir.multiply(r * 0.8 + 1.0));
 		double speed = 1.25;
 		Shot s = new Shot(Shot.ENTEI, p, from, dir.multiply(speed), r, 16f + 4.5f * r, 110);
 		s.power = r;
