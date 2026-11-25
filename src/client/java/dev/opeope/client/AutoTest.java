@@ -738,6 +738,33 @@ public final class AutoTest {
 	private static volatile int gx0, gfy, gz0;
 	/** Resultados que se escriben en el hilo del servidor; −1 = todavía no. */
 	private static volatile int srvA = -1, srvB = -1, srvC = -1;
+	private static volatile String srvInfo = "";
+
+	/**
+	 * Un trabajo del servidor que espera a un tick concreto del mundo, no a los ticks del cliente: en la CI el cliente
+	 * dibuja a pocos FPS y hace sus ticks a saltos, así que dos pasos seguidos del plan pueden caer en el mismo tick del
+	 * servidor o con diez de diferencia (y una pieza lanzada no se habría movido aún, o ya habría caído).
+	 */
+	private static volatile Runnable worldTickJob;
+	private static volatile long worldTickAt;
+	private static volatile ServerWorld worldTickWorld;
+	private static boolean worldTickHook;
+
+	private static void atWorldTick(ServerWorld w, long at, Runnable job) {
+		if (!worldTickHook) {
+			worldTickHook = true;
+			net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_WORLD_TICK.register(sw -> {
+				Runnable j = worldTickJob;
+				if (j != null && sw == worldTickWorld && sw.getTime() >= worldTickAt) {
+					worldTickJob = null;
+					j.run();
+				}
+			});
+		}
+		worldTickWorld = w;
+		worldTickAt = at;
+		worldTickJob = job;
+	}
 	private static volatile int elemZ1 = -1, elemZ2 = -1, elemZ3 = -1;
 	private static volatile double srvD1 = 0, srvD2 = 0;
 	private static volatile String srvMsg = "";
@@ -2138,40 +2165,47 @@ public final class AutoTest {
 		});
 		waitFor("shamblesT: preparado", 40, "no se preparó el campo de Shambles táctico",
 			() -> srvA == 1 && mc.player.getZ() < gz0 - 7 && mc.player.getZ() > gz0 - 10, null);
-		step(2, "shamblesT: lanza pieza", () -> server(srv, id, (sp, pw) -> {
-			ServerWorld w = sp.getServerWorld();
-			BlockSet set = new BlockSet();
-			for (int x = 0; x < 2; x++)
-				for (int y = 0; y < 2; y++)
-					for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
-			set.normalize();
-			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 2.0, gz0 - 10.5), null, sp.getUuid());
-			pe.release(new Vec3d(0, 0.32, -1.75), true);
-			pw.recordThrownPiece(pe.getId(), w.getTime());
-			srvB = pe.getId();
-		}));
-		step(2, "shamblesT: swap jugador", () -> {
+		step(2, "shamblesT: lanza pieza y swap jugador", () -> {
 			srvA = -1;
+			srvInfo = "";
 			server(srv, id, (sp, pw) -> {
-				sp.setYaw(180f);
-				sp.setPitch(-8f);
-				Shambles.use(sp, pw, false);
-				Entity ent = sp.getServerWorld().getEntityById(srvB);
-				boolean swappedPlayer = sp.getY() >= gfy + 2.0 && sp.getZ() <= gz0 - 11.0;
-				boolean rockKept = ent instanceof PieceEntity pe && pe.thrown && pe.getVelocity().length() > 0.5
-					&& pe.ownerGraceTicks > 0 && pe.getZ() > gz0 - 10.0;
-				boolean aerialOpen = pw.aerialWindowTicks > 0 && pw.aerialChain >= 1;
-				srvA = (swappedPlayer ? 1 : 0) | (rockKept ? 2 : 0) | (aerialOpen ? 4 : 0);
-				if (ent != null) ent.discard();
-				pw.clearAerialWindow();
-				pw.aerialChain = 0;
-				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				ServerWorld w = sp.getServerWorld();
+				BlockSet set = new BlockSet();
+				for (int x = 0; x < 2; x++)
+					for (int y = 0; y < 2; y++)
+						for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
+				set.normalize();
+				PieceEntity thrown = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 2.0, gz0 - 10.5), null, sp.getUuid());
+				thrown.release(new Vec3d(0, 0.32, -1.75), true);
+				pw.recordThrownPiece(thrown.getId(), w.getTime());
+				srvB = thrown.getId();
+				// el intercambio, justo 2 ticks del servidor después (la pieza ya vuela y aún no ha caído), sean cuales sean
+				// los FPS del cliente: antes iba en otro paso del plan y a veces caía en el mismo tick que el lanzamiento
+				atWorldTick(w, w.getTime() + 2, () -> {
+					sp.setYaw(180f);
+					sp.setPitch(-8f);
+					Entity before = w.getEntityById(srvB);
+					String pieceAt = before == null ? "sin pieza" : String.format(java.util.Locale.ROOT, "pieza Δy=%.2f Δz=%.2f",
+						before.getY() - gfy, before.getZ() - gz0);
+					Shambles.use(sp, pw, false);
+					Entity ent = w.getEntityById(srvB);
+					boolean swappedPlayer = sp.getY() >= gfy + 2.0 && sp.getZ() <= gz0 - 11.0;
+					boolean rockKept = ent instanceof PieceEntity pe && pe.thrown && pe.getVelocity().length() > 0.5
+						&& pe.ownerGraceTicks > 0 && pe.getZ() > gz0 - 10.0;
+					boolean aerialOpen = pw.aerialWindowTicks > 0 && pw.aerialChain >= 1;
+					srvInfo = String.format(java.util.Locale.ROOT, "%s, jugador Δy=%.2f Δz=%.2f", pieceAt, sp.getY() - gfy, sp.getZ() - gz0);
+					srvA = (swappedPlayer ? 1 : 0) | (rockKept ? 2 : 0) | (aerialOpen ? 4 : 0);
+					if (ent != null) ent.discard();
+					pw.clearAerialWindow();
+					pw.aerialChain = 0;
+					pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				});
 			});
 		});
 		waitFor("shamblesT: verifica jugador", 20, "falló Shambles táctico jugador <-> trozo", () -> srvA >= 0, () -> {
-			check((srvA & 1) != 0, "Shambles 1 toque lleva al jugador al centro de la pieza en vuelo", "srvA=" + srvA);
-			check((srvA & 2) != 0, "el trozo conserva su impulso y gracia de dueño en la posición previa del jugador", "srvA=" + srvA);
-			check((srvA & 4) != 0, "se abre la ventana aérea de remate tras el intercambio", "srvA=" + srvA);
+			check((srvA & 1) != 0, "Shambles 1 toque lleva al jugador al centro de la pieza en vuelo", "srvA=" + srvA + " " + srvInfo);
+			check((srvA & 2) != 0, "el trozo conserva su impulso y gracia de dueño en la posición previa del jugador", "srvA=" + srvA + " " + srvInfo);
+			check((srvA & 4) != 0, "se abre la ventana aérea de remate tras el intercambio", "srvA=" + srvA + " " + srvInfo);
 		});
 		step(2, "shamblesT: preparar enemigo", () -> {
 			srvA = -1;
