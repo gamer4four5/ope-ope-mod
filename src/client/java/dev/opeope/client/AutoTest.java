@@ -132,11 +132,72 @@ public final class AutoTest {
 		l.add(new Shot("hibashira", mera(dev.opeope.power.mera.MeraActions.HIBASHIRA), 0, new int[]{8, 17, 22, 32}, new int[]{20}));
 		l.add(new Shot("impulso", mera(dev.opeope.power.mera.MeraActions.DASH), 0, new int[]{2, 5}, new int[]{3}));
 		l.add(new Shot("cuerpo", mera(dev.opeope.power.mera.MeraActions.BODY), 0, new int[]{6, 20}, new int[]{10, 30}));
+		// el cuerpo de cubitos: lo atraviesan una flecha, una espada, un golpe fuerte y una explosión. Capturas en tercera
+		// persona al abrirse (3), a medio cerrar (12) y cerrado (30)
+		l.add(new Shot("logia-flecha", (sp, pw) -> logiaArrow(sp), 0, new int[]{4}, new int[]{3, 12, 30}));
+		l.add(new Shot("logia-espada", (sp, pw) -> logiaHit(sp, new ItemStack(Items.IRON_SWORD), 6f), 0, new int[]{4}, new int[]{3, 12, 30}));
+		l.add(new Shot("logia-golpe", (sp, pw) -> logiaHit(sp, ItemStack.EMPTY, 12f), 0, new int[]{4}, new int[]{3, 12, 30}));
+		l.add(new Shot("logia-explosion", (sp, pw) -> {
+			boolean inv = sp.getAbilities().invulnerable;
+			sp.getAbilities().invulnerable = false;
+			double yaw = Math.toRadians(sp.getYaw());
+			sp.getServerWorld().createExplosion(null, sp.getX() + Math.cos(yaw) * 1.6, sp.getY() + 0.8, sp.getZ() + Math.sin(yaw) * 1.6, 2.5f,
+				net.minecraft.world.World.ExplosionSourceType.NONE);
+			sp.getAbilities().invulnerable = inv;
+		}, 0, new int[]{4}, new int[]{3, 12, 30}));
 		return l;
+	}
+
+	/** Una flecha que atraviesa el pecho de lado a lado, de izquierda a derecha de Ace. */
+	private static void logiaArrow(ServerPlayerEntity sp) {
+		net.minecraft.server.world.ServerWorld w = sp.getServerWorld();
+		double yaw = Math.toRadians(sp.getYaw());
+		net.minecraft.util.math.Vec3d fwd = new net.minecraft.util.math.Vec3d(-Math.sin(yaw), 0, Math.cos(yaw));
+		net.minecraft.util.math.Vec3d side = new net.minecraft.util.math.Vec3d(fwd.z, 0, -fwd.x);
+		net.minecraft.util.math.Vec3d target = sp.getPos().add(0, 1.3, 0);
+		net.minecraft.util.math.Vec3d from = target.add(side.multiply(3.5));
+		net.minecraft.entity.projectile.ArrowEntity a = new net.minecraft.entity.projectile.ArrowEntity(w, from.x, from.y, from.z,
+			new ItemStack(Items.ARROW), null);
+		net.minecraft.util.math.Vec3d v = target.subtract(from).normalize().multiply(1.8);
+		a.setVelocity(v.x, v.y, v.z);
+		a.pickupType = net.minecraft.entity.projectile.PersistentProjectileEntity.PickupPermission.DISALLOWED;
+		w.spawnEntity(a);
+	}
+
+	/** Un golpe cuerpo a cuerpo del zombi de la galería, con lo que lleve en la mano y ese daño. */
+	private static void logiaHit(ServerPlayerEntity sp, ItemStack held, float amount) {
+		if (galleryZombie == null || !galleryZombie.isAlive()) {
+			fallo("cubitos: no hay zombi para el golpe");
+			return;
+		}
+		galleryZombie.equipStack(net.minecraft.entity.EquipmentSlot.MAINHAND, held.copy());
+		// que mire al pecho de Ace
+		galleryZombie.lookAt(net.minecraft.command.argument.EntityAnchorArgumentType.EntityAnchor.EYES, sp.getPos().add(0, 1.2, 0));
+		boolean inv = sp.getAbilities().invulnerable;
+		sp.getAbilities().invulnerable = false;
+		sp.damage(sp.getDamageSources().mobAttack(galleryZombie), amount);
+		sp.getAbilities().invulnerable = inv;
+	}
+
+	/** Las comprobaciones del cuerpo de cubitos (en el cliente, al dibujarse Ace). */
+	private static void logiaCheck(String name, int r) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.player == null) return;
+		int id = mc.player.getId();
+		if (r == 8 + 5) {
+			int[] s = dev.opeope.client.mera.MeraVoxelBody.stats(id);
+			OpeOpeMod.LOG.info("AUTOTEST cubitos {}: {} texels quitados de {} partidos", name, s[0], s[1]);
+			check(s[0] > 0 && s[0] < s[1], "cubitos " + name + ": se abre un hueco (texels quitados, no todos)", s[0] + " de " + s[1]);
+		}
+		if (r == 8 + 30) {
+			check(!dev.opeope.client.mera.MeraVoxelBody.hasHoles(id), "cubitos " + name + ": al segundo y medio el cuerpo vuelve a estar entero",
+				"sigue con huecos");
+		}
 	}
 
 	/** Las técnicas de Ace que se mantienen: cuándo se suelta la tecla (ticks desde que empiezan). */
 	private static void meraRelease(IntegratedServer srv, UUID id, String name, int r) {
+		if (name.startsWith("logia-")) logiaCheck(name, r);
 		int action = -1;
 		if (name.equals("hiken") && r == 8 + 15) action = dev.opeope.power.mera.MeraActions.HIKEN_RELEASE;
 		if (name.equals("kagero") && r == 8 + 30) action = dev.opeope.power.mera.MeraActions.KAGERO_END;

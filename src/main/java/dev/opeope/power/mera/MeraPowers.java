@@ -342,7 +342,7 @@ public final class MeraPowers {
 			blastProof(sp, true);
 			st.blastProofTicks = 2;
 		}
-		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, blast);
+		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, blast, source, amount);
 		// quien golpea con la mano a un cuerpo de fuego se quema
 		if (attacker instanceof LivingEntity le && attacker != sp && attacker == direct && le.squaredDistanceTo(sp) < 25) {
 			hurt(le, sp, st.fireBody ? 7f : 3f, st.fireBody ? 8f : 4f);
@@ -350,16 +350,75 @@ public final class MeraPowers {
 		return false;
 	}
 
+	/**
+	 * Cómo es el hueco de llamas que se abre en el cuerpo de cubitos (estilo del aviso SCATTER): 0 golpe (esfera),
+	 * 1 explosión (esfera grande, desde la explosión), 2 proyectil (túnel de lado a lado por su recorrido),
+	 * 3 tajo de espada o hacha (cápsula que cruza el cuerpo), 4 caída (pies y piernas).
+	 */
+	static final int HOLE_HIT = 0, HOLE_BLAST = 1, HOLE_SHOT = 2, HOLE_SLASH = 3, HOLE_FALL = 4;
+	/** Un píxel del modelo del jugador, en bloques. */
+	private static final float PX = 1f / 16f;
+
 	/** El golpe atraviesa: se abre un hueco de llamas donde pegó y vuelve a cerrarse. */
 	private static void scatter(ServerPlayerEntity sp, MeraState st, Entity from, boolean blast) {
-		if (st.scatterCooldown > 0) return;
-		st.scatterCooldown = 3;
+		scatter(sp, st, from, blast, null, 0f);
+	}
+
+	private static void scatter(ServerPlayerEntity sp, MeraState st, Entity from, boolean blast, DamageSource source, float amount) {
+		boolean shot = from instanceof ProjectileEntity;
+		// cada flecha abre su propio hueco; los golpes seguidos (una misma espada en el mismo tick) no se repiten
+		if (!shot) {
+			if (st.scatterCooldown > 0) return;
+			st.scatterCooldown = 3;
+		}
 		Vec3d at = hitPoint(sp, from);
 		Vec3d dir = from != null ? sp.getPos().add(0, 1, 0).subtract(from.getPos().add(0, from.getHeight() * 0.5, 0)) : new Vec3d(0, 0, 1);
+		int style = HOLE_HIT;
+		float radius = 3.75f * PX;
+		float length = 0f;
+		if (blast) {
+			style = HOLE_BLAST;
+			radius = 1.2f;
+			Vec3d src = source != null ? source.getPosition() : null;
+			if (src != null) {
+				at = src;
+				dir = sp.getPos().add(0, 1, 0).subtract(src);
+			}
+		} else if (shot) {
+			style = HOLE_SHOT;
+			radius = 2.75f * PX;
+			Vec3d v = from.getVelocity();
+			if (v.lengthSquared() > 1e-6) dir = v;
+			length = (float) Math.max(0.7, sp.getWidth() * 1.4);
+		} else if (from instanceof LivingEntity le) {
+			Vec3d ray = lookHit(sp, le);
+			if (ray != null) at = ray;
+			dir = le.getRotationVec(1f);
+			ItemStack held = le.getMainHandStack();
+			boolean blade = held.getItem() instanceof net.minecraft.item.SwordItem || held.getItem() instanceof net.minecraft.item.AxeItem;
+			boolean heavy = amount >= 10f || held.getItem() instanceof net.minecraft.item.AxeItem
+				|| le instanceof net.minecraft.entity.passive.IronGolemEntity || le instanceof net.minecraft.entity.mob.RavagerEntity
+				|| le instanceof net.minecraft.entity.mob.WardenEntity;
+			if (blade) {
+				// el tajo cruza el cuerpo de lado: su eje va a la derecha de quien corta, algo inclinado
+				style = HOLE_SLASH;
+				Vec3d look = le.getRotationVec(1f);
+				Vec3d right = look.crossProduct(new Vec3d(0, 1, 0));
+				if (right.lengthSquared() < 1e-6) right = new Vec3d(1, 0, 0);
+				dir = right.normalize().add(0, 0.45, 0).normalize();
+				radius = (heavy ? 2.5f : 1.75f) * PX;
+				length = (heavy ? 13f : 10f) * PX;
+			} else {
+				radius = (heavy ? 5.5f : 3.75f) * PX;
+			}
+		} else if (from == null) {
+			radius = 3.5f * PX;
+		}
 		if (dir.lengthSquared() < 1e-6) dir = new Vec3d(0, 0, 1);
 		dir = dir.normalize();
 		ServerWorld w = sp.getServerWorld();
-		send(w, MeraFx.SCATTER, sp.getId(), 0, at, dir, blast ? 1.6f : 0.75f, 1f, blast ? 16 : 12, blast ? 1 : 0);
+		if (shot) from.setOnFireFor(5f);   // la flecha que lo atraviesa sale ardiendo
+		send(w, MeraFx.SCATTER, sp.getId(), 0, at, dir, radius, length, blast ? 16 : 12, style);
 		snd(w, at, SoundEvents.ENTITY_BLAZE_SHOOT, 0.55f, 1.6f + w.random.nextFloat() * 0.2f);
 		snd(w, at, SoundEvents.BLOCK_FIRE_AMBIENT, 0.9f, 1.4f);
 		if (st.logiaNoticeCooldown <= 0) {
@@ -375,7 +434,9 @@ public final class MeraPowers {
 		st.scatterCooldown = 6;
 		ServerWorld w = sp.getServerWorld();
 		Vec3d at = sp.getPos().add(0, 0.35, 0);
-		send(w, MeraFx.SCATTER, sp.getId(), 0, at, new Vec3d(0, 1, 0), Math.min(1.4f, 0.7f + amount * 0.04f), 1f, 12, 0);
+		// los pies y parte de las piernas se deshacen en llamas (más cuanto más alta la caída)
+		send(w, MeraFx.SCATTER, sp.getId(), 0, sp.getPos().add(0, 0.05, 0), new Vec3d(0, 1, 0),
+			Math.min(9f, 4f + amount * 0.25f) * PX, 0f, 12, HOLE_FALL);
 		snd(w, at, SoundEvents.ENTITY_BLAZE_SHOOT, 0.45f, 1.7f);
 		snd(w, at, SoundEvents.BLOCK_FIRE_AMBIENT, 0.9f, 1.3f);
 	}
@@ -383,11 +444,37 @@ public final class MeraPowers {
 	private static Vec3d hitPoint(ServerPlayerEntity sp, Entity from) {
 		Vec3d mid = sp.getPos().add(0, 1.05, 0);
 		if (from == null) return mid;
+		if (from instanceof ProjectileEntity pr) {
+			// el punto de su recorrido que pasa más cerca del eje del cuerpo: por ahí entra la flecha
+			Vec3d p0 = pr.getPos(), v = pr.getVelocity();
+			double vv = v.x * v.x + v.z * v.z;
+			double t = vv < 1e-6 ? 0 : MathHelper.clamp(((sp.getX() - p0.x) * v.x + (sp.getZ() - p0.z) * v.z) / vv, -1.5, 1.5);
+			Vec3d q = p0.add(v.multiply(t));
+			double y = MathHelper.clamp(q.y, sp.getY() + 0.1, sp.getY() + sp.getHeight() - 0.05);
+			// la entrada: el borde del cuerpo del lado de donde viene
+			Vec3d back = v.lengthSquared() > 1e-6 ? v.normalize().multiply(-sp.getWidth() * 0.5) : Vec3d.ZERO;
+			return new Vec3d(q.x + back.x, y, q.z + back.z);
+		}
 		Vec3d d = from.getPos().add(0, from.getHeight() * 0.6, 0).subtract(mid);
 		double y = MathHelper.clamp(from.getEyeY() - sp.getY(), 0.3, 1.7);
 		Vec3d flat = new Vec3d(d.x, 0, d.z);
 		if (flat.lengthSquared() > 1e-6) flat = flat.normalize().multiply(0.3);
 		return new Vec3d(sp.getX() + flat.x, sp.getY() + y, sp.getZ() + flat.z);
+	}
+
+	/** Cuerpo a cuerpo: dónde corta la mirada del atacante la caja del jugador (si no la corta, el punto más cercano). */
+	private static Vec3d lookHit(ServerPlayerEntity sp, LivingEntity attacker) {
+		Vec3d eye = attacker.getEyePos();
+		Vec3d look = attacker.getRotationVec(1f);
+		net.minecraft.util.math.Box box = sp.getBoundingBox().expand(0.05);
+		java.util.Optional<Vec3d> hit = box.raycast(eye, eye.add(look.multiply(8)));
+		if (hit.isPresent()) return hit.get();
+		// el punto del rayo más cercano al centro del cuerpo, metido en la caja
+		Vec3d c = box.getCenter();
+		double t = Math.max(0, c.subtract(eye).dotProduct(look));
+		Vec3d p = eye.add(look.multiply(t));
+		return new Vec3d(MathHelper.clamp(p.x, box.minX, box.maxX), MathHelper.clamp(p.y, box.minY + 0.1, box.maxY - 0.05),
+			MathHelper.clamp(p.z, box.minZ, box.maxZ));
 	}
 
 	/** Para el mixin de proyectiles: ¿este proyectil atraviesa a ese jugador? */

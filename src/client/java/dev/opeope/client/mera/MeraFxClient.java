@@ -154,6 +154,7 @@ public final class MeraFxClient {
 		count = 0;
 		originSet = false;
 		MeraAnim.clear();
+		MeraVoxelBody.clear();
 		MeraVolumes.clear();
 		hideFlames = false;
 		lastWorld = null;
@@ -353,8 +354,14 @@ public final class MeraFxClient {
 			}
 			case MeraFx.SCATTER -> {
 				Entity e = mc.world != null ? mc.world.getEntityById(user) : null;
-				int parts = e != null ? partsAt(e, a, p.style() == 1) : MeraAnim.P_BODY;
-				MeraAnim.hide(user, parts, p.style() == 1 ? 0.55 : 0.38);
+				if (!MeraVoxelBody.broken() && e != null) {
+					// el cuerpo de cubitos: donde entra, los cubitos se vuelven fuego y el hueco se cierra solo
+					MeraVoxelBody.onScatter(e, a, new Vec3d(p.bx(), p.by(), p.bz()), p.radius(), p.power(), p.style());
+				} else {
+					// si el cuerpo de cubitos falló: como antes, la parte entera en llamas
+					int parts = e != null ? partsAt(e, a, p.style() == MeraVoxelBody.BLAST) : MeraAnim.P_BODY;
+					MeraAnim.hide(user, parts, p.style() == MeraVoxelBody.BLAST ? 0.55 : 0.38);
+				}
 			}
 			case MeraFx.HOTARUBI -> {
 				MeraAnim.pose(user, MeraAnim.PALM, 0.5, false);
@@ -473,6 +480,21 @@ public final class MeraFxClient {
 				if (e instanceof PlayerEntity pl && pl.isAlive()) emitBody(mc, pl, td, dt, density, now);
 			}
 		}
+		// los huecos del cuerpo de cubitos: una llama pequeña en el centro, chispas del borde y humo fino al cerrarse
+		final float dens = density;
+		final double fdt = dt;
+		MeraVoxelBody.volumes(now, h -> {
+			double r = h[3];
+			boolean closingNow = h[4] > 0.5;
+			double want = dens * (closingNow ? 6f : 14f) * fdt; int n = (int) want + (R.nextDouble() < want - (int) want ? 1 : 0);
+			for (int i = 0; i < n; i++) {
+				double ang = R.nextDouble() * Math.PI * 2, el = (R.nextDouble() - 0.3) * Math.PI;
+				double ux = Math.cos(ang) * Math.cos(el), uy = Math.sin(el), uz = Math.sin(ang) * Math.cos(el);
+				double sx = h[0] + ux * r, sy = h[1] + uy * r, sz = h[2] + uz * r;
+				if (closingNow) smoke(sx, sy, sz, ux * 0.02, 0.03 + R.nextDouble() * 0.02, uz * 0.02, 0.06f + (float) r * 0.3f, 0.7f, 0.8f);
+				else spark(sx, sy, sz, ux * 0.06, 0.05 + R.nextDouble() * 0.06, uz * 0.06, 0.35f + R.nextFloat() * 0.3f);
+			}
+		});
 		// las partes que un golpe atravesó: en su lugar, fuego
 		for (PlayerEntity pl : mc.world.getPlayers()) {
 			int hidden = MeraAnim.hiddenParts(pl.getId());

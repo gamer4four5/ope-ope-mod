@@ -40,7 +40,9 @@ public class LivingEntityRendererMixin {
 		at = @At("HEAD"), argsOnly = true)
 	private VertexConsumerProvider opeope$cut(VertexConsumerProvider provider, LivingEntity entity, float yaw, float tickDelta,
 		MatrixStack matrices, VertexConsumerProvider original, int light) {
-		return ClientDismember.wrapSlice(CutRendering.wrap(provider, entity, tickDelta, matrices), entity, tickDelta, matrices);
+		// el cuerpo de cubitos de la Mera Mera va por dentro de todo: lo que quita y lo que añade lo ven los demás envoltorios
+		VertexConsumerProvider mera = dev.opeope.client.mera.MeraVoxelBody.wrap(provider, entity, tickDelta, matrices);
+		return ClientDismember.wrapSlice(CutRendering.wrap(mera, entity, tickDelta, matrices), entity, tickDelta, matrices);
 	}
 
 	@Inject(
@@ -48,6 +50,7 @@ public class LivingEntityRendererMixin {
 		at = @At("RETURN"))
 	private void opeope$seams(LivingEntity entity, float yaw, float tickDelta, MatrixStack matrices, VertexConsumerProvider provider, int light, CallbackInfo ci) {
 		CutRendering.flush();
+		dev.opeope.client.mera.MeraVoxelBody.flush();
 	}
 
 	@Inject(
