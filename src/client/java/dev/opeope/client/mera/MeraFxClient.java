@@ -1248,6 +1248,20 @@ public final class MeraFxClient {
 		return (float) Math.max(c.y - hit.getPos().y, 0.0) + 0.3f;
 	}
 
+	/**
+	 * El radio que puede tener la explosión de quien la lanzó, visto en primera persona, sin envolverle la cara: con el
+	 * golpe a tres o cuatro bloques, la bola de Hiken le llegaba a los ojos y toda la pantalla era una niebla naranja sin
+	 * forma. Así se queda delante, con su borde y sus bolsas (los demás la ven entera).
+	 */
+	private static float selfCap(Fx f, Vec3d c, float R) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		Entity cam = mc.getCameraEntity();
+		if (cam == null || cam.getId() != f.userId || !mc.options.getPerspective().isFirstPerson()) return R;
+		double dx = c.x - camX, dy = c.y - camY, dz = c.z - camZ;
+		float cap = (float) ((Math.sqrt(dx * dx + dy * dy + dz * dz) - 1.0) / 1.3);
+		return Math.max(Math.min(R, cap), R * 0.45f);
+	}
+
 	/** Los estallidos (IMPACT) en 3D: la bola de fuego que se abre, o la cruz que se abre (Jūjika). */
 	private static boolean impactVolume(Fx f, double age) {
 		float r = f.radius;
@@ -1296,7 +1310,7 @@ public final class MeraFxClient {
 					float Rs = R1 * (1f + 0.35f * easeOut(w));
 					Vec3d c0 = outOfWall(f, d, R1);
 					Vec3d cs = c0.add(0, R1 * (0.25f + 0.9f * w) * w, 0);
-					vol(MeraVolumes.FIREBALL, cs, FWD, Rs, 1f, 0, f, 1f - smooth((w - 0.2f) / 0.8f));
+					vol(MeraVolumes.FIREBALL, cs, FWD, selfCap(f, cs, Rs), 1f, 0, f, 1f - smooth((w - 0.2f) / 0.8f));
 					return true;
 				}
 				float u = (float) (age / T), e = easeOut(u * 1.6);
@@ -1305,7 +1319,8 @@ public final class MeraFxClient {
 				if (small) inten *= (1f - smooth((u - 0.72f) / 0.28f)) * (1f - 0.5f * smooth((u - 0.35f) / 0.65f));
 				float R = r * (0.28f + 0.55f * e);
 				// (los pequeños acaban en una bocanada de humo gris claro y fino: oscuro parecía un agujero quemado)
-				MeraVolumes.add(MeraVolumes.FIREBALL, outOfWall(f, d, R), FWD, R, cool, 0, small ? 1f : 0f, f.id * 31 + f.kind * 7 + f.userId, inten);
+				Vec3d cb = outOfWall(f, d, R);
+				MeraVolumes.add(MeraVolumes.FIREBALL, cb, FWD, selfCap(f, cb, R), cool, 0, small ? 1f : 0f, f.id * 31 + f.kind * 7 + f.userId, inten);
 			}
 		}
 		return true;
@@ -1466,11 +1481,15 @@ public final class MeraFxClient {
 		float d = (float) Math.sqrt(x * x + y * y + z * z);
 		NEAR = MathHelper.clamp((d - 0.4f) / 1.2f, 0f, 1f);
 		if (NEAR <= 0.01f) return;
-		float s = MathHelper.clamp(SIZE[i] * 0.28f, 0.035f, 0.11f) * (1f - 0.5f * t);
+		// (y nunca más grande que unos píxeles: pegadas a la cámara eran discos amarillos como lucecitas de feria)
+		float s = Math.min(MathHelper.clamp(SIZE[i] * 0.28f, 0.035f, 0.11f), 0.012f * d + 0.012f) * (1f - 0.5f * t);
 		float alpha = (t < 0.08f ? t / 0.08f : 1f) * (1f - t);
 		int rgb = k == GREEN ? greenInner(t) : (t < 0.4f ? fireInner(t) : fireOuter(t));
 		quad(b, x, y, z, s * 2.4f, 0f, (byte) 3, rgb, alpha * 0.35f);
-		quad(b, x, y, z, s, 0f, (byte) 3, rgb, alpha);
+		// las rápidas (el chorro de Kagerō, lo que sale de un estallido), un trazo corto en su dirección: una brasa que
+		// vuela no es un punto redondo
+		if (VX[i] * VX[i] + VY[i] * VY[i] + VZ[i] * VZ[i] > 25f) streak(b, i, x, y, z, s * 1.3f, rgb, alpha);
+		else quad(b, x, y, z, s, 0f, (byte) 3, rgb, alpha);
 	}
 
 	/** Rampa del borde: naranja → rojo anaranjado → rojo oscuro. */
@@ -1546,6 +1565,15 @@ public final class MeraFxClient {
 	/** Chispa: un trazo corto en la dirección en que vuela. */
 	private static void streak(BufferBuilder b, int i, float x, float y, float z, float s, int rgb, float a) {
 		float vx = VX[i] * 0.045f, vy = VY[i] * 0.045f, vz = VZ[i] * 0.045f;
+		// el trazo, como mucho unos grados de la vista: una chispa rápida pegada a la cámara cruzaba media pantalla como
+		// un rayo láser
+		float vl = (float) Math.sqrt(vx * vx + vy * vy + vz * vz), maxL = 0.045f * (float) Math.sqrt(x * x + y * y + z * z) + 0.02f;
+		if (vl > maxL) {
+			float k = maxL / vl;
+			vx *= k;
+			vy *= k;
+			vz *= k;
+		}
 		float sx = fy * vz - fz * vy, sy = fz * vx - fx * vz, sz = fx * vy - fy * vx;
 		float l = (float) Math.sqrt(sx * sx + sy * sy + sz * sz);
 		if (l < 1e-5f) {

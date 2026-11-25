@@ -650,6 +650,11 @@ public final class MeraPowers {
 		found.sort((a, b) -> Double.compare(a.squaredDistanceTo(c), b.squaredDistanceTo(c)));
 		final List<LivingEntity> targets = found.size() > 8 ? new ArrayList<>(found.subList(0, 8)) : found;
 		send(w, MeraFx.ZONE_END, p.getId(), group, c, Vec3d.ZERO, 0f, 1f, 0, 1);
+		// una bola de fuego por víctima, más grande cuantas más luciérnagas le llegan (antes, una por luciérnaga: unas
+		// once bolas iguales una encima de otra en cada víctima, que se quemaban a blanco y llenaban las luces)
+		Map<LivingEntity, Integer> hits = new HashMap<>();
+		if (!targets.isEmpty()) for (int i = 0; i < count; i++) hits.merge(targets.get(i % targets.size()), 1, Integer::sum);
+		Set<LivingEntity> shown = new HashSet<>();
 		for (int i = 0; i < count; i++) {
 			LivingEntity t = targets.isEmpty() ? null : targets.get(i % targets.size());
 			Vec3d to = t != null ? t.getPos().add(0, t.getHeight() * (0.3 + 0.5 * ((i * 37) % 10) / 10.0), 0)
@@ -658,13 +663,18 @@ public final class MeraPowers {
 			send(w, MeraFx.HIDARUMA, p.getId(), group, c, to, 0.4f, 1f, travel, i);
 			final LivingEntity target = t;
 			final Vec3d impact = to;
+			// (sin víctimas, al suelo: una de cada dos, que están repartidas)
+			final boolean show = t != null ? shown.add(t) : i % 2 == 0;
+			final float rad = t != null ? Math.min(1.0f + 0.07f * hits.getOrDefault(t, 1), 1.8f) : 1.0f;
 			DELAYED.add(new Delayed(travel, () -> {
 				if (target != null && target.isAlive()) {
 					target.timeUntilRegen = 0;
 					target.damage(burn(p), target.isFireImmune() ? 1.5f : 4.5f);
 					target.setOnFireFor(7f);
 				}
-				send(w, MeraFx.IMPACT, p.getId(), 0, impact, Vec3d.ZERO, 1.0f, 0.5f, 10, MeraFx.STYLE_ROUND);
+				if (!show) return;
+				Vec3d at = target != null ? target.getPos().add(0, target.getHeight() * 0.5, 0) : impact;
+				send(w, MeraFx.IMPACT, p.getId(), 0, at, Vec3d.ZERO, rad, 0.5f, 10, MeraFx.STYLE_ROUND);
 			}));
 		}
 		DELAYED.add(new Delayed(8, () -> {

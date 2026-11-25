@@ -392,8 +392,10 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         L = max(rr, 0.22) * 0.9;
         u = clamp(q.z / Lj, 0.0, 1.3);
         float ns = max(rr * 0.75, 0.16);
-        nq = vec3(q.x / ns, q.y / ns - time * 1.2, q.z / (ns * 2.4) - time * 4.0);
-        nb = vec3(q.x / (ns * 1.7), q.y / (ns * 1.7) - time * 0.5, q.z / (ns * 2.2) - time * 2.4);
+        // vetas largas a lo largo del chorro, que corren con él (como un lanzallamas; con bolsas redondas parecía
+        // una ristra de globos)
+        nq = vec3(q.x / ns, q.y / ns - time * 1.2, q.z / (ns * 3.4) - time * 5.0);
+        nb = vec3(q.x / (ns * 1.5), q.y / (ns * 1.5) - time * 0.5, q.z / (ns * 4.0) - time * 3.6);
         amp = L * (0.40 + 0.65 * v);
     }
     else if (shape < 6.5) {
@@ -621,8 +623,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         float envW = max(amp * 1.05, ampB * 1.05) + isFist * L * 0.9;
         float dEnv = d - envW;
         float stepIn = L * mix(0.12, 0.10, isFist);
-        // el chorro de Kagerō visto a lo largo (en primera persona): su ruido es 2,4 veces más largo a lo largo que a lo
-        // ancho, así que el paso también puede serlo. Si no, los pasos se acababan al bloque de la mano y del chorro
+        // el chorro de Kagerō visto a lo largo (en primera persona): su ruido es 3 o 4 veces más largo a lo largo que a
+        // lo ancho, así que el paso también puede serlo (2,4 veces). Si no, los pasos se acababan al bloque de la mano y del chorro
         // solo se veía el principio, una bola
         stepIn *= 1.0 + 1.4 * isJet * rd.z * rd.z;
         if (dEnv > 0.0) {
