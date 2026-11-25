@@ -16,6 +16,7 @@ uniform vec3 VolMin;          // la caja local que la envuelve
 uniform vec3 VolMax;
 uniform vec4 VolPrm;          // los parámetros de la forma
 uniform vec4 VolInfo;         // forma, semilla, intensidad, bloques junto a la cámara donde se aclara
+uniform float VolSky;         // la luz que hay alrededor (1 a pleno día, casi 0 de noche): tiñe el humo
 
 out vec4 fragColor;
 
@@ -228,8 +229,10 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float up = smoothstep(-0.2, 0.6, dir.y) * (1.0 - mv);
         vec3 st = vec3(1.0, mix(0.85, 0.45, up), mix(1.0, 0.45, mv * back));
         vec3 flow = vec3(0.0, 0.9 * (1.0 - mv) + 0.25 * cl, -2.4 * mv);
-        nq = (pr * st) / (R * 0.38) - flow * (time * 0.6);
-        nb = pr / (R * (0.62 - 0.22 * cl)) - flow * (time * 0.22);   // al enfriarse, bolsas más pequeñas (coliflor)
+        // el tamaño de las bolsas no crece sin fin con la bola: una explosión enorme también tiene bolsas pequeñas
+        float Rn = min(R, 2.6);
+        nq = (pr * st) / (Rn * 0.38) - flow * (time * 0.6);
+        nb = pr / (Rn * (0.62 - 0.22 * cl)) - flow * (time * 0.22);   // al enfriarse, bolsas más pequeñas (coliflor)
         // al enfriarse, el borde se deshilacha más (el humo no tiene borde liso)
         amp = R * (0.11 + 0.30 * cl * cl + 0.50 * smoothstep(R * 0.88, R * 1.5, r)) * (1.0 + 1.3 * max(dir.y, 0.0) * (1.0 - mv) + 1.2 * mv * back);
     }
@@ -266,16 +269,17 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // bandas de fuego en hélice que suben girando, con huecos entre ellas (se ve a través)
         float ang = atan(c.y, c.x);
         float band = sin(5.0 * ang + p.y / R * 1.6 - time * 4.0);
-        d += th * (1.1 * band + 0.25) * smoothstep(0.4, 1.4, p.y);
+        float band2 = sin(9.0 * ang - p.y / R * 2.6 + time * 2.6);
+        d += th * (1.35 * band + 0.55 * band2 + 0.45) * smoothstep(0.4, 1.4, p.y);
         d = max(d, p.y - H);
         d = max(d, -p.y - 0.3 * R);
-        L = clamp(th * 0.45, 0.3, 0.6);
+        L = clamp(th * 0.30, 0.18, 0.40);
         u = p.y / H;
         // el remolino: el ruido gira alrededor del eje, se tuerce en hélice y se estira hacia arriba (vetas)
         vec2 sw = mf_rot(p.xz, p.y / R * 0.55 - time * 2.2);
         nq = vec3(sw.x / (L * 0.8), p.y / (L * 3.0) - time * 3.0, sw.y / (L * 0.8));
         nb = vec3(sw.x / (L * 1.2), p.y / (L * 3.5) - time * 1.6, sw.y / (L * 1.2));
-        amp = L * (0.55 + 0.60 * v);
+        amp = L * (0.75 + 0.90 * v);
     }
     else if (shape < 3.5) {
         // ---------------- 3: CERCO (Enjomo) ----------------
@@ -387,7 +391,7 @@ vec4 mf_look(float shape, vec3 p, vec4 prm)
     if (shape < 1.5) { float S = max(prm.x, 0.2);
                        return vec4(mix(1.2, 0.55, smoothstep(-0.7 * S, -0.25 * S, p.z)), 0.26,
                                    0.6 * smoothstep(-0.30 * S, 0.0, p.z), 1.0); }
-    if (shape > 1.5 && shape < 2.5) return vec4(1.6, 0.22, 0.0, 1.0);
+    if (shape > 1.5 && shape < 2.5) return vec4(3.6, 0.10, 0.45, 1.0);
     if (shape > 5.5 && shape < 6.5) return vec4(0.8, 0.28, 0.35, 1.0);
     if (shape > 6.5 && shape < 7.5) return vec4(0.6, 0.28, 0.30, 1.0);
     return vec4(1.1, 0.25, 0.0, 1.0);
@@ -593,13 +597,15 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             vec3 hueC = mix(mf_ramp(temp), bbc / max(bbc.r, 1e-3), 0.25);
             vec3 emit = hueC * (0.6 + 2.0 * t2 + 1.4 * t2 * t2 * t2);
             emit *= 1.0 + 1.5 * flash;
-            vec3 smokeCol = mix(vec3(0.11, 0.10, 0.095), vec3(0.06, 0.05, 0.045), smokeX);
+            // el humo no brilla: solo se ve con la luz que haya (de noche es casi negro, de día gris)
+            float amb = 0.10 + 0.90 * clamp(VolSky, 0.0, 1.0);
+            vec3 smokeCol = mix(vec3(0.11, 0.10, 0.095), vec3(0.06, 0.05, 0.045), smokeX) * amb;
             if (isBall > 0.5) {
                 // el humo de la explosión: gris, con la luz del cielo arriba y oscuro abajo; junto al fuego, naranja
                 float Rb = max(prm.x, 0.05);
                 float hgt = smoothstep(-0.8 * Rb, 0.9 * Rb, p.y - cool * cool * Rb * 0.55);
-                vec3 lit = mix(vec3(0.085, 0.080, 0.078), vec3(0.52, 0.50, 0.49), hgt * (0.45 + 0.55 * tb / 0.6));
-                // pegado a lo que aún arde, el humo se ve naranja por debajo
+                vec3 lit = mix(vec3(0.085, 0.080, 0.078), vec3(0.52, 0.50, 0.49), hgt * (0.45 + 0.55 * tb / 0.6)) * amb;
+                // pegado a lo que aún arde, el humo se ve naranja por debajo (eso sí es luz propia)
                 smokeCol = mix(smokeCol, lit + mf_ramp(tempFire) * (0.7 * tempFire * (1.0 - smokeX)), smokeX);
             }
             emit = mix(emit, smokeCol, smoke);

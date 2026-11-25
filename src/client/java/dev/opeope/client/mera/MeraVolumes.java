@@ -325,15 +325,29 @@ public final class MeraVolumes {
 		LRINGH[k] = ringH;
 	}
 
-	/** Lo oscuro que está alrededor (0,07 a pleno sol … 1 en una cueva): el fuego ilumina más cuanto más oscuro. */
+	/** Lo oscuro que está alrededor (0,06 a pleno sol … 1 en una cueva): el fuego ilumina más cuanto más oscuro. */
 	private static float darkness(double x, double y, double z) {
 		ClientWorld w = MinecraftClient.getInstance().world;
+		if (w == null) return 1f;
+		// se mira alrededor, no solo el punto: un fuego pegado a una pared cae dentro del bloque, donde no entra
+		// la luz, y si no se mirara al lado se encendería como si fuera de noche (pintaba el suelo de amarillo)
+		float lit = light(w, x, y, z);
+		if (lit < 0.999f) {
+			for (int i = 0; i < 6 && lit < 0.999f; i++) {
+				double dx = i == 0 ? 1 : i == 1 ? -1 : 0, dy = i == 4 ? 1 : i == 5 ? 2 : 0, dz = i == 2 ? 1 : i == 3 ? -1 : 0;
+				lit = Math.max(lit, light(w, x + dx, y + dy, z + dz));
+			}
+		}
+		float d = 1f - MathHelper.clamp(lit, 0f, 1f);
+		return 0.06f + 0.94f * d * d;
+	}
+
+	private static float light(ClientWorld w, double x, double y, double z) {
 		if (w == null) return 1f;
 		LPOS.set(x, y, z);
 		float sky = w.getLightLevel(LightType.SKY, LPOS) / 15f * w.getSkyBrightness(1f);
 		float blk = w.getLightLevel(LightType.BLOCK, LPOS) / 15f;
-		float d = 1f - MathHelper.clamp(Math.max(sky, blk), 0f, 1f);
-		return 0.07f + 0.93f * d * (float) Math.sqrt(d);
+		return Math.max(sky, blk);
 	}
 
 	public static int lightCount() {
@@ -414,10 +428,11 @@ public final class MeraVolumes {
 		vec(lp, "ViewSize", viewW, viewH);
 		vec(lp, "VolTime", time0);
 		vec(lp, "LightColor", 1f, 0.42f, 0.12f);
-		double most = 1 + Math.sqrt(e2);
+		double e = Math.sqrt(e2);
+		double most = 1 + e / (1 + 0.12 * e);
 		int passes = most <= 2.02 ? 1 : most <= 4.04 ? 2 : 3;
 		// y si hay bastante luz, el resplandor que se suma (de noche)
-		boolean glow = Math.sqrt(e2) > 0.6;
+		boolean glow = e > 0.6;
 		for (int p = 0; p < passes + (glow ? 1 : 0); p++) {
 			if (p == passes) {
 				RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE,
@@ -676,6 +691,8 @@ public final class MeraVolumes {
 			mat(sp, "InvViewProj", INV);
 			vec(sp, "ViewSize", w, h);
 			vec(sp, "VolTime", time0);
+			// la luz que hay alrededor de la cámara: el humo no brilla solo, de noche casi no se ve
+			vec(sp, "VolSky", light(MinecraftClient.getInstance().world, camX, camY + 1, camZ));
 			for (int o = 0; o < n; o++) drawOne(sp, ORDER[o], camX, camY, camZ);
 			if (diag) diagAfter(sp, camX, camY, camZ);
 		} catch (RuntimeException e) {

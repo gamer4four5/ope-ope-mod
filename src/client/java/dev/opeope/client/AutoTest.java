@@ -292,6 +292,56 @@ public final class AutoTest {
 	/** Fotogramas dibujados desde que empezó la galería (WorldRenderEvents.END). */
 	private static volatile int frames;
 	private static boolean framesHooked;
+	/** La entidad que hace de cámara lejana en una captura, y dónde estaba. */
+	private static net.minecraft.entity.Entity farCam;
+	private static Vec3d farCamPos;
+	private static float farCamYaw, farCamPitch;
+
+	/**
+	 * Pone la cámara lejos del jugador (en el cliente, solo para la captura): así se ven enteras las técnicas grandes,
+	 * que desde los 4 bloques de la tercera persona llenan toda la pantalla. Usa el zombi de la galería como cámara;
+	 * en primera persona el juego no dibuja la entidad que hace de cámara, así que no se ve.
+	 */
+	private static void farCamera(MinecraftClient mc, double back, double up) {
+		try {
+			farCameraMove(mc, back, up);
+		} catch (RuntimeException e) {
+			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude poner la cámara lejos", e);
+			farCam = null;
+		}
+	}
+
+	private static void farCameraMove(MinecraftClient mc, double back, double up) {
+		farCam = null;
+		if (mc.player == null || mc.world == null || galleryZombie == null) return;
+		net.minecraft.entity.Entity e = mc.world.getEntityById(galleryZombie.getId());
+		if (e == null || e == mc.player) return;
+		farCam = e;
+		farCamPos = e.getPos();
+		farCamYaw = e.getYaw();
+		farCamPitch = e.getPitch();
+		Vec3d p = mc.player.getPos();
+		double yaw = Math.toRadians(mc.player.getYaw());
+		// detrás del jugador y un poco en alto, mirándolo
+		Vec3d c = p.add(Math.sin(yaw) * back, up, -Math.cos(yaw) * back);
+		Vec3d to = p.add(0, 1.2, 0).subtract(c);
+		float yawTo = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
+		float pitchTo = (float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)));
+		e.refreshPositionAndAngles(c.x, c.y, c.z, yawTo, pitchTo);
+		e.prevYaw = yawTo;
+		e.prevPitch = pitchTo;
+		mc.setCameraEntity(e);
+	}
+
+	private static void farCameraBack(MinecraftClient mc) {
+		try {
+			mc.setCameraEntity(mc.player);
+			if (farCam != null && farCamPos != null) farCam.refreshPositionAndAngles(farCamPos.x, farCamPos.y, farCamPos.z, farCamYaw, farCamPitch);
+		} catch (RuntimeException e) {
+			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude devolver la cámara", e);
+		}
+		farCam = null;
+	}
 
 	/**
 	 * Una captura en espera: sale en cuanto se haya dibujado un fotograma nuevo con su cámara. La CI dibuja a pocos FPS y
@@ -488,6 +538,10 @@ public final class AutoTest {
 				if (MERA) queueShot(base + "-solo" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = true,
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = false);
+				// Mera: una vista de lejos, para ver entera la técnica (de cerca, las grandes llenan la pantalla)
+				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.FIRST_PERSON,
+					() -> farCamera(mc, 17, 4.5),
+					() -> farCameraBack(mc));
 			}
 		}
 	}

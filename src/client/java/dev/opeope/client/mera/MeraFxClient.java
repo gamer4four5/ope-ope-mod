@@ -1887,15 +1887,18 @@ public final class MeraFxClient {
 		double rX = -Math.cos(yr), rZ = -Math.sin(yr);
 		double fX = -Math.sin(yr), fZ = Math.cos(yr);
 		if (vol() && !self) {
-			// los hombros y los brazos se vuelven llamas (en 3D); las llamas sueltas quedan de adorno
+			// el cuerpo entero envuelto en llamas (en 3D), como Ace cuando arde: hombros, espalda, cabeza y brazos
 			double y0 = base.y + (pl.isInSneakingPose() ? 0.8 : 1.02);
 			for (int sd = -1; sd <= 1; sd += 2) {
-				Vec3d sh = new Vec3d(base.x + rX * 0.36 * sd, y0, base.z + rZ * 0.36 * sd);
-				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.22f, 1.0f, 0, 0, pl.getId() * 13 + sd, 0.75f);
+				Vec3d sh = new Vec3d(base.x + rX * 0.40 * sd, y0, base.z + rZ * 0.40 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.30f, 1.55f, 0, 0, pl.getId() * 13 + sd, 0.95f);
+				Vec3d arm = new Vec3d(base.x + rX * 0.44 * sd, y0 - 0.40, base.z + rZ * 0.44 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, arm, FWD, 0.20f, 0.95f, 0, 0, pl.getId() * 13 + 3 * sd, 0.7f);
 			}
-			// y la espalda, como Ace cuando arde entero
-			Vec3d back = new Vec3d(base.x - fX * 0.2, y0 + 0.12, base.z - fZ * 0.2);
-			MeraVolumes.add(MeraVolumes.FLAME, back, FWD, 0.26f, 1.15f, 0, 0, pl.getId() * 13 + 5, 0.6f);
+			Vec3d back = new Vec3d(base.x - fX * 0.22, y0 + 0.16, base.z - fZ * 0.22);
+			MeraVolumes.add(MeraVolumes.FLAME, back, FWD, 0.34f, 1.65f, 0, 0, pl.getId() * 13 + 5, 0.85f);
+			Vec3d head = new Vec3d(base.x, y0 + 0.60, base.z);
+			MeraVolumes.add(MeraVolumes.FLAME, head, FWD, 0.20f, 0.95f, 0, 0, pl.getId() * 13 + 7, 0.8f);
 			thin = 0.3f;
 		}
 		float rate = (self ? 50 : 260) * density;

@@ -16,6 +16,7 @@
         { "name": "VolMin", "type": "float", "count": 3, "values": [ -1.0, -1.0, -1.0 ] },
         { "name": "VolMax", "type": "float", "count": 3, "values": [ 1.0, 1.0, 1.0 ] },
         { "name": "VolPrm", "type": "float", "count": 4, "values": [ 1.0, 1.0, 0.0, 0.0 ] },
-        { "name": "VolInfo", "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] }
+        { "name": "VolInfo", "type": "float", "count": 4, "values": [ 0.0, 0.0, 1.0, 0.0 ] },
+        { "name": "VolSky", "type": "float", "count": 1, "values": [ 1.0 ] }
     ]
 }

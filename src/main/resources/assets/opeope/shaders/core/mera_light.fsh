@@ -87,7 +87,10 @@ void main() {
         float k = B.w * fall * lam * flick;
         E2 += k * k;
     }
+    // la luz no crece sin fin: mucha luz aclara cada vez menos y tira hacia el blanco, como una foto muy iluminada
+    // (así un montón de fuegos juntos no pintan el suelo de amarillo chillón)
     float E = sqrt(E2);
+    E = E / (1.0 + 0.12 * E);
     if (LightPass > 2.5) {
         // el último dibujo suma (ONE, ONE) un resplandor naranja: de noche lo oscuro junto al fuego se ve naranja,
         // no solo más claro (de día casi no se nota)
@@ -97,7 +100,8 @@ void main() {
         return;
     }
     // cuánto se aclara cada color: el mundo × (1 + luz del fuego / luz que ya había)
-    vec3 factor = 1.0 + LightColor * E;
+    vec3 tint = mix(LightColor, vec3(1.0), clamp(0.10 * E, 0.0, 0.45));
+    vec3 factor = 1.0 + tint * E;
     // lo que pone este dibujo: el tramo de ×2 que le toca
     vec3 f = clamp(factor / exp2(LightPass), vec3(1.0), vec3(2.0));
     if (max(f.r, max(f.g, f.b)) < 1.003) discard;
