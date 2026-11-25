@@ -20,6 +20,7 @@ public final class ModItems {
 
 	public static Item FRUIT;
 	public static Item GRAVITY_FRUIT;
+	public static Item MERA_FRUIT;
 	public static Item KIKOKU;
 	public static Item YAKUZA_KASEN;
 	public static Item HEART;
@@ -34,6 +35,8 @@ public final class ModItems {
 			.food(new FoodComponent.Builder().nutrition(2).saturationModifier(0.1f).alwaysEdible().build())));
 		GRAVITY_FRUIT = register("gravity_fruit", new FruitItem(2, new Item.Settings().maxCount(1).rarity(Rarity.EPIC)
 			.food(new FoodComponent.Builder().nutrition(2).saturationModifier(0.1f).alwaysEdible().build())));
+		MERA_FRUIT = register("mera_mera_no_mi", new FruitItem(3, new Item.Settings().maxCount(1).rarity(Rarity.EPIC).fireproof()
+			.food(new FoodComponent.Builder().nutrition(2).saturationModifier(0.1f).alwaysEdible().build())));
 		KIKOKU = register("kikoku", new SwordItem(ToolMaterials.NETHERITE, new Item.Settings().fireproof().rarity(Rarity.EPIC)
 			.attributeModifiers(SwordItem.createAttributeModifiers(ToolMaterials.NETHERITE, 5, -2.6f))));
 		YAKUZA_KASEN = register("yakuza_kasen", new SwordItem(ToolMaterials.NETHERITE, new Item.Settings().fireproof().rarity(Rarity.EPIC)
@@ -47,6 +50,7 @@ public final class ModItems {
 			.entries((ctx, entries) -> {
 				entries.add(FRUIT);
 				entries.add(GRAVITY_FRUIT);
+				entries.add(MERA_FRUIT);
 				entries.add(KIKOKU);
 				entries.add(YAKUZA_KASEN);
 				entries.add(MARKER_STONE);

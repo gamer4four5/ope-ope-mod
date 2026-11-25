@@ -79,17 +79,19 @@ public final class PowerManager {
 
 	public static void init() {
 		SurgicalSurvival.init();
+		dev.opeope.power.mera.MeraPowers.init();
 		ServerTickEvents.END_SERVER_TICK.register(PowerManager::tick);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			ServerPlayerEntity p = handler.getPlayer();
 			if (!Boolean.getBoolean("opeope.autotest")) {
 				boolean hasOpe = ModAttachments.hasFruit(p);
-				boolean hasOpeItem = false, hasGravityItem = false, hasYakuza = false;
+				boolean hasOpeItem = false, hasGravityItem = false, hasYakuza = false, hasMeraItem = false;
 				for (int i = 0; i < p.getInventory().size(); i++) {
 					ItemStack s = p.getInventory().getStack(i);
 					if (s.isOf(ModItems.FRUIT)) hasOpeItem = true;
 					else if (s.isOf(ModItems.GRAVITY_FRUIT)) hasGravityItem = true;
 					else if (s.isOf(ModItems.YAKUZA_KASEN)) hasYakuza = true;
+					else if (s.isOf(ModItems.MERA_FRUIT)) hasMeraItem = true;
 				}
 				if (!hasOpe && !hasOpeItem) {
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.FRUIT));
@@ -98,6 +100,11 @@ public final class PowerManager {
 				if (!hasGravityItem && !hasYakuza && ModAttachments.getFruitKind(p) != 2) {
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.GRAVITY_FRUIT));
 					p.getInventory().offerOrDrop(new ItemStack(ModItems.YAKUZA_KASEN));
+				}
+				// la Mera Mera no Mi (Ace), una vez: se recuerda en el jugador para no darla en cada entrada
+				if (!hasMeraItem && ModAttachments.getFruitKind(p) != 3 && !Boolean.TRUE.equals(p.getAttached(ModAttachments.MERA_GIFTED))) {
+					p.getInventory().offerOrDrop(new ItemStack(ModItems.MERA_FRUIT));
+					p.setAttached(ModAttachments.MERA_GIFTED, true);
 				}
 			}
 			PlayerPower pw = get(p);
@@ -193,6 +200,7 @@ public final class PowerManager {
 			Takt.clearAll();
 			ElementEffects.clearAll();
 			GravityPowers.clearAll();
+			dev.opeope.power.mera.MeraPowers.clearAll();
 			SurgicalSurvival.clearPending();
 		});
 	}
@@ -202,11 +210,13 @@ public final class PowerManager {
 	}
 
 	public static void grantFruit(ServerPlayerEntity p, int kind) {
-		int target = kind == 2 ? 2 : 1;
+		int target = (kind == 2 || kind == 3) ? kind : 1;
 		boolean already = ModAttachments.hasFruit(p);
 		PlayerPower pw = get(p);
 		if (already && ModAttachments.getFruitKind(p) == target) {
-			if (target == 2) {
+			if (target == 3) {
+				p.sendMessage(Text.literal("§6Ya llevas dentro la Mera Mera no Mi."), false);
+			} else if (target == 2) {
 				p.sendMessage(Text.literal("§5Ya llevas activa la Fruta Gravity (Zushi Zushi no Mi)."), false);
 			} else {
 				p.sendMessage(Text.translatable("opeope.msg.already"), false);
@@ -216,6 +226,7 @@ public final class PowerManager {
 		if (already) {
 			releaseAll(p, pw);
 			RoomOps.remove(p, pw);
+			if (ModAttachments.getFruitKind(p) == 3) dev.opeope.power.mera.MeraPowers.onRevoke(p);
 		}
 		p.setAttached(ModAttachments.HAS_FRUIT, true);
 		ModAttachments.setFruitKind(p, target);
@@ -224,7 +235,9 @@ public final class PowerManager {
 		pw.bounty = ModAttachments.getBounty(p);
 		applyMasteryAttributes(p, pw);
 		pw.dirty = true;
-		if (target == 2) {
+		if (target == 3) {
+			dev.opeope.power.mera.MeraPowers.onGrant(p);
+		} else if (target == 2) {
 			GravityPowers.equipYakuzaKasenSafely(p);
 			p.sendMessage(Text.literal("§5✦ Has activado la Fruta Gravity (Zushi Zushi no Mi) — Almirante Fujitora."), false);
 			p.sendMessage(Text.literal("§7Controles Gravity (sin ROOM): §f[G]§7 Gravito (Mayús+G vector) · §f[R]§7 Levitar roca/mob · §f[Alt]§7 Vuelo en roca · §f[Z/X/C/V/B]§7 Técnicas · §f[J]§7 Cambiar fruta"), false);
@@ -232,7 +245,7 @@ public final class PowerManager {
 			p.sendMessage(Text.translatable("opeope.msg.ate"), false);
 			p.sendMessage(Text.translatable("opeope.msg.ate_help", Text.keybind("key.opeope.libro")), false);
 		}
-		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, target == 2 ? 0.55f : 0.7f);
+		p.getWorld().playSound(null, p.getX(), p.getY(), p.getZ(), SoundEvents.BLOCK_BEACON_ACTIVATE, SoundCategory.PLAYERS, 1f, target == 3 ? 0.45f : target == 2 ? 0.55f : 0.7f);
 	}
 
 	public static void switchFruit(ServerPlayerEntity p) {
@@ -240,12 +253,14 @@ public final class PowerManager {
 			grantFruit(p, 2);
 			return;
 		}
-		int next = ModAttachments.getFruitKind(p) == 2 ? 1 : 2;
+		int now = ModAttachments.getFruitKind(p);
+		int next = now == 1 ? 2 : now == 2 ? 3 : 1;   // Ope Ope → Gravity → Mera Mera → Ope Ope
 		grantFruit(p, next);
 	}
 
 	public static void removeFruit(ServerPlayerEntity p) {
 		PlayerPower pw = get(p);
+		if (ModAttachments.getFruitKind(p) == 3) dev.opeope.power.mera.MeraPowers.onRevoke(p);
 		releaseAll(p, pw);
 		RoomOps.remove(p, pw);
 		p.removeAttached(ModAttachments.HAS_FRUIT);
@@ -414,6 +429,7 @@ public final class PowerManager {
 		Takt.serverTick(server);
 		ElementEffects.serverTick(server);
 		GravityPowers.tickServer(server);
+		dev.opeope.power.mera.MeraPowers.tickServer(server);
 		SurgicalSurvival.tickPendingRestores(server);
 		SilentRoom.tick(server);
 	}
@@ -449,6 +465,14 @@ public final class PowerManager {
 			if ((pw.meteorTier & 1) != 0) flags |= Payloads.State.GRAVITY_METEOR_B0;
 			if ((pw.meteorTier & 2) != 0) flags |= Payloads.State.GRAVITY_METEOR_B1;
 			if ((pw.meteorTier & 4) != 0) flags |= Payloads.State.GRAVITY_METEOR_B2;
+		}
+		if (pw.isMera()) {
+			flags |= Payloads.State.MERA_FRUIT;
+			dev.opeope.power.mera.MeraState ms = dev.opeope.power.mera.MeraPowers.peek(p);
+			if (ms != null) {
+				if (ms.fireBody) flags |= Payloads.State.MERA_BODY;
+				if (ms.hikenCharging || ms.enteiCharging) flags |= Payloads.State.MERA_CHARGING;
+			}
 		}
 		int weapon = pw.weapons.isEmpty() ? -1 : pw.weaponKind;
 		List<Integer> heldSrc = pw.isGravity() ? pw.gravityHeld : pw.takt;

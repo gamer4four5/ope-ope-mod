@@ -106,6 +106,77 @@ public final class AutoTest {
 	public static final boolean ON = Boolean.getBoolean("opeope.autotest");
 	/** Con -Dopeope.gallery=true (./gradlew runGalleryClient): solo la galería de técnicas de Law, con capturas. */
 	public static final boolean GALLERY = Boolean.getBoolean("opeope.gallery");
+	/** Con -Dopeope.gallery.mera=true (./gradlew runMeraGalleryClient): la galería de la Mera Mera no Mi (Ace). */
+	public static final boolean MERA = GALLERY && Boolean.getBoolean("opeope.gallery.mera");
+	/** Con -Dopeope.gallery.noche=true la galería se hace a medianoche: el fuego también tiene que verse bien de noche. */
+	public static final boolean NIGHT = GALLERY && Boolean.getBoolean("opeope.gallery.noche");
+
+	private static BiConsumer<ServerPlayerEntity, PlayerPower> mera(int action) {
+		return (sp, pw) -> dev.opeope.power.mera.MeraPowers.handle(sp, pw, action, 0);
+	}
+
+	/** Las técnicas de Ace, una a una (las que se mantienen se sueltan en meraRelease). */
+	private static List<Shot> meraShots() {
+		List<Shot> l = new ArrayList<>();
+		// en tercera persona también justo después de soltar: el puño de fuego en vuelo con su columna
+		// (y al final de las grandes, la nube de humo que deja el estallido)
+		l.add(new Shot("hiken", mera(dev.opeope.power.mera.MeraActions.HIKEN_START), 4, new int[]{6, 16, 19, 24, 32}, new int[]{11, 16, 60}));
+		l.add(new Shot("higan", mera(dev.opeope.power.mera.MeraActions.HIGAN), 6, new int[]{2, 5, 9, 14}, new int[]{4}));
+		l.add(new Shot("jujika", mera(dev.opeope.power.mera.MeraActions.JUJIKA), 6, new int[]{4, 10, 13, 18, 26}, new int[]{8}));
+		l.add(new Shot("kagero", mera(dev.opeope.power.mera.MeraActions.KAGERO_START), 8, new int[]{5, 14, 24}, new int[]{10}));
+		l.add(new Shot("entei", mera(dev.opeope.power.mera.MeraActions.ENTEI_START), -10, new int[]{12, 30, 44, 48, 54}, new int[]{26, 44, 88}));
+		l.add(new Shot("hotarubi", mera(dev.opeope.power.mera.MeraActions.HOTARUBI), 2, new int[]{6, 18, 34, 37, 44}, new int[]{14}));
+		l.add(new Shot("kyokaen", mera(dev.opeope.power.mera.MeraActions.KYOKAEN), 4, new int[]{4, 12, 26}, new int[]{8}));
+		l.add(new Shot("enjomo", mera(dev.opeope.power.mera.MeraActions.ENJOMO), 6, new int[]{6, 14, 30}, new int[]{10}));
+		l.add(new Shot("shiranui", mera(dev.opeope.power.mera.MeraActions.SHIRANUI), 6, new int[]{5, 11, 15, 20}, new int[]{8}));
+		l.add(new Shot("hibashira", mera(dev.opeope.power.mera.MeraActions.HIBASHIRA), 0, new int[]{8, 17, 22, 32}, new int[]{20}));
+		l.add(new Shot("impulso", mera(dev.opeope.power.mera.MeraActions.DASH), 0, new int[]{2, 5}, new int[]{3}));
+		l.add(new Shot("cuerpo", mera(dev.opeope.power.mera.MeraActions.BODY), 0, new int[]{6, 20}, new int[]{10, 30}));
+		return l;
+	}
+
+	/** Las técnicas de Ace que se mantienen: cuándo se suelta la tecla (ticks desde que empiezan). */
+	private static void meraRelease(IntegratedServer srv, UUID id, String name, int r) {
+		int action = -1;
+		if (name.equals("hiken") && r == 8 + 15) action = dev.opeope.power.mera.MeraActions.HIKEN_RELEASE;
+		if (name.equals("kagero") && r == 8 + 30) action = dev.opeope.power.mera.MeraActions.KAGERO_END;
+		if (name.equals("entei") && r == 8 + 42) action = dev.opeope.power.mera.MeraActions.ENTEI_RELEASE;
+		if (name.equals("hotarubi") && r == 8 + 35) action = dev.opeope.power.mera.MeraActions.HIDARUMA;
+		if (name.equals("cuerpo") && r == 8 + 44) {
+			// la Logia: un golpe normal y el fuego atraviesan; el agua no (se comprueba con el jugador mojado)
+			server(srv, id, (sp, pw) -> {
+				boolean inv = sp.getAbilities().invulnerable;
+				sp.getAbilities().invulnerable = false;
+				sp.setHealth(sp.getMaxHealth());
+				float h0 = sp.getHealth();
+				boolean golpe = galleryZombie != null && sp.damage(sp.getDamageSources().mobAttack(galleryZombie), 4f);
+				boolean fuego = sp.damage(sp.getDamageSources().inFire(), 4f);
+				// una caída
+				boolean caida = sp.damage(sp.getDamageSources().fall(), 6f);
+				// una explosión de verdad a su lado (sin romper bloques): ni daña ni lo lanza por los aires
+				net.minecraft.util.math.Vec3d v0 = sp.getVelocity();
+				sp.getServerWorld().createExplosion(null, sp.getX() + 1.5, sp.getY() + 0.5, sp.getZ(), 3f, net.minecraft.world.World.ExplosionSourceType.NONE);
+				boolean empuja = sp.getVelocity().subtract(v0).lengthSquared() > 1e-4 || sp.getHealth() < h0;
+				// una explosión que provoca él mismo (no lleva Haki contra él) y el fuego de otro Ace
+				boolean propia = sp.damage(sp.getDamageSources().explosion(null, sp), 6f);
+				boolean ace = sp.damage(dev.opeope.power.mera.MeraPowers.burn(sp), 6f);
+				OpeOpeMod.LOG.info("AUTOTEST mera logia: golpe={} fuego={} caída={} explosión propia={} fuego de Ace={} onda={} vida {}->{}",
+					golpe ? "DAÑA" : "atraviesa", fuego ? "DAÑA" : "inmune", caida ? "DAÑA" : "cae en llamas",
+					propia ? "DAÑA" : "atraviesa", ace ? "DAÑA" : "inmune", empuja ? "EMPUJA" : "no empuja", h0, sp.getHealth());
+				if (golpe || fuego || caida || propia || ace || empuja) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: la Logia no paró el daño");
+				sp.getAbilities().invulnerable = inv;
+			});
+		}
+		if (action < 0) return;
+		int a = action;
+		server(srv, id, (sp, pw) -> {
+			try {
+				dev.opeope.power.mera.MeraPowers.handle(sp, pw, a, 0);
+			} catch (RuntimeException e) {
+				OpeOpeMod.LOG.error("AUTOTEST galería: falló al soltar {}", name, e);
+			}
+		});
+	}
 	private static int t = -1;
 
 	// ------------------------------------------------------------------ galería de técnicas de Law (efectos LawFx)
@@ -113,7 +184,7 @@ public final class AutoTest {
 	/** Una técnica de la galería: qué hacer en el servidor y en qué ticks (desde que empieza) sacar capturas. */
 	private record Shot(String name, BiConsumer<ServerPlayerEntity, PlayerPower> use, float pitch, int[] at, int[] third) {}
 
-	private static final int GALLERY_STEP = 64;
+	private static final int GALLERY_STEP = Boolean.getBoolean("opeope.gallery.mera") ? 100 : 64;   // Ace: más tiempo para ver cada técnica en el video
 	private static ZombieEntity galleryZombie;
 
 	private static List<Shot> galleryShots() {
@@ -234,6 +305,88 @@ public final class AutoTest {
 	/** Fotogramas dibujados desde que empezó la galería (WorldRenderEvents.END). */
 	private static volatile int frames;
 	private static boolean framesHooked;
+	/** La entidad que hace de cámara lejana en una captura, y dónde estaba. */
+	private static net.minecraft.entity.Entity farCam;
+	private static net.minecraft.entity.decoration.ArmorStandEntity farStand;
+	private static double farBack, farUp;
+
+	/**
+	 * Pone la cámara lejos del jugador (solo en el cliente, para la captura): así se ven enteras las técnicas grandes,
+	 * que desde los 4 bloques de la tercera persona llenan toda la pantalla. La cámara es un soporte de armadura
+	 * invisible que no está en el mundo: nadie lo mueve, no cae y el servidor no lo toca. La captura va en tercera
+	 * persona porque en primera el juego dibuja la mano del jugador delante.
+	 */
+	private static void farCamera(MinecraftClient mc, double back, double up) {
+		try {
+			farBack = back;
+			farUp = up;
+			farCameraMove(mc);
+		} catch (RuntimeException e) {
+			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude poner la cámara lejos", e);
+			farCam = null;
+		}
+	}
+
+	private static void farCameraMove(MinecraftClient mc) {
+		if (mc.player == null || mc.world == null) return;
+		Vec3d p = mc.player.getPos();
+		if (farStand == null || farStand.getWorld() != mc.world) {
+			farStand = new net.minecraft.entity.decoration.ArmorStandEntity(mc.world, p.x, p.y, p.z);
+			farStand.setInvisible(true);
+			farStand.setNoGravity(true);
+			farStand.noClip = true;
+		}
+		double eyeH = farStand.getEyeY() - farStand.getY();
+		Vec3d head = p.add(0, 1.2, 0);
+		double yaw = Math.toRadians(mc.player.getYaw());
+		// detrás del jugador y un poco en alto, mirándolo (la tercera persona añade sus 4 bloques). Si por ahí hay un
+		// árbol o una pared, se prueba un poco a los lados y más alto: antes la cámara acababa dentro de las hojas.
+		Vec3d eye = null;
+		double bestFree = -1;
+		outer:
+		for (double up : new double[] {farUp, farUp + 2.5, farUp + 5}) {
+			for (double off : new double[] {0, 30, -30, 60, -60}) {
+				double a = yaw + Math.toRadians(off);
+				Vec3d e = p.add(Math.sin(a) * farBack, up + eyeH, -Math.cos(a) * farBack);
+				Vec3d dir = e.subtract(head);
+				double len = dir.length();
+				dir = dir.multiply(1.0 / len);
+				Vec3d end = head.add(dir.multiply(len + 4.6));
+				net.minecraft.util.hit.BlockHitResult hit = mc.world.raycast(new net.minecraft.world.RaycastContext(head, end,
+					net.minecraft.world.RaycastContext.ShapeType.OUTLINE, net.minecraft.world.RaycastContext.FluidHandling.NONE, mc.player));
+				double free = hit.getType() == net.minecraft.util.hit.HitResult.Type.MISS ? len + 4.6 : hit.getPos().distanceTo(head);
+				if (free >= len + 4.5) {
+					eye = e;
+					break outer;
+				}
+				if (free > bestFree) {
+					bestFree = free;
+					// lo más lejos que cabe: la cámara queda medio bloque antes de lo que la tapa
+					eye = head.add(dir.multiply(Math.max(1.5, free - 4.6 - 0.5)));
+				}
+			}
+		}
+		Vec3d c = eye.subtract(0, eyeH, 0);
+		Vec3d to = head.subtract(eye);
+		float yawTo = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
+		float pitchTo = (float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)));
+		farStand.refreshPositionAndAngles(c.x, c.y, c.z, yawTo, pitchTo);
+		farStand.prevYaw = yawTo;
+		farStand.prevPitch = pitchTo;
+		farStand.setHeadYaw(yawTo);
+		farStand.setBodyYaw(yawTo);
+		farCam = farStand;
+		mc.setCameraEntity(farStand);
+	}
+
+	private static void farCameraBack(MinecraftClient mc) {
+		try {
+			mc.setCameraEntity(mc.player);
+		} catch (RuntimeException e) {
+			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude devolver la cámara", e);
+		}
+		farCam = null;
+	}
 
 	/**
 	 * Una captura en espera: sale en cuanto se haya dibujado un fotograma nuevo con su cámara. La CI dibuja a pocos FPS y
@@ -242,12 +395,15 @@ public final class AutoTest {
 	private static final class PendingShot {
 		final String name;
 		final net.minecraft.client.option.Perspective view;
+		final Runnable before;
 		final Runnable after;
+		boolean started;
 		int frame;
 
-		PendingShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
+		PendingShot(String name, net.minecraft.client.option.Perspective view, Runnable before, Runnable after) {
 			this.name = name;
 			this.view = view;
+			this.before = before;
 			this.after = after;
 			this.frame = frames;
 		}
@@ -256,18 +412,33 @@ public final class AutoTest {
 	private static final java.util.ArrayDeque<PendingShot> PENDING = new java.util.ArrayDeque<>();
 
 	private static void queueShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
-		PENDING.add(new PendingShot(name, view, after));
+		PENDING.add(new PendingShot(name, view, null, after));
+	}
+
+	/** Una captura que antes de su fotograma cambia algo (y lo deja como estaba en {@code after}). */
+	private static void queueShot(String name, net.minecraft.client.option.Perspective view, Runnable before, Runnable after) {
+		PENDING.add(new PendingShot(name, view, before, after));
 	}
 
 	/** Cada tick de la galería: saca la primera captura en espera si ya hay un fotograma dibujado después de pedirla. */
 	private static void pendingShots(MinecraftClient mc) {
 		PendingShot p = PENDING.peek();
 		if (p == null) return;
+		if (!p.started) {
+			p.started = true;
+			if (p.before != null) {
+				p.before.run();
+				p.frame = frames;
+			}
+		}
 		if (mc.options.getPerspective() != p.view) {
 			mc.options.setPerspective(p.view);
 			p.frame = frames;
 			return;
 		}
+		if (farCam != null) farCamera(mc, farBack, farUp);
+		// el fotograma de la captura guarda qué vio el fuego 3D (estado de GL y algunos píxeles)
+		if (MERA) dev.opeope.client.mera.MeraVolumes.diagArm = true;
 		if (frames <= p.frame) return;
 		PENDING.poll();
 		shot(mc, p.name);
@@ -280,12 +451,14 @@ public final class AutoTest {
 	private static List<Shot> gallery;
 
 	private static boolean galleryEnded;
+	private static boolean bookQueued;
 	private static int galleryFrames0;
 
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
-		if (gallery == null) gallery = galleryShots();
+		if (gallery == null) gallery = MERA ? meraShots() : galleryShots();
 		if (g == 0) {
-			mc.getWindow().setWindowedSize(1280, 720);
+			// -Dopeope.gallery.ancho y .alto: otro tamaño de ventana, para medir los fotogramas al tamaño de la pantalla
+			mc.getWindow().setWindowedSize(Integer.getInteger("opeope.gallery.ancho", 1280), Integer.getInteger("opeope.gallery.alto", 720));
 			if (!framesHooked) {
 				framesHooked = true;
 				net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.END.register(ctx -> frames++);
@@ -302,8 +475,26 @@ public final class AutoTest {
 		int idx = (g - 20) / GALLERY_STEP;
 		int r = (g - 20) % GALLERY_STEP;
 		if (idx >= gallery.size()) {
+			// con la Mera Mera, antes de cerrar: el libro de la fruta (H) de arriba abajo, para ver que cuenta sus técnicas
+			if (MERA && !bookQueued && r >= 4 && PENDING.isEmpty()) {
+				bookQueued = true;
+				net.minecraft.client.option.Perspective fp = net.minecraft.client.option.Perspective.FIRST_PERSON;
+				Runnable bajar = () -> {
+					if (mc.currentScreen != null) mc.currentScreen.mouseScrolled(0, 0, 0, -8);
+				};
+				queueShot("mera-13-libro-a", fp, () -> mc.setScreen(new dev.opeope.client.screen.GuideScreen()), null);
+				queueShot("mera-13-libro-b", fp, bajar, null);
+				queueShot("mera-13-libro-c", fp, bajar, null);
+				queueShot("mera-13-libro-d", fp, bajar, null);
+				queueShot("mera-13-libro-e", fp, bajar, () -> {
+					boolean libro = mc.currentScreen instanceof dev.opeope.client.screen.GuideScreen;
+					if (!libro) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: el libro de la fruta no estaba abierto al final");
+					mc.setScreen(null);
+				});
+				return;
+			}
 			// que salgan las capturas que aún esperan un fotograma antes de cerrar
-			if (!galleryEnded && r >= 10 && PENDING.isEmpty()) {
+			if (!galleryEnded && r >= 10 && PENDING.isEmpty() && (!MERA || bookQueued)) {
 				galleryEnded = true;
 				OpeOpeMod.LOG.info("AUTOTEST galería terminada");
 				mc.scheduleStop();
@@ -311,7 +502,7 @@ public final class AutoTest {
 			return;
 		}
 		Shot s = gallery.get(idx);
-		String base = "law-" + String.format("%02d", idx + 1) + "-" + s.name();
+		String base = (MERA ? "mera-" : "law-") + String.format("%02d", idx + 1) + "-" + s.name();
 		if (r == 0) {
 			// todo a su sitio, sin enfriamientos ni restos de la técnica anterior
 			if (!PENDING.isEmpty()) {
@@ -322,6 +513,8 @@ public final class AutoTest {
 			// los efectos de la técnica anterior fuera también en el cliente (el Curtain seguía en las capturas de Mes)
 			dev.opeope.client.render.LawFxClient.clear();
 			dev.opeope.client.render.ShamblesFxClient.clear();
+			dev.opeope.client.mera.MeraFxClient.clear();
+			dev.opeope.client.mera.MeraAnim.clear();
 			galleryFrames0 = frames;
 			boolean north = s.name().equals("injection") || s.name().equals("iai") || s.name().equals("luna");
 			server(srv, id, (sp, pw) -> {
@@ -331,6 +524,7 @@ public final class AutoTest {
 				for (Entity e : w.getOtherEntities(sp, area, e -> !(e instanceof ServerPlayerEntity))) e.discard();
 				setup(srv, id);
 				java.util.Arrays.fill(pw.cooldowns, 0);
+				if (MERA) dev.opeope.power.mera.MeraPowers.resetForTest(sp);
 				pw.anesthesia = false;
 				pw.combatStyle = 1;
 				pw.silentTicks = 0;
@@ -369,7 +563,24 @@ public final class AutoTest {
 				}
 			});
 		}
-		if (s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
+		if (MERA) meraRelease(srv, id, s.name(), r);
+		if (r == 8 + 20 && MERA) OpeOpeMod.LOG.info("AUTOTEST galería {} fx: {}", s.name(), dev.opeope.client.mera.MeraFxClient.debug());
+		// el fuego que dejan las técnicas en el suelo: el de Ace (dibujado en 3D, se apaga solo), no las láminas de Minecraft
+		if (r == 8 + 80 && MERA) server(srv, id, (sp, pw) -> {
+			ServerWorld w = sp.getServerWorld();
+			BlockPos c = sp.getBlockPos();
+			int mine = 0, vanilla = 0;
+			for (BlockPos bp : BlockPos.iterate(c.add(-24, -6, -24), c.add(24, 10, 24))) {
+				BlockState st = w.getBlockState(bp);
+				if (st.isOf(dev.opeope.registry.ModBlocks.MERA_FIRE)) mine++;
+				else if (st.isOf(Blocks.FIRE)) vanilla++;
+			}
+			OpeOpeMod.LOG.info("AUTOTEST galería {} fuego en el suelo: de Ace={} de Minecraft={}", s.name(), mine, vanilla);
+			if (s.name().equals("entei") && mine == 0) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: Entei no dejó fuego de Ace en el suelo");
+			// lo que prende el fuego de Ace sigue siendo fuego de Ace (en 3D), no el pixelado de Minecraft
+			if (vanilla > 0) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: tras {} hay {} bloques de fuego de Minecraft (pixelado)", s.name(), vanilla);
+		});
+		if (!MERA && s.name().equals("r-room") && r == 8 + 22) server(srv, id, (sp, pw) -> RoomOps.rroom(sp, pw, false));
 		// Scan otra vez con el Scan aún activo: Shambles a todo lo que llevan en las manos
 		if (s.name().equals("scan-robo") && r == 8 + 13) server(srv, id, (sp, pw) -> {
 			try {
@@ -398,10 +609,21 @@ public final class AutoTest {
 			if (r == at) {
 				queueShot(base + "-frente" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_FRONT, () -> {
 					if (mc.player != null) {
-						OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
+						OpeOpeMod.LOG.info("AUTOTEST galería gesto {}: {}", s.name(), MERA
+							? dev.opeope.client.mera.MeraAnim.debug(mc.player.getId())
+							: dev.opeope.client.render.PlayerAnimClient.gestureDebug(mc.player.getId()));
 					}
 				});
 				queueShot(base + "-3p" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK, null);
+				// Mera: una vista de lejos, para ver entera la técnica (de cerca, las grandes llenan la pantalla).
+				// Va antes que las demás: la cola va una captura por fotograma y la técnica dura poco.
+				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
+					() -> farCamera(mc, 7, 2.6),
+					() -> farCameraBack(mc));
+				// Mera: la misma vista solo con el fuego 3D (sin chispas ni llamas sueltas), para ver los volúmenes solos
+				if (MERA) queueShot(base + "-solo" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
+					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = true,
+					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = false);
 			}
 		}
 	}
@@ -478,6 +700,10 @@ public final class AutoTest {
 	private static void shot(MinecraftClient mc, String name) {
 		ScreenshotRecorder.saveScreenshot(mc.runDirectory, "autotest-" + name + ".png", mc.getFramebuffer(), msg -> {});
 		OpeOpeMod.LOG.info("AUTOTEST captura {}", name);
+		if (MERA) {
+			OpeOpeMod.LOG.info("MERA DIAG {}: {}", name, dev.opeope.client.mera.MeraVolumes.diag());
+			dev.opeope.client.mera.MeraVolumes.diagArm = false;
+		}
 	}
 
 	private static void look(IntegratedServer srv, UUID id, float yaw, float pitch) {
@@ -491,9 +717,10 @@ public final class AutoTest {
 		if (sp == null) return;
 		ServerWorld w = sp.getServerWorld();
 		// si ya la tiene, nada (la galería llama a setup en cada técnica y llenaba el chat de «Ya comiste la Ope Ope no Mi»)
-		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != 1) PowerManager.grantFruit(sp);
+		int kind = MERA ? 3 : 1;
+		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != kind) PowerManager.grantFruit(sp, kind);
 		sp.changeGameMode(GameMode.CREATIVE);
-		w.setTimeOfDay(6000);
+		w.setTimeOfDay(NIGHT ? 18000 : 6000);
 		w.setWeather(20 * 600, 0, false, false);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_DAYLIGHT_CYCLE).set(false, srv);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_WEATHER_CYCLE).set(false, srv);
@@ -538,9 +765,12 @@ public final class AutoTest {
 		}
 		sp.networkHandler.requestTeleport(x0 + 0.5, fy + 1, z0 + 0.5, 0f, 0f);
 		PlayerPower pw = PowerManager.get(sp);
-		pw.room = new Room(w.getRegistryKey(), new Vec3d(x0 + 0.5, fy + 3, z0 + 8.5), 11);
-		pw.room.state = Room.State.FIXED;
-		PowerManager.broadcastRoom(sp, 0, pw.room);
+		// el ROOM es de Law: en la galería de Ace no (su cúpula tapaba las capturas de lejos)
+		if (!MERA) {
+			pw.room = new Room(w.getRegistryKey(), new Vec3d(x0 + 0.5, fy + 3, z0 + 8.5), 11);
+			pw.room.state = Room.State.FIXED;
+			PowerManager.broadcastRoom(sp, 0, pw.room);
+		}
 		OpeOpeMod.LOG.info("AUTOTEST escena lista en {} {} {}", x0, fy, z0);
 		gx0 = x0;
 		gfy = fy;
@@ -587,6 +817,33 @@ public final class AutoTest {
 	private static volatile int gx0, gfy, gz0;
 	/** Resultados que se escriben en el hilo del servidor; −1 = todavía no. */
 	private static volatile int srvA = -1, srvB = -1, srvC = -1;
+	private static volatile String srvInfo = "";
+
+	/**
+	 * Un trabajo del servidor que espera a un tick concreto del mundo, no a los ticks del cliente: en la CI el cliente
+	 * dibuja a pocos FPS y hace sus ticks a saltos, así que dos pasos seguidos del plan pueden caer en el mismo tick del
+	 * servidor o con diez de diferencia (y una pieza lanzada no se habría movido aún, o ya habría caído).
+	 */
+	private static volatile Runnable worldTickJob;
+	private static volatile long worldTickAt;
+	private static volatile ServerWorld worldTickWorld;
+	private static boolean worldTickHook;
+
+	private static void atWorldTick(ServerWorld w, long at, Runnable job) {
+		if (!worldTickHook) {
+			worldTickHook = true;
+			net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_WORLD_TICK.register(sw -> {
+				Runnable j = worldTickJob;
+				if (j != null && sw == worldTickWorld && sw.getTime() >= worldTickAt) {
+					worldTickJob = null;
+					j.run();
+				}
+			});
+		}
+		worldTickWorld = w;
+		worldTickAt = at;
+		worldTickJob = job;
+	}
 	private static volatile int elemZ1 = -1, elemZ2 = -1, elemZ3 = -1;
 	private static volatile double srvD1 = 0, srvD2 = 0;
 	private static volatile String srvMsg = "";
@@ -1987,40 +2244,47 @@ public final class AutoTest {
 		});
 		waitFor("shamblesT: preparado", 40, "no se preparó el campo de Shambles táctico",
 			() -> srvA == 1 && mc.player.getZ() < gz0 - 7 && mc.player.getZ() > gz0 - 10, null);
-		step(2, "shamblesT: lanza pieza", () -> server(srv, id, (sp, pw) -> {
-			ServerWorld w = sp.getServerWorld();
-			BlockSet set = new BlockSet();
-			for (int x = 0; x < 2; x++)
-				for (int y = 0; y < 2; y++)
-					for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
-			set.normalize();
-			PieceEntity pe = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 2.0, gz0 - 10.5), null, sp.getUuid());
-			pe.release(new Vec3d(0, 0.32, -1.75), true);
-			pw.recordThrownPiece(pe.getId(), w.getTime());
-			srvB = pe.getId();
-		}));
-		step(2, "shamblesT: swap jugador", () -> {
+		step(2, "shamblesT: lanza pieza y swap jugador", () -> {
 			srvA = -1;
+			srvInfo = "";
 			server(srv, id, (sp, pw) -> {
-				sp.setYaw(180f);
-				sp.setPitch(-8f);
-				Shambles.use(sp, pw, false);
-				Entity ent = sp.getServerWorld().getEntityById(srvB);
-				boolean swappedPlayer = sp.getY() >= gfy + 2.0 && sp.getZ() <= gz0 - 11.0;
-				boolean rockKept = ent instanceof PieceEntity pe && pe.thrown && pe.getVelocity().length() > 0.5
-					&& pe.ownerGraceTicks > 0 && pe.getZ() > gz0 - 10.0;
-				boolean aerialOpen = pw.aerialWindowTicks > 0 && pw.aerialChain >= 1;
-				srvA = (swappedPlayer ? 1 : 0) | (rockKept ? 2 : 0) | (aerialOpen ? 4 : 0);
-				if (ent != null) ent.discard();
-				pw.clearAerialWindow();
-				pw.aerialChain = 0;
-				pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				ServerWorld w = sp.getServerWorld();
+				BlockSet set = new BlockSet();
+				for (int x = 0; x < 2; x++)
+					for (int y = 0; y < 2; y++)
+						for (int z = 0; z < 2; z++) set.add(x, y, z, Blocks.ANDESITE.getDefaultState(), null);
+				set.normalize();
+				PieceEntity thrown = PieceEntity.spawn(w, set, new Vec3d(gx0 - 0.5, gfy + 2.0, gz0 - 10.5), null, sp.getUuid());
+				thrown.release(new Vec3d(0, 0.32, -1.75), true);
+				pw.recordThrownPiece(thrown.getId(), w.getTime());
+				srvB = thrown.getId();
+				// el intercambio, justo 2 ticks del servidor después (la pieza ya vuela y aún no ha caído), sean cuales sean
+				// los FPS del cliente: antes iba en otro paso del plan y a veces caía en el mismo tick que el lanzamiento
+				atWorldTick(w, w.getTime() + 2, () -> {
+					sp.setYaw(180f);
+					sp.setPitch(-8f);
+					Entity before = w.getEntityById(srvB);
+					String pieceAt = before == null ? "sin pieza" : String.format(java.util.Locale.ROOT, "pieza Δy=%.2f Δz=%.2f",
+						before.getY() - gfy, before.getZ() - gz0);
+					Shambles.use(sp, pw, false);
+					Entity ent = w.getEntityById(srvB);
+					boolean swappedPlayer = sp.getY() >= gfy + 2.0 && sp.getZ() <= gz0 - 11.0;
+					boolean rockKept = ent instanceof PieceEntity pe && pe.thrown && pe.getVelocity().length() > 0.5
+						&& pe.ownerGraceTicks > 0 && pe.getZ() > gz0 - 10.0;
+					boolean aerialOpen = pw.aerialWindowTicks > 0 && pw.aerialChain >= 1;
+					srvInfo = String.format(java.util.Locale.ROOT, "%s, jugador Δy=%.2f Δz=%.2f", pieceAt, sp.getY() - gfy, sp.getZ() - gz0);
+					srvA = (swappedPlayer ? 1 : 0) | (rockKept ? 2 : 0) | (aerialOpen ? 4 : 0);
+					if (ent != null) ent.discard();
+					pw.clearAerialWindow();
+					pw.aerialChain = 0;
+					pw.cooldowns[Tech.SHAMBLES.ordinal()] = 0;
+				});
 			});
 		});
 		waitFor("shamblesT: verifica jugador", 20, "falló Shambles táctico jugador <-> trozo", () -> srvA >= 0, () -> {
-			check((srvA & 1) != 0, "Shambles 1 toque lleva al jugador al centro de la pieza en vuelo", "srvA=" + srvA);
-			check((srvA & 2) != 0, "el trozo conserva su impulso y gracia de dueño en la posición previa del jugador", "srvA=" + srvA);
-			check((srvA & 4) != 0, "se abre la ventana aérea de remate tras el intercambio", "srvA=" + srvA);
+			check((srvA & 1) != 0, "Shambles 1 toque lleva al jugador al centro de la pieza en vuelo", "srvA=" + srvA + " " + srvInfo);
+			check((srvA & 2) != 0, "el trozo conserva su impulso y gracia de dueño en la posición previa del jugador", "srvA=" + srvA + " " + srvInfo);
+			check((srvA & 4) != 0, "se abre la ventana aérea de remate tras el intercambio", "srvA=" + srvA + " " + srvInfo);
 		});
 		step(2, "shamblesT: preparar enemigo", () -> {
 			srvA = -1;

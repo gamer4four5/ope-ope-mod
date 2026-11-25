@@ -122,5 +122,9 @@
   "opeope.hud.missing": "Te falta: %s",
   "opeope.msg.part_limit": "Demasiadas partes sueltas",
   "opeope.msg.part_locked": "Radio Knife: esa parte aún no se puede unir",
-  "entity.opeope.parte": "Parte cortada"
+  "entity.opeope.parte": "Parte cortada",
+  "block.opeope.fuego_mera": "Fuego de Ace",
+  "item.opeope.mera_mera_no_mi": "Mera Mera no Mi",
+  "death.attack.opeope.mera": "%1$s quedó reducido a cenizas",
+  "death.attack.opeope.mera.player": "%1$s fue calcinado por el Puño de Fuego de %2$s"
 }

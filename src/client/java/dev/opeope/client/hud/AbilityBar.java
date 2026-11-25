@@ -82,6 +82,13 @@ public final class AbilityBar {
 		denyTechs[i] = new Tech[]{t};
 	}
 
+	/** Una casilla de la Mera Mera: la recarga de Law que reutiliza, con el nombre y el tiempo de Ace. */
+	private static void mera(int i, String ic, Tech t, String n) {
+		tech(i, ic, t);
+		name[i] = n;
+		total[i] = dev.opeope.power.mera.MeraTechs.total(t);
+	}
+
 	private static void plain(int i, String ic, String n, boolean on, int color) {
 		icon[i] = ic;
 		name[i] = n;
@@ -155,6 +162,35 @@ public final class AbilityBar {
 			tech(4, awake ? "kroom" : "radio_knife", awake ? Tech.KROOM : Tech.RADIO_KNIFE);
 		}
 
+		if (ClientState.meraFruit()) {
+			boolean body = ClientState.meraBody();
+			mera(0, "gamma", dev.opeope.power.mera.MeraTechs.HIKEN, "Hiken");
+			lit[0] = ClientState.meraCharging();
+			mera(1, "lluvia", dev.opeope.power.mera.MeraTechs.KAGERO, "Kagerō");
+			mera(2, "shambles", dev.opeope.power.mera.MeraTechs.DASH, "Impulso");
+			Tech[] mRow2 = {dev.opeope.power.mera.MeraTechs.ENJOMO, dev.opeope.power.mera.MeraTechs.SHIRANUI, dev.opeope.power.mera.MeraTechs.HIBASHIRA};
+			Tech mLongest = null;
+			for (Tech t : mRow2) {
+				if (cooldown(t) > 0 && (mLongest == null || cooldown(t) > cooldown(mLongest))) mLongest = t;
+			}
+			icon[3] = "fila2";
+			name[3] = "Segunda fila";
+			cd[3] = mLongest != null ? cooldown(mLongest) : 0;
+			total[3] = mLongest != null ? dev.opeope.power.mera.MeraTechs.total(mLongest) : 0;
+			hasTech[3] = true;
+			denyTechs[3] = mRow2;
+			lit[3] = InputHandler.row2Down && !InputHandler.playerListShown();
+			accent[3] = Theme.TAB;
+			mera(4, "radio_knife", dev.opeope.power.mera.MeraTechs.ENTEI, "Entei");
+			mera(5, "injection", dev.opeope.power.mera.MeraTechs.HIGAN, "Higan");
+			mera(6, "puncture", dev.opeope.power.mera.MeraTechs.JUJIKA, "Jujika");
+			mera(7, "scan", dev.opeope.power.mera.MeraTechs.HOTARUBI, "Hotarubi");
+			mera(8, "curtain", dev.opeope.power.mera.MeraTechs.KYOKAEN, "Kyokaen");
+			plain(9, "piedra", "Hikyaku", false, Theme.SOFT);
+			plain(10, "despertar", "Cuerpo de llamas", body, Theme.AWAKE);
+			locked[10] = false;
+			return;
+		}
 		if (ClientState.gravityFruit()) {
 			plain(0, "room", "Gravito", ClientState.gravityCharging(), Theme.ROOM);
 			plain(1, "takt", "Levitar", ClientState.taktCount > 0, Theme.SOFT);

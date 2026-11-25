@@ -72,7 +72,7 @@ public final class CenterHud {
 	/** La mira y la barrita de Amputate (no ocupan sitio). */
 	static void layoutCentre(HudCanvas c, LayoutState s) {
 		canvas = c;
-		if (ClientState.gravityFruit()) {
+		if (ClientState.gravityFruit() || ClientState.meraFruit()) {
 			reticle = false;
 			amputate = false;
 			return;

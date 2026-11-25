@@ -19,6 +19,8 @@ import dev.opeope.client.screen.IslandScreen;
 import dev.opeope.client.screen.SettingsScreen;
 import dev.opeope.net.Payloads;
 import dev.opeope.power.Actions;
+import dev.opeope.power.mera.MeraActions;
+import dev.opeope.power.mera.MeraTechs;
 import dev.opeope.power.Tech;
 import dev.opeope.registry.ModItems;
 import dev.opeope.terrain.ChunkPlanner;
@@ -275,6 +277,7 @@ public final class InputHandler {
 		if (!active() || vertical == 0) return false;
 		int dir = vertical > 0 ? 1 : -1;
 		long now = System.currentTimeMillis();
+		if (ClientState.meraFruit()) return false;   // la Mera Mera no usa la rueda
 		if (ClientState.gravityFruit()) {
 			if (gravityMeteorDown) {
 				Send.action(Actions.GRAVITY_METEOR_SIZE, dir);
@@ -427,6 +430,13 @@ public final class InputHandler {
 			row2Down = false;
 		}
 		if (Keys.TAKT.matches(type, code)) {
+			if (ClientState.meraFruit()) {
+				// Kagerō: mantener R echa el chorro de llamas; soltar lo corta
+				deny(MeraTechs.KAGERO);
+				Send.action(MeraActions.KAGERO_START);
+				mark(markCode, () -> Send.action(MeraActions.KAGERO_END));
+				return true;
+			}
 			if (ClientState.gravityFruit()) {
 				if (mc().player != null && mc().player.isSneaking()) {
 					Send.action(Actions.TAKT_ORDER, Actions.ORDER_MIND_BREAK);
@@ -545,6 +555,9 @@ public final class InputHandler {
 	/** La fila de arriba. Devuelve lo que pasa al soltar (o null si la tecla no es de la fruta). */
 	private static Runnable main(Keys k) {
 		ClientPlayerEntity p = mc().player;
+		if (ClientState.meraFruit()) {
+			return mainMera(k, p);
+		}
 		if (ClientState.gravityFruit()) {
 			return mainGravity(k, p);
 		}
@@ -626,6 +639,65 @@ public final class InputHandler {
 			case CURTAIN -> {
 				deny(awake ? Tech.SILENT : Tech.CURTAIN);
 				Send.action(awake ? Actions.SILENT : Actions.CURTAIN);
+				return NOTHING;
+			}
+			default -> {
+				return null;
+			}
+		}
+	}
+
+	/**
+	 * Controles de la Mera Mera no Mi (Ace). G mantener: Hiken (cuanto más, más grande); Alt: impulso de llamas; N: salto
+	 * en el aire; V: Hotarubi; Z mantener: Entei; X: Higan; C: Jujika; B: Kyokaen; M: cuerpo de llamas.
+	 */
+	private static Runnable mainMera(Keys k, ClientPlayerEntity p) {
+		switch (k) {
+			case ROOM -> {
+				deny(MeraTechs.HIKEN);
+				Send.action(MeraActions.HIKEN_START);
+				return () -> Send.action(MeraActions.HIKEN_RELEASE);
+			}
+			case SHAMBLES -> {
+				deny(MeraTechs.DASH);
+				Send.action(MeraActions.DASH);
+				return NOTHING;
+			}
+			case MARKER -> {
+				Send.action(MeraActions.HIKYAKU);
+				return NOTHING;
+			}
+			case SCAN -> {
+				if (p.isSneaking()) {
+					Send.action(MeraActions.HIDARUMA);
+				} else {
+					deny(MeraTechs.HOTARUBI);
+					Send.action(MeraActions.HOTARUBI);
+				}
+				return NOTHING;
+			}
+			case RADIO_KNIFE -> {
+				deny(MeraTechs.ENTEI);
+				Send.action(MeraActions.ENTEI_START);
+				return () -> Send.action(MeraActions.ENTEI_RELEASE);
+			}
+			case INJECTION -> {
+				deny(MeraTechs.HIGAN);
+				Send.action(MeraActions.HIGAN);
+				return NOTHING;
+			}
+			case GAMMA -> {
+				deny(MeraTechs.JUJIKA);
+				Send.action(MeraActions.JUJIKA);
+				return NOTHING;
+			}
+			case CURTAIN -> {
+				deny(MeraTechs.KYOKAEN);
+				Send.action(MeraActions.KYOKAEN);
+				return NOTHING;
+			}
+			case AWAKEN -> {
+				Send.action(MeraActions.BODY);
 				return NOTHING;
 			}
 			default -> {
@@ -800,6 +872,25 @@ public final class InputHandler {
 	/** La segunda fila (Tab mantenido, fija o «una tecla»). */
 	private static Runnable row2(Keys k) {
 		ClientPlayerEntity p = mc().player;
+		if (ClientState.meraFruit()) {
+			switch (k) {
+				case T_STERBEN -> {
+					deny(MeraTechs.ENJOMO);
+					Send.action(MeraActions.ENJOMO);
+				}
+				case T_SOULS -> {
+					deny(MeraTechs.SHIRANUI);
+					Send.action(MeraActions.SHIRANUI);
+				}
+				case T_UNION -> Send.action(MeraActions.HIDARUMA);
+				case T_RAIN -> {
+					deny(MeraTechs.HIBASHIRA);
+					Send.action(MeraActions.HIBASHIRA);
+				}
+				default -> {}
+			}
+			return NOTHING;
+		}
 		if (ClientState.gravityFruit()) {
 			switch (k) {
 				case T_STERBEN, T_SOULS, T_RAIN -> {
@@ -1032,6 +1123,7 @@ public final class InputHandler {
 		boolean empty = main.isEmpty();
 		boolean kikoku = main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
 		boolean free = empty || kikoku;
+		if (ClientState.meraFruit()) return false;   // el puñetazo normal (con la mano vacía, en llamas: lo hace el servidor)
 		if (ClientState.gravityFruit()) {
 			if (ClientState.taktCount > 0 && free) {
 				Send.action(Actions.GRAVITY_THROW);
@@ -1126,6 +1218,7 @@ public final class InputHandler {
 		ItemStack main = p.getMainHandStack();
 		boolean empty = main.isEmpty();
 		boolean free = empty || main.isOf(ModItems.KIKOKU) || main.isOf(ModItems.YAKUZA_KASEN);
+		if (ClientState.meraFruit()) return false;
 		if (ClientState.gravityFruit()) {
 			if (interactable()) return false;
 			if (ClientState.taktCount > 0 && free) {

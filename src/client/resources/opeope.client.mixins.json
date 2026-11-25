@@ -21,7 +21,10 @@
     "FirstPersonArmMixin",
     "ModelPartRotateMixin",
     "VertexConsumerProviderImmediateMixin",
-    "BipedEntityModelMixin"
+    "BipedEntityModelMixin",
+    "FireBlockSmokeMixin",
+    "EntityFireMixin",
+    "ClientWorldBlockMixin"
   ],
   "injectors": {
     "defaultRequire": 1

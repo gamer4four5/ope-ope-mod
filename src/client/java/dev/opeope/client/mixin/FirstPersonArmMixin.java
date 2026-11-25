@@ -22,6 +22,7 @@ public abstract class FirstPersonArmMixin {
 							  float equipProgress, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light, CallbackInfo ci) {
 		Arm arm = hand == Hand.MAIN_HAND ? player.getMainArm() : player.getMainArm().getOpposite();
 		if (ClientDismember.armless(player, arm)) ci.cancel();
+		else if (dev.opeope.client.mera.MeraAnim.hideFirstPerson(player, hand)) ci.cancel();
 	}
 
 	@Inject(method = "renderFirstPersonItem",
@@ -30,5 +31,6 @@ public abstract class FirstPersonArmMixin {
 	private void opeope$handMotion(AbstractClientPlayerEntity player, float tickDelta, float pitch, Hand hand, float swingProgress, ItemStack item,
 								   float equipProgress, MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light, CallbackInfo ci) {
 		PlayerAnimClient.applyFirstPersonHand(player, tickDelta, hand, swingProgress, item, matrices);
+		dev.opeope.client.mera.MeraAnim.firstPerson(player, hand, matrices);
 	}
 }

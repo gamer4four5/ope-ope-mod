@@ -40,6 +40,7 @@ public final class Hints {
 	/** El contexto de ahora (sin contar los primeros pasos), o null si no hay fruta. */
 	public static String currentId(MinecraftClient mc) {
 		if (mc.player == null || !ClientState.hasFruit()) return null;
+		if (ClientState.meraFruit()) return "mera_inicio";
 		if (ClientState.gravityFruit()) {
 			if (ClientState.taktCount > 0) return "grav_lev";
 			if (ClientState.gravityRiding()) return "grav_roca";
@@ -78,6 +79,12 @@ public final class Hints {
 		boolean bisturiToggle = st.modoBisturi == OpeSettings.Modo2.ALTERNAR;
 		KeyLabels.Glyph click = KeyLabels.mouseLeft(), right = KeyLabels.mouseRight(), wheel = KeyLabels.wheel();
 		List<Ui.Line> rows = new ArrayList<>();
+		if ("mera_inicio".equals(id)) {
+			rows.add(row(key(Keys.ROOM), "Hiken"));
+			rows.add(row(key(Keys.TAKT), "Kagerō"));
+			rows.add(row(key(Keys.RADIO_KNIFE), "Entei"));
+			return new Context(id, "MERA MERA · ACE", "gamma", Theme.ROOM, rows, false);
+		}
 		if ("grav_inicio".equals(id)) {
 			rows.add(row(key(Keys.ROOM), "mantén: Gravito · Mayús: vector"));
 			rows.add(row(key(Keys.TAKT), "levitar roca/mob · Mayús: prensa"));

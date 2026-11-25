@@ -35,6 +35,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		OpeKeyBindings.register();   // el libro (H) y los ajustes como teclas de Minecraft, y el botón en Controles
 		HudRoot.init();              // los avisos de la fruta en la barra de acción pasan a ser avisos del HUD
 		RoomFxClient.init();         // los momentos del ROOM (crear, fijar, lanzar…) que cuenta el servidor
+		dev.opeope.client.mera.MeraVolumes.register();   // el shader del fuego 3D de la Mera Mera no Mi
 
 		EntityRendererRegistry.register(ModEntities.PIECE, PieceRenderer::new);
 		dev.opeope.entity.PieceEntity.CLIENT_SURF_TICK = dev.opeope.client.render.GravitySurfClient::tickRock;
@@ -62,6 +63,8 @@ public class OpeOpeClient implements ClientModInitializer {
 			ctx.client().execute(() -> dev.opeope.client.render.GravityFxClient.receive(payload)));
 		ClientPlayNetworking.registerGlobalReceiver(Payloads.LawFx.ID, (payload, ctx) ->
 			ctx.client().execute(() -> dev.opeope.client.render.LawFxClient.receive(payload)));
+		ClientPlayNetworking.registerGlobalReceiver(dev.opeope.net.MeraFx.ID, (payload, ctx) ->
+			ctx.client().execute(() -> dev.opeope.client.mera.MeraFxClient.receive(payload)));
 		// Fabric puede avisar de la desconexión desde el hilo de red: lo de limpiar va al hilo del juego, que es el
 		// que dibuja y lee todo esto (si no, una ConcurrentModificationException podía cortar el guardado del progreso)
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(() -> {
@@ -71,6 +74,8 @@ public class OpeOpeClient implements ClientModInitializer {
 			dev.opeope.client.render.GravityFxClient.clear();
 			dev.opeope.client.render.LawFxClient.clear();
 			dev.opeope.client.render.PlayerAnimClient.clear();
+			dev.opeope.client.mera.MeraFxClient.clear();
+			dev.opeope.client.mera.MeraAnim.clear();
 			dev.opeope.client.input.FreehandSlicer.cancel();
 			dev.opeope.client.input.Bisturi.COMMITTED.clear();
 			dev.opeope.client.input.Bisturi.COMMITTED_SHAPES.clear();
@@ -98,6 +103,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.render.ShamblesFxClient::renderWorld);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.render.GravityFxClient::renderWorld);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.render.LawFxClient::renderWorld);
+		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.mera.MeraFxClient::renderWorld);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.render.EntityCutPreview::render);
 		WorldRenderEvents.AFTER_TRANSLUCENT.register(dev.opeope.client.dismember.ClientDismember::renderAim);
 		WorldRenderEvents.START.register(ctx -> dev.opeope.client.dismember.ClientDismember.syncHeadCamera());
@@ -107,6 +113,7 @@ public class OpeOpeClient implements ClientModInitializer {
 		HudRenderCallback.EVENT.register(dev.opeope.client.render.ShamblesFxClient::renderHud);
 		HudRenderCallback.EVENT.register(dev.opeope.client.render.GravityFxClient::renderHud);
 		HudRenderCallback.EVENT.register(dev.opeope.client.render.LawFxClient::renderHud);
+		HudRenderCallback.EVENT.register(dev.opeope.client.mera.MeraFxClient::renderHud);
 		HudRenderCallback.EVENT.register(dev.opeope.client.render.EntityCutPreview::renderHud);
 		HudRenderCallback.EVENT.register(dev.opeope.client.dismember.ClientDismember::renderHud);
 		OpeOpeMod.LOG.info("Ope Ope no Mi: cliente listo.");

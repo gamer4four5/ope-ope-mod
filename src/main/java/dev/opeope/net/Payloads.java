@@ -228,7 +228,8 @@ public final class Payloads {
 			GRAVITY_FRUIT = 524288, GRAVITY_VEC_BIT0 = 1048576, GRAVITY_VEC_BIT1 = 2097152,
 			GRAVITY_RIDING = 4194304, GRAVITY_CHARGING = 8388608,
 			GRAVITY_METEOR_CHARGING = 16777216, GRAVITY_METEOR_B0 = 33554432,
-			GRAVITY_METEOR_B1 = 67108864, GRAVITY_METEOR_B2 = 134217728;
+			GRAVITY_METEOR_B1 = 67108864, GRAVITY_METEOR_B2 = 134217728,
+			MERA_FRUIT = 1 << 28, MERA_BODY = 1 << 29, MERA_CHARGING = 1 << 30;
 		private static final int HELD_CAP = 64;
 		public static final Id<State> ID = new Id<>(OpeOpeMod.id("state"));
 		public static final PacketCodec<RegistryByteBuf, State> CODEC = PacketCodec.of(State::write, State::read);

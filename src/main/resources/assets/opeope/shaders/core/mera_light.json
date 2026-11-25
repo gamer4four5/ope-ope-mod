@@ -1,0 +1,16 @@
+{
+    "vertex": "opeope:mera_volume",
+    "fragment": "opeope:mera_light",
+    "samplers": [
+        { "name": "Sampler0" },
+        { "name": "Sampler1" }
+    ],
+    "uniforms": [
+        { "name": "ViewProj", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "InvViewProj", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] },
+        { "name": "ViewSize", "type": "float", "count": 2, "values": [ 1.0, 1.0 ] },
+        { "name": "VolTime", "type": "float", "count": 1, "values": [ 0.0 ] },
+        { "name": "LightColor", "type": "float", "count": 3, "values": [ 1.0, 0.42, 0.12 ] },
+        { "name": "LightPass", "type": "float", "count": 1, "values": [ 0.0 ] }
+    ]
+}

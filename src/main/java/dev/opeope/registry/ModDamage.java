@@ -16,6 +16,8 @@ public final class ModDamage {
 	public static final RegistryKey<DamageType> SURGEON = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("surgeon"));
 	public static final RegistryKey<DamageType> SHOCK = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("shock"));
 	public static final RegistryKey<DamageType> BURN = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("burn"));
+	/** Mera Mera no Mi: el fuego de Ace. */
+	public static final RegistryKey<DamageType> MERA = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("mera"));
 	public static final RegistryKey<DamageType> FROST = RegistryKey.of(RegistryKeys.DAMAGE_TYPE, OpeOpeMod.id("frost"));
 
 	public static void init() {}

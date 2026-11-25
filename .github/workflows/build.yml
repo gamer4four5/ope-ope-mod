@@ -96,11 +96,82 @@ jobs:
           done
           ls capturas/galeria | wc -l
           grep -E "AUTOTEST galería" galeria.log | tail -90 || true
+      - name: Galería de la Mera Mera no Mi (capturas de cada técnica de Ace)
+        # también si falló alguna prueba de Law del cliente: la galería de Ace no depende de ellas
+        if: ${{ !cancelled() && (startsWith(github.ref_name, 'mera-') || contains(github.event.head_commit.message, '[galeria-mera]')) }}
+        continue-on-error: true
+        run: |
+          export DISPLAY=:99
+          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
+          sleep 2
+          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
+          mkdir -p capturas/mera
+          set +e
+          command -v ffmpeg > /dev/null || sudo apt-get install -y -qq ffmpeg > /dev/null
+          # el video de la galería: se graba la pantalla mientras Ace usa cada técnica
+          ffmpeg -loglevel error -y -f x11grab -framerate 30 -video_size 1280x720 -i :99 -c:v libx264 -preset ultrafast -crf 20 /tmp/mera-crudo.mp4 &
+          FPID=$!
+          GRAB0=$(date -u +%s)
+          timeout 540 ./gradlew runMeraGalleryClient --console=plain > galeria-mera.log 2>&1
+          echo "exit=$?"
+          kill -INT $FPID; wait $FPID
+          # sin la pantalla de carga: desde un poco antes de la primera técnica
+          T1=$(grep -m1 'AUTOTEST galería hiken' galeria-mera.log | sed -E 's/^\[([0-9:]+)\].*/\1/')
+          SS=0
+          if [ -n "$T1" ]; then SS=$(( $(date -u -d "$(date -u +%F) $T1" +%s) - GRAB0 - 3 )); fi
+          [ "$SS" -lt 0 ] && SS=0
+          echo "recorte inicial: $SS s"
+          ffmpeg -loglevel error -y -ss "$SS" -i /tmp/mera-crudo.mp4 -vf "scale=1280:720" -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart capturas/mera-video.mp4 || true
+          ls -la capturas/mera-video.mp4 || true
+          set -e
+          for f in run/screenshots/autotest-mera-*.png; do
+            [ -f "$f" ] || continue
+            convert "$f" -quality 88 "capturas/mera/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera/
+          done
+          ls capturas/mera | wc -l
+          grep -E "AUTOTEST galería|Exception|Error" galeria-mera.log | tail -120 || true
+      - name: Galería de la Mera con un shaderpack (Iris + Sodium + Photon)
+        # solo si el commit lo pide con [iris]: así se ve el fuego 3D con el shaderpack que usa el jugador
+        if: ${{ !cancelled() && startsWith(github.ref_name, 'mera-') && contains(github.event.head_commit.message, '[iris]') }}
+        continue-on-error: true
+        run: |
+          export DISPLAY=:99
+          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
+          sleep 2
+          set +e
+          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
+          mkdir -p run/shaderpacks run/config capturas/mera-iris
+          API=https://api.modrinth.com/v2
+          Q='game_versions=%5B%221.21.1%22%5D&loaders=%5B%22fabric%22%5D'
+          # las primeras versiones estables para 1.21.1, no las últimas: Gradle rechaza un mod compilado con un
+          # Loom más nuevo que el del proyecto ("Mod was built with a newer version of Loom"), y las de 2024 van
+          SODIUM=$(curl -fsSL "$API/project/sodium/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
+          IRIS=$(curl -fsSL "$API/project/iris/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
+          echo "sodium=$SODIUM iris=$IRIS"
+          URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
+          PACK="${URL##*/}"
+          echo "photon: $URL"
+          curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
+          printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
+          # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
+          timeout 1800 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" > galeria-mera-iris.log 2>&1
+          echo "exit=$?"
+          for f in run/screenshots/autotest-mera-*.png; do
+            [ -f "$f" ] || continue
+            convert "$f" -quality 88 "capturas/mera-iris/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera-iris/
+          done
+          ls capturas/mera-iris | wc -l
+          grep -E "AUTOTEST galería|Iris\)|Sodium\)|Mera:|Exception|Incompatible|requires" galeria-mera-iris.log | head -150 || true
+          rm -f run/config/iris.properties
       - name: Guardar registros y capturas en la rama "ci-logs"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          cp -f compilar.log servidor.log cliente.log galeria.log /tmp/ci-logs/ 2>/dev/null || true
+          # los registros, recortados a 20 MB (GitHub no acepta archivos de más de 100 MB)
+          for f in compilar.log servidor.log cliente.log galeria.log galeria-mera.log galeria-mera-iris.log; do
+            [ -f "$f" ] || continue
+            tail -c 20000000 "$f" > "/tmp/ci-logs/$f"
+          done
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
           # el jar de esta ejecución, para instalarlo sin iniciar sesión en GitHub (los artefactos la piden)
           JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v -- '-sources' | head -1 || true)

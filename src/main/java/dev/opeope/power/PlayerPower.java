@@ -162,6 +162,11 @@ public class PlayerPower {
 		return fruitKind == 2;
 	}
 
+	/** Mera Mera no Mi (Portgas D. Ace). */
+	public boolean isMera() {
+		return fruitKind == 3;
+	}
+
 	// Progreso de Recompensa Pirata y Maestría Quirúrgica
 	public long bounty = 0L;
 	public int killStreak = 0;
