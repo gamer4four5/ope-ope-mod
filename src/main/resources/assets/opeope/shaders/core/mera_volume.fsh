@@ -598,6 +598,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float T = 1.0;
     vec3  col = vec3(0.0);
     float minD = 1e5;
+    // donde una bola se aclara por estar pegada a la cámara, tampoco deja halo: si no, con la cámara dentro de un
+    // estallido que ya se ha abierto (o con el sol de Entei recién lanzado) quedaba un velo naranja liso por toda la
+    // pantalla aunque ya no hubiera fuego delante
+    float haloNear = isBall * step(0.001, nearFade);
     float Lref = 1.0;
     float wsum = 0.0;
     float ssum = 0.0;   // cuánto de lo que se ve es humo
@@ -629,7 +633,10 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         stepIn *= 1.0 + 1.4 * isJet * rd.z * rd.z;
         if (dEnv > 0.0) {
             // espacio vacío: saltar hasta la envoltura (el halo, según lo cerca que pasa; no pegado a la cámara)
-            if (t > 1.2 && d < minD) { minD = d; Lref = L; }
+            if (t > 1.2) {
+                float dh = d + haloNear * (1.0 - smoothstep(0.35 * nearFade, nearFade + 0.15, t)) * 4.0 * L;
+                if (dh < minD) { minD = dh; Lref = L; }
+            }
             float sk = max(dEnv / mf_lip, mf_dFar + (1.0 - intensity) * L * 0.9 - envW);
             t += max(sk * 0.85, stepIn * 0.5);
             first = true;
@@ -678,6 +685,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         // si no, por donde la forma está vacía se vería un disco de resplandor con el borde duro
         if (t > 1.2) {
             float de = max(dd, 0.0) + L * 1.5 * smoothstep(0.70, 1.15, u);
+            de += haloNear * (1.0 - smoothstep(0.35 * nearFade, nearFade + 0.15, t)) * 4.0 * L;
             if (de < minD) { minD = de; Lref = L; }
         }
 

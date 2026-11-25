@@ -239,6 +239,10 @@ public final class AutoTest {
 		sp.getAbilities().invulnerable = inv;
 	}
 
+	/** El reloj (segundos) del tick en que llega lo que atraviesa a Ace en una escena logia, y si ya se comprobó. */
+	private static double logiaAt = -1;
+	private static boolean logiaDone;
+
 	/** Las comprobaciones del cuerpo de cubitos (en el cliente, al dibujarse Ace). */
 	private static void logiaCheck(String name, int r) {
 		MinecraftClient mc = MinecraftClient.getInstance();
@@ -247,15 +251,28 @@ public final class AutoTest {
 		// el golpe llega en primera persona: así la captura «-a» (4 ticks después) ve la llamarada de lo que te atraviesa
 		// (si llegaba en tercera persona, de la escena anterior, la llamarada ni se encendía)
 		if (r == 7) mc.options.setPerspective(net.minecraft.client.option.Perspective.FIRST_PERSON);
-		if (r == 8 + 30) {
-			// (el dibujo con el hueco más abierto de toda la escena: en primera persona el cuerpo solo se dibuja en las
-			// capturas de fuera, y en la CI salen tarde; mirar el dibujo de un tick fijo fallaba allí con 0 de 0)
-			int[] s = dev.opeope.client.mera.MeraVoxelBody.peak(id);
-			OpeOpeMod.LOG.info("AUTOTEST cubitos {}: {} texels quitados de {} partidos", name, s[0], s[1]);
-			check(s[0] > 0 && s[0] < s[1], "cubitos " + name + ": se abre un hueco (texels quitados, no todos)", s[0] + " de " + s[1]);
-			check(!dev.opeope.client.mera.MeraVoxelBody.hasHoles(id), "cubitos " + name + ": al segundo y medio el cuerpo vuelve a estar entero",
-				"sigue con huecos");
+		if (r == 8) {
+			logiaAt = System.nanoTime() / 1e9;
+			logiaDone = false;
 		}
+		// a los dos segundos de reloj del golpe (los huecos van con el reloj, no con los ticks: en la CI, tras un fotograma
+		// lento, el juego recupera ticks de golpe y los 30 de antes pasaban en menos de lo que tarda en cerrarse un hueco);
+		// como tarde, al acabar la escena
+		if (logiaDone || logiaAt < 0 || r < 8 + 30) return;
+		if (System.nanoTime() / 1e9 - logiaAt < 2.0 && r < GALLERY_STEP - 2) return;
+		logiaDone = true;
+		// (el dibujo con el hueco más abierto de toda la escena: en primera persona el cuerpo solo se dibuja en las
+		// capturas de fuera, y en la CI salen tarde; mirar el dibujo de un tick fijo fallaba allí con 0 de 0)
+		int[] s = dev.opeope.client.mera.MeraVoxelBody.peak(id);
+		int opened = dev.opeope.client.mera.MeraVoxelBody.opened(id);
+		OpeOpeMod.LOG.info("AUTOTEST cubitos {}: {} huecos; {} texels quitados de {} partidos", name, opened, s[0], s[1]);
+		check(opened > 0, "cubitos " + name + ": lo que atraviesa a Ace le abre un hueco", "ninguno");
+		// con pocos fotogramas (la CI dibuja por software) puede no haber ninguno de fuera con el hueco aún abierto: ahí no
+		// hay texels que mirar, y se avisa. Con una tarjeta de verdad tiene que verse
+		if (s[0] == 0 && galleryFps < 8) aviso("cubitos " + name + ": ningún fotograma de fuera con el hueco abierto (" + s[0] + " de " + s[1] + "), sin mirar los texels");
+		else check(s[0] > 0 && s[0] < s[1], "cubitos " + name + ": se abre un hueco (texels quitados, no todos)", s[0] + " de " + s[1]);
+		check(!dev.opeope.client.mera.MeraVoxelBody.hasHoles(id), "cubitos " + name + ": a los dos segundos el cuerpo vuelve a estar entero",
+			"sigue con huecos");
 	}
 
 	/** Las técnicas de Ace que se mantienen: cuándo se suelta la tecla (ticks desde que empiezan). */
@@ -580,6 +597,8 @@ public final class AutoTest {
 	private static boolean galleryEnded;
 	private static boolean bookQueued;
 	private static int galleryFrames0;
+	/** Fotogramas dibujados en los 8 primeros ticks de la escena: ~17 o más con una tarjeta de verdad, 1 a 5 en la CI. */
+	private static int galleryFps;
 
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
 		if (gallery == null) gallery = MERA ? meraShots() : galleryShots();
@@ -681,7 +700,8 @@ public final class AutoTest {
 		}
 		if (r == 8) {
 			// fotogramas del paso anterior: ~3,2 s por paso, para saber a cuántos FPS va la CI
-			OpeOpeMod.LOG.info("AUTOTEST galería {} (fotogramas en 8 ticks: {})", s.name(), frames - galleryFrames0);
+			galleryFps = frames - galleryFrames0;
+			OpeOpeMod.LOG.info("AUTOTEST galería {} (fotogramas en 8 ticks: {})", s.name(), galleryFps);
 			server(srv, id, (sp, pw) -> {
 				try {
 					s.use().accept(sp, pw);

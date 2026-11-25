@@ -438,6 +438,8 @@ public final class MeraFxClient {
 	// ejes de la cámara (para las llamas de cara a ella)
 	private static float rx, ry, rz, ux, uy, uz, fx, fy, fz;
 	private static double camX, camY, camZ;
+	/** Lo que mide media pantalla (a lo ancho y a lo alto) a un bloque de la cámara, en el fotograma que se dibuja. */
+	private static float tanX = 1.245f, tanY = 0.7002f;
 
 	public static void renderWorld(WorldRenderContext ctx) {
 		MinecraftClient mc = MinecraftClient.getInstance();
@@ -456,6 +458,11 @@ public final class MeraFxClient {
 		camY = cp.y;
 		camZ = cp.z;
 		cameraAxes(cam);
+		Matrix4f pm = ctx.projectionMatrix();
+		if (pm != null && Float.isFinite(pm.m00()) && Float.isFinite(pm.m11()) && pm.m00() > 1e-3f && pm.m11() > 1e-3f) {
+			tanX = 1f / pm.m00();
+			tanY = 1f / pm.m11();
+		}
 		if (!originSet || Math.abs(ox - camX) > 256 || Math.abs(oy - camY) > 256 || Math.abs(oz - camZ) > 256) rebase(camX, camY, camZ);
 
 		// los efectos sueltan llamas
@@ -1456,7 +1463,10 @@ public final class MeraFxClient {
 		// pegado a la cámara una llama tapa la pantalla entera: se desvanece al acercarse (y detrás no se dibuja)
 		float d = (float) Math.sqrt(x * x + y * y + z * z);
 		if (x * fx + y * fy + z * fz < -0.5f) return;
-		NEAR = MathHelper.clamp((d - 0.35f) / 0.9f, 0f, 1f);
+		// las grandes (el estallido de Entei, su humo) desde más lejos, según su tamaño: una de varios bloques a dos pasos
+		// era toda la pantalla, naranja o gris. Las de hasta un bloque, como siempre
+		float big = k == GLOW || k == FLY || k == SPARK ? 0f : Math.max(0f, SIZE[i] * (k == SMOKE || k == STEAM ? 1.6f : 1f) - 1f);
+		NEAR = MathHelper.clamp((d - 0.35f - 0.5f * big) / (0.9f + 0.6f * big), 0f, 1f);
 		if (NEAR <= 0.01f) return;
 		float s;
 		float alpha;
@@ -2043,8 +2053,9 @@ public final class MeraFxClient {
 				// en primera persona el hueco se abre en tu propio cuerpo y no lo ves: una llamarada corta, abajo en la
 				// pantalla, del lado por donde entró lo que te atraviesa
 				boolean self = selfView(mc, user);
-				if (self && vol() && age < SCATTER_SELF) scatterSelf(f, age);
-				return age < (self ? SCATTER_SELF : 0.3);
+				double selfTime = f.style == MeraVoxelBody.BLAST ? 0.7 : 0.45;
+				if (self && vol() && age < selfTime) scatterSelf(f, age, selfTime);
+				return age < (self ? selfTime : 0.3);
 			}
 			case MeraFx.BODY -> {
 				// la llamarada al encenderse el cuerpo de llamas
@@ -2367,12 +2378,12 @@ public final class MeraFxClient {
 			double bx = camX - cb.x, by = camY - cb.y, bz = camZ - cb.z;
 			double cd = Math.sqrt(bx * bx + by * by + bz * bz);
 			if (cd < rb * 1.6) {
-				// quien queda dentro (el sol cayó cerca) ve el fogonazo y enseguida vuelve a ver: desde el cuarto de segundo
-				// el hueco alrededor de la cámara crece hasta abarcar la bola (el fuego se sigue viendo al fondo, lejos; antes,
-				// más de un segundo de pantalla naranja y luego varios de humo). Al salir de la bola el hueco se cierra poco
-				// a poco, sin saltos
+				// quien queda dentro (el sol cayó cerca) ve el fogonazo y enseguida vuelve a ver: desde las 15 centésimas el
+				// hueco alrededor de la cámara crece, y a los dos tercios de segundo abarca la bola (el fuego se sigue viendo
+				// al fondo, lejos; antes, más de un segundo de pantalla naranja y luego varios de humo). Al salir de la bola
+				// el hueco se cierra poco a poco, sin saltos
 				float within = 1f - smooth((float) ((cd - rb * 0.9) / (rb * 0.6)));
-				float open = smooth((float) ((age - 0.25) / 0.6)) * within;
+				float open = smooth((float) ((age - 0.15) / 0.5)) * within;
 				MeraVolumes.nearFade(MathHelper.lerp(open, MathHelper.clamp(rb * 0.45f, 2.2f, 5f), rb * 2.3f + 2f));
 			}
 			float uw = (float) (age / 1.6);
@@ -2633,46 +2644,77 @@ public final class MeraFxClient {
 		}
 	}
 
-	/** Segundos que dura, en primera persona, la llamarada de lo que te atraviesa. */
-	private static final double SCATTER_SELF = 0.45;
-
 	/**
-	 * Primera persona: la llamarada de lo que atraviesa tu cuerpo. Va abajo en la pantalla (no tapa la mira): lo que te
-	 * cruza de lado (una flecha, el tajo de una espada) deja una estela de fuego en su mismo sentido; un golpe de frente,
-	 * una llama del lado por donde entró; una caída, una llama mayor; una explosión, tres.
+	 * Primera persona: la llamarada de lo que atraviesa tu cuerpo (el hueco se abre en ti y no lo ves). Va abajo en la
+	 * pantalla, sin tapar la mira: lo que te cruza de lado (una flecha, el tajo de una espada) deja una estela de fuego
+	 * en su mismo sentido; un golpe de frente, una llama del lado por donde entró; una caída, tres; y una explosión, que
+	 * te deshace medio cuerpo, una cortina de llamas por abajo y por los lados, más altas hacia donde estalló.
+	 * Todo va a 0,8 bloques de los ojos y medido en pantalla (cae en el mismo sitio con cualquier campo de visión y
+	 * forma de ventana) y con las llamas derechas en la pantalla, se mire hacia donde se mire.
 	 */
-	private static void scatterSelf(Fx f, double age) {
-		float fade = (float) Math.max(0.0, 1.0 - age / SCATTER_SELF);
-		Vec3d right = new Vec3d(rx, ry, rz), up = new Vec3d(ux, uy, uz);
-		Vec3d base = new Vec3d(camX + fx * 0.8 - ux * 0.34, camY + fy * 0.8 - uy * 0.34, camZ + fz * 0.8 - uz * 0.34);
+	private static void scatterSelf(Fx f, double age, double time) {
+		// entera el primer tercio y luego se apaga (apagándose desde el principio, a media vida ya casi no se veía)
+		float fade = (float) MathHelper.clamp((1.0 - age / time) * 1.5, 0.0, 1.0);
+		// (las medidas son las de una pantalla de 16:9 a 70°: k las lleva a la de ahora)
+		float k = MathHelper.clamp(tanY / 0.7002f, 0.4f, 2.6f);
+		Vec3d right = new Vec3d(rx, ry, rz), up = new Vec3d(ux, uy, uz), fwd = new Vec3d(fx, fy, fz);
 		// b: hacia dónde iba lo que te atraviesa (el vuelo de la flecha; de quien pega hacia ti) o, en un tajo, su filo
 		double br = f.b.dotProduct(right), bu = f.b.dotProduct(up);
 		boolean slash = f.style == MeraVoxelBody.SLASH;
+		int seed = f.id * 31 + 17;
 		if (slash || f.style == MeraVoxelBody.SHOT && Math.abs(br) > 0.3) {
 			Vec3d d = right.multiply(br).add(up.multiply(slash ? bu : 0.0));
 			d = d.lengthSquared() < 1e-4 ? right : d.normalize();
 			// (una lanza fina: el chorro, tan cerca de los ojos, llenaría media pantalla)
 			double run = easeOut(age / 0.14);
-			vol(MeraVolumes.LANCE, base.add(d.multiply(-0.3 + 0.4 * run)), d, 0.5f + 0.35f * (float) run, slash ? 0.06f : 0.08f, 0, f, 0.9f * fade);
+			Vec3d base = new Vec3d(camX, camY, camZ).add(fwd.multiply(0.8)).add(up.multiply(-0.34 * k));
+			vol(MeraVolumes.LANCE, base.add(d.multiply((-0.3 + 0.4 * run) * k)), d, (0.5f + 0.35f * (float) run) * k, (slash ? 0.06f : 0.08f) * k, 0, f, 0.9f * fade);
 			// (pegado a los ojos se aclara: es un destello, no una pared de fuego)
 			MeraVolumes.nearFade(0.45f);
-		} else {
-			boolean blast = f.style == MeraVoxelBody.BLAST;
-			float big = blast ? 1.5f : f.style == MeraVoxelBody.FALL ? 1.25f : 1f;
-			// (la llama nace en su base, justo por encima de los corazones: se ve entera, con la punta debajo de la mira.
-			// Antes la grande tenía la base por debajo de la pantalla y de una explosión solo asomaba la punta)
-			Vec3d c = base.add(right.multiply(MathHelper.clamp(-br, -1.0, 1.0) * (blast ? 0.22 : 0.4))).add(0, -0.08, 0);
-			scatterFlame(c, 0.14f * big, 0.25f + 0.1f * big, 0f, f.id * 31 + 17, fade);
-			if (blast) {
-				// una explosión te deshace medio cuerpo: otras dos llamas, más bajas, a los lados
-				scatterFlame(c.add(right.multiply(-0.42)), 0.13f, 0.3f, 0.35f, f.id * 31 + 18, fade);
-				scatterFlame(c.add(right.multiply(0.42)), 0.13f, 0.27f, 0.7f, f.id * 31 + 19, fade);
+			return;
+		}
+		// de qué lado vino (+ = por tu derecha)
+		float side = (float) MathHelper.clamp(-br, -1.0, 1.0);
+		// (cada llama nace en su base, justo por encima de los corazones, y es fina: alta al menos tres veces su radio. Las
+		// anchas y bajas se quedaban huecas y rojas, y al apagarse dejaban de verse antes que las pequeñas)
+		if (f.style == MeraVoxelBody.BLAST) {
+			for (float[] q : SELF_BLAST) {
+				float tall = 1f + 0.18f * side * Math.signum(q[0]);
+				selfFlame(q[0], q[1], q[2] * k, q[3] * tall * k, q[4], seed++, fade, q[0] == 0f);
 			}
+		} else if (f.style == MeraVoxelBody.FALL) {
+			selfFlame(0f, -0.42f, 0.13f * k, 0.40f * k, 0f, seed, fade, true);
+			selfFlame(-0.30f, -0.42f, 0.11f * k, 0.30f * k, 0.35f, seed + 1, fade, false);
+			selfFlame(0.30f, -0.42f, 0.11f * k, 0.30f * k, 0.7f, seed + 2, fade, false);
+		} else {
+			selfFlame(side * 0.4f, -0.42f, 0.12f * k, 0.36f * k, 0f, seed, fade, true);
 		}
 	}
 
-	private static void scatterFlame(Vec3d c, float r, float h, float sway, int seed, float fade) {
-		MeraVolumes.add(MeraVolumes.FLAME, c, FWD, r, h, 0, sway, seed, 0.9f * fade);
+	/**
+	 * La cortina de una explosión: x e y de la base de cada llama (en una pantalla de 16:9 a 70°, a 0,8 bloques: el borde
+	 * queda en ±0,996 y ±0,56), radio, alto y el ritmo de su vaivén. Bajas en el centro, que la mira quede libre; altas
+	 * en los bordes, con la base por debajo de la pantalla.
+	 */
+	private static final float[][] SELF_BLAST = {
+		{0f, -0.42f, 0.13f, 0.40f, 0f},
+		{-0.27f, -0.44f, 0.13f, 0.44f, 0.85f}, {0.27f, -0.44f, 0.13f, 0.42f, 0.1f},
+		{-0.55f, -0.56f, 0.18f, 0.62f, 0.35f}, {0.55f, -0.56f, 0.18f, 0.58f, 0.7f},
+		{-0.90f, -0.64f, 0.24f, 0.88f, 0.2f}, {0.90f, -0.64f, 0.24f, 0.82f, 0.55f},
+	};
+
+	/** Una llama de la llamarada propia: su base en (x, y) de la pantalla (medidas de 16:9 a 70°), derecha en ella. */
+	private static void selfFlame(float x, float y, float r, float h, float sway, int seed, float fade, boolean light) {
+		double sx = x / 0.996 * tanX * 0.8, sy = y / 0.560 * tanY * 0.8;
+		Vec3d c = new Vec3d(camX + fx * 0.8 + rx * sx + ux * sy, camY + fy * 0.8 + ry * sx + uy * sy, camZ + fz * 0.8 + rz * sx + uz * sy);
+		// derecha en la pantalla: el eje de la forma hacia donde se mira (su «arriba» sale el de la cámara). Mirando casi
+		// en vertical ese arriba no está definido: el eje se inclina un poco y la llama sigue en pie en la pantalla
+		Vec3d axis = new Vec3d(fx, fy, fz);
+		if (Math.abs(fy) > 0.97f) axis = axis.subtract(new Vec3d(ux, uy, uz).multiply(0.4 * Math.signum(fy)));
+		// (solo una alumbra: siete luces juntas a un palmo no dan más que una)
+		if (light) MeraVolumes.add(MeraVolumes.FLAME, c, axis, r, h, 0, sway, seed, 0.9f * fade);
+		else MeraVolumes.addQuiet(MeraVolumes.FLAME, c, axis, r, h, 0, sway, seed, 0.9f * fade);
+		// (pegado a los ojos se aclara: es un destello, no una pared de fuego)
 		MeraVolumes.nearFade(0.45f);
 	}
 
