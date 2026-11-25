@@ -1,7 +1,13 @@
 name: build
-on: [push, pull_request, workflow_dispatch]
+# RAMA DE PRUEBA (no se fusiona): la galería de la Mera Mera con el Iris y el Sodium que lleva el juego real del
+# jugador (más nuevos que los de las otras pruebas). Para que Gradle los acepte, esta rama usa Loom 1.16 y Gradle 9.4.
+on: [push, workflow_dispatch]
 permissions:
   contents: write
+env:
+  SODIUM: mc1.21.1-0.8.13-fabric
+  IRIS: 1.8.14-beta.1+1.21.1-fabric
+  FAPI: 0.116.18+1.21.1
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,122 +23,39 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew build --stacktrace 2>&1 | tee compilar.log
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ope-ope-no-mi-mod
-          path: build/libs/*.jar
-      - name: Guardar el jar en la rama "jar"
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          JAR=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
-          mkdir -p /tmp/jar && cp "$JAR" /tmp/jar/OpeOpeNoMi-1.21.1.jar
-          cd /tmp/jar
-          git init -q -b jar
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add . && git commit -q -m "jar del commit ${{ github.sha }}"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" jar
       - name: Prueba servidor (arranca y genera un mundo)
         run: |
           mkdir -p run && echo "eula=true" > run/eula.txt
           set +e
           (sleep 150; echo stop) | timeout 600 ./gradlew runServer --console=plain 2>&1 | tee servidor.log
-          rc=${PIPESTATUS[1]}
           set -e
-          echo "exit=$rc"
-          grep -q 'ROOM listo' servidor.log
           grep -q 'Done (' servidor.log
-          if grep -qiE 'Mixin apply|MixinApplyError|Reported exception thrown|Exception in thread' servidor.log; then exit 1; fi
-          [ "$rc" = "0" ]
-      - name: Prueba cliente (arranca y entra al mundo)
+      - name: Preparar la pantalla y el mundo
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri > /dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri jq > /dev/null
           mkdir -p run/saves capturas && cp -r run/world run/saves/Prueba && rm -f run/saves/Prueba/session.lock
-          ls -la run/saves/Prueba
           printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\ntutorialStep:none\n' > run/options.txt
-          Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &
-          sleep 2
-          export DISPLAY=:99
-          set +e
-          timeout 600 ./gradlew runSmokeClient --console=plain > cliente.log 2>&1 &
-          GPID=$!
-          for i in $(seq 1 20); do
-            sleep 30
-            import -window root "capturas/pantalla-$((i*30))s.png" 2>/dev/null || xwd -root -silent 2>/dev/null | convert xwd:- "capturas/pantalla-$((i*30))s.png" || true
-            if ! kill -0 $GPID 2>/dev/null; then break; fi
-          done
-          wait $GPID; rc=$?
-          set -e
-          echo "exit=$rc"
-          cp -f run/screenshots/autotest-*.png capturas/ 2>/dev/null || true
-          echo "----- prueba automática (cortes, HUD, controles y ROOM) -----"
-          grep -E "AUTOTEST|Corte:" cliente.log || true
-          echo "----- avisos de sonidos y texturas (solo información) -----"
-          grep -iE 'Unable to play unknown soundEvent|Missing sprite|missing texture|Couldn.t load' cliente.log | head -40 || true
-          echo "----- últimas líneas de cliente.log -----"
-          grep -vE "Downloading|Download " cliente.log | tail -60
-          grep -q 'cliente listo' cliente.log
-          if grep -qiE 'Mixin apply|MixinApplyError|Reported exception thrown' cliente.log; then exit 1; fi
-          grep -qE 'joined the game|se ha unido a la partida' cliente.log
-          grep -q 'AUTOTEST terminado' cliente.log
-          if grep -q 'AUTOTEST FALLO' cliente.log; then grep 'AUTOTEST FALLO' cliente.log; exit 1; fi
-          [ "$rc" = "0" ] || [ "$rc" = "124" ]
-      - name: Galería de técnicas de Law (capturas de cada técnica)
-        if: startsWith(github.ref_name, 'law-') || contains(github.event.head_commit.message, '[galeria]')
+      - name: Galería con el Iris y el Sodium del juego real, sin shaderpack
         continue-on-error: true
         run: |
           export DISPLAY=:99
           pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
           sleep 2
-          rm -f run/saves/Prueba/session.lock run/screenshots/autotest-law-*.png
-          mkdir -p capturas/galeria
           set +e
-          timeout 540 ./gradlew runGalleryClient --console=plain > galeria.log 2>&1
-          echo "exit=$?"
-          set -e
-          for f in run/screenshots/autotest-law-*.png; do
-            [ -f "$f" ] || continue
-            convert "$f" -quality 88 "capturas/galeria/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/galeria/
-          done
-          ls capturas/galeria | wc -l
-          grep -E "AUTOTEST galería" galeria.log | tail -90 || true
-      - name: Galería de la Mera Mera no Mi (capturas de cada técnica de Ace)
-        # también si falló alguna prueba de Law del cliente: la galería de Ace no depende de ellas
-        if: ${{ !cancelled() && (startsWith(github.ref_name, 'mera-') || contains(github.event.head_commit.message, '[galeria-mera]')) }}
-        continue-on-error: true
-        run: |
-          export DISPLAY=:99
-          pgrep Xvfb > /dev/null || (Xvfb :99 -screen 0 1280x720x24 > /dev/null 2>&1 &)
-          sleep 2
           rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
-          mkdir -p capturas/mera
-          set +e
-          command -v ffmpeg > /dev/null || sudo apt-get install -y -qq ffmpeg > /dev/null
-          # el video de la galería: se graba la pantalla mientras Ace usa cada técnica
-          ffmpeg -loglevel error -y -f x11grab -framerate 30 -video_size 1280x720 -i :99 -c:v libx264 -preset ultrafast -crf 20 /tmp/mera-crudo.mp4 &
-          FPID=$!
-          GRAB0=$(date -u +%s)
-          timeout 540 ./gradlew runMeraGalleryClient --console=plain > galeria-mera.log 2>&1
+          mkdir -p run/config capturas/iris18-sin
+          printf 'enableShaders=false\n' > run/config/iris.properties
+          timeout 1500 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-sin.log 2>&1
           echo "exit=$?"
-          kill -INT $FPID; wait $FPID
-          # sin la pantalla de carga: desde un poco antes de la primera técnica
-          T1=$(grep -m1 'AUTOTEST galería hiken' galeria-mera.log | sed -E 's/^\[([0-9:]+)\].*/\1/')
-          SS=0
-          if [ -n "$T1" ]; then SS=$(( $(date -u -d "$(date -u +%F) $T1" +%s) - GRAB0 - 3 )); fi
-          [ "$SS" -lt 0 ] && SS=0
-          echo "recorte inicial: $SS s"
-          ffmpeg -loglevel error -y -ss "$SS" -i /tmp/mera-crudo.mp4 -vf "scale=1280:720" -c:v libx264 -preset slow -crf 26 -pix_fmt yuv420p -movflags +faststart capturas/mera-video.mp4 || true
-          ls -la capturas/mera-video.mp4 || true
-          set -e
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue
-            convert "$f" -quality 88 "capturas/mera/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera/
+            convert "$f" -quality 88 "capturas/iris18-sin/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/iris18-sin/
           done
-          ls capturas/mera | wc -l
-          grep -E "AUTOTEST galería|Exception|Error" galeria-mera.log | tail -120 || true
-      - name: Galería de la Mera con un shaderpack (Iris + Sodium + Photon)
-        # solo si el commit lo pide con [iris]: así se ve el fuego 3D con el shaderpack que usa el jugador
-        if: ${{ !cancelled() && startsWith(github.ref_name, 'mera-') && contains(github.event.head_commit.message, '[iris]') }}
+          ls capturas/iris18-sin | wc -l
+          grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Iris|Sodium|Mera:|Exception|Incompatible|requires|Mixin" galeria-iris18-sin.log | head -200 || true
+          echo "----- últimas líneas -----"
+          grep -vE "Downloading|Download " galeria-iris18-sin.log | tail -60
+      - name: Galería con el Iris y el Sodium del juego real, con Photon
         continue-on-error: true
         run: |
           export DISPLAY=:99
@@ -140,48 +63,41 @@ jobs:
           sleep 2
           set +e
           rm -f run/saves/Prueba/session.lock run/screenshots/autotest-mera-*.png
-          mkdir -p run/shaderpacks run/config capturas/mera-iris
+          mkdir -p run/shaderpacks run/config capturas/iris18-photon
           API=https://api.modrinth.com/v2
-          Q='game_versions=%5B%221.21.1%22%5D&loaders=%5B%22fabric%22%5D'
-          # las primeras versiones estables para 1.21.1, no las últimas: Gradle rechaza un mod compilado con un
-          # Loom más nuevo que el del proyecto ("Mod was built with a newer version of Loom"), y las de 2024 van
-          SODIUM=$(curl -fsSL "$API/project/sodium/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
-          IRIS=$(curl -fsSL "$API/project/iris/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
-          echo "sodium=$SODIUM iris=$IRIS"
-          URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
+          # el Photon del jugador es photon_v1.4.zip; si Modrinth no lo tiene con ese nombre, el más nuevo para 1.21.1
+          URL=$(curl -fsSL "$API/project/photon-shader/version" | jq -r '[.[].files[] | select(.filename == "photon_v1.4.zip")][0].url // empty')
+          if [ -z "$URL" ]; then
+            URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
+          fi
           PACK="${URL##*/}"
           echo "photon: $URL"
           curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
           printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
           # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
-          timeout 1800 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" > galeria-mera-iris.log 2>&1
+          timeout 2400 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" "-Pfabric_runtime=$FAPI" > galeria-iris18-photon.log 2>&1
           echo "exit=$?"
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue
-            convert "$f" -quality 88 "capturas/mera-iris/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/mera-iris/
+            convert "$f" -quality 88 "capturas/iris18-photon/$(basename "${f%.png}").jpg" || cp -f "$f" capturas/iris18-photon/
           done
-          ls capturas/mera-iris | wc -l
-          grep -E "AUTOTEST galería|Iris\)|Sodium\)|Mera:|Exception|Incompatible|requires" galeria-mera-iris.log | head -150 || true
+          ls capturas/iris18-photon | wc -l
+          grep -E "AUTOTEST galería|AUTOTEST FALLO|AUTOTEST mera|Iris|Sodium|Mera:|Exception|Incompatible|requires|Mixin" galeria-iris18-photon.log | head -200 || true
+          echo "----- últimas líneas -----"
+          grep -vE "Downloading|Download " galeria-iris18-photon.log | tail -60
           rm -f run/config/iris.properties
-      - name: Guardar registros y capturas en la rama "ci-logs"
+      - name: Guardar registros y capturas en la rama "ci-logs-iris18"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          # los registros, recortados a 20 MB (GitHub no acepta archivos de más de 100 MB)
-          for f in compilar.log servidor.log cliente.log galeria.log galeria-mera.log galeria-mera-iris.log; do
+          for f in compilar.log servidor.log galeria-iris18-sin.log galeria-iris18-photon.log; do
             [ -f "$f" ] || continue
             tail -c 20000000 "$f" > "/tmp/ci-logs/$f"
           done
           cp -rf capturas /tmp/ci-logs/ 2>/dev/null || true
-          # el jar de esta ejecución, para instalarlo sin iniciar sesión en GitHub (los artefactos la piden)
-          JAR=$(ls build/libs/*.jar 2>/dev/null | grep -v -- '-sources' | head -1 || true)
-          if [ -n "$JAR" ]; then
-            cp -f "$JAR" /tmp/ci-logs/OpeOpeNoMi-1.21.1.jar
-            (cd /tmp/ci-logs && sha256sum OpeOpeNoMi-1.21.1.jar > OpeOpeNoMi-1.21.1.jar.sha256)
-          fi
           echo "${{ github.sha }} ${{ github.ref_name }} ejecución ${{ github.run_id }}" > /tmp/ci-logs/commit.txt
-          cd /tmp/ci-logs && git init -q -b ci-logs
+          cd /tmp/ci-logs && git init -q -b ci-logs-iris18
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -q -m "registros de la ejecución ${{ github.run_id }}" || exit 0
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs-iris18
