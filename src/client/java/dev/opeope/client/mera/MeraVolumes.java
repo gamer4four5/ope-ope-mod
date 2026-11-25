@@ -84,6 +84,8 @@ public final class MeraVolumes {
 	private static final Matrix4f VP = new Matrix4f(), INV = new Matrix4f();
 
 	public static void register() {
+		// quién arde en 3D se decide al empezar cada fotograma, antes de dibujar los seres (ver MeraFxClient.pickBurning)
+		net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.START.register(MeraFxClient::pickBurning);
 		CoreShaderRegistrationCallback.EVENT.register(ctx -> {
 			ctx.register(OpeOpeMod.id("mera_volume"), VertexFormats.POSITION, p -> {
 				program = p;
@@ -788,9 +790,10 @@ public final class MeraVolumes {
 	// ------------------------------------------------------------------ dibujo
 
 	/**
-	 * Después de lo translúcido (WorldRenderEvents.AFTER_TRANSLUCENT): guarda la profundidad del mundo y las matrices.
-	 * Sin shaderpack dibuja ya; con un shaderpack (Iris) espera a {@link #afterWorld()}, cuando la imagen está terminada,
-	 * para que el fuego no se meta en los buffers internos del shaderpack.
+	 * Después de lo translúcido (WorldRenderEvents.AFTER_TRANSLUCENT): guarda la profundidad del mundo y las matrices, y
+	 * dibuja en {@link #afterWorld()}, con la imagen del mundo ya terminada. Con un shaderpack (Iris), para que el fuego no
+	 * se meta en sus buffers internos; sin él, porque Minecraft pinta las nubes y la lluvia después de este evento, y
+	 * salían por encima del fuego (bloques de nube cortando la bola de Entei o la explosión de Hiken).
 	 */
 	public static void render(WorldRenderContext ctx, double camX, double camY, double camZ, float time) {
 		pending = false;
@@ -803,11 +806,7 @@ public final class MeraVolumes {
 		camY0 = camY;
 		camZ0 = camZ;
 		time0 = time;
-		if (shaderPackInUse()) {
-			pending = true;
-			return;
-		}
-		draw();
+		pending = true;
 	}
 
 	private static boolean restoreBroken;
@@ -838,7 +837,7 @@ public final class MeraVolumes {
 		}
 	}
 
-	/** Justo después de dibujar el mundo (GameRendererMixin): con un shaderpack, aquí ya está la imagen final. */
+	/** Justo después de dibujar el mundo (GameRendererMixin): aquí ya está la imagen final, con las nubes y la lluvia. */
 	public static void afterWorld() {
 		if (!pending) return;
 		pending = false;

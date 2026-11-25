@@ -291,6 +291,8 @@ public final class MeraFxClient {
 				if (mine) LawHudFx.bannerText(MeraTechs.NAMES[3][0], MeraTechs.NAMES[3][1]);
 			}
 			case MeraFx.JUJIKA_SHOT -> {
+				// la cruz de luz se convierte en la de fuego que sale
+				endUserFx(user, MeraFx.JUJIKA_FLASH, now);
 				if (mine) {
 					CameraFx.trauma(0.3f);
 					CameraFx.kick(1.4f, 0f, 0.8f);
@@ -463,7 +465,10 @@ public final class MeraFxClient {
 		}
 		// lo que arde (lo que quemó Ace, los zombis al sol): llamas en 3D en vez de las dos láminas de Minecraft
 		if (v3) emitBurning(mc, td, dt);
-		else burnIds = NO_IDS;
+		else {
+			burnIds = NO_IDS;
+			burnFound = 0;
+		}
 		// y los bloques de fuego cercanos: llamas 3D delante de sus láminas pixeladas
 		if (v3) emitFireBlocks(mc);
 		// el fuego que dejan las técnicas en el suelo (no tiene dibujo de bloque): llamas 3D que acaban en humo
@@ -478,23 +483,20 @@ public final class MeraFxClient {
 		if (count == 0 || hideFlames) return;
 		// la profundidad de este fotograma (aunque no haya fuego 3D): el humo y las chispas se desvanecen contra el suelo
 		MeraVolumes.grabSoftDepth();
-		if (MeraVolumes.shaderPackInUse()) {
-			// con un shaderpack las chispas, brasas y humo también van al final, sobre la imagen terminada: dentro
-			// del mundo el shaderpack las metía en sus buffers y salían como discos planos de borde duro
-			DEF_POS.set(ctx.positionMatrix());
-			DEF_PROJ.set(ctx.projectionMatrix());
-			defNow = now;
-			particlesPending = true;
-			return;
-		}
-		drawParticles(mc, ctx.positionMatrix(), now);
+		// las chispas, brasas y humo también van al final, sobre la imagen terminada, como el fuego 3D: con un shaderpack,
+		// dentro del mundo las metía en sus buffers y salían como discos planos de borde duro; sin él, las nubes y la
+		// lluvia de Minecraft se pintaban encima
+		DEF_POS.set(ctx.positionMatrix());
+		DEF_PROJ.set(ctx.projectionMatrix());
+		defNow = now;
+		particlesPending = true;
 	}
 
 	private static boolean particlesPending;
 	private static final Matrix4f DEF_POS = new Matrix4f(), DEF_PROJ = new Matrix4f();
 	private static double defNow;
 
-	/** Justo después de dibujar el mundo (GameRendererMixin), tras el fuego 3D: con un shaderpack, las llamas sueltas. */
+	/** Justo después de dibujar el mundo (GameRendererMixin), tras el fuego 3D: las llamas sueltas. */
 	public static void afterWorld() {
 		if (!particlesPending) return;
 		particlesPending = false;
@@ -561,7 +563,10 @@ public final class MeraFxClient {
 			RenderSystem.setShaderTexture(0, ATLAS);
 			MeraVolumes.spriteSoft(0.5f);
 			BufferBuilder b = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
-			for (int i = 0; i < count; i++) if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);
+			for (int i = 0; i < count; i++) {
+				if (KIND[i] == SMOKE || KIND[i] == STEAM) drawPuff(b, i);
+				else if (KIND[i] == FLY) flyHalo(b, i);
+			}
 			NEAR = 1f;
 			var built = b.endNullable();
 			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
@@ -807,8 +812,22 @@ public final class MeraFxClient {
 		return true;
 	}
 
-	/** Llamas 3D en los seres que arden cerca (los más cercanos), del tamaño de cada uno, y un hilo de humo encima. */
-	private static void emitBurning(MinecraftClient mc, float td, double dt) {
+	private static int burnFound;
+
+	/**
+	 * Al empezar el fotograma (WorldRenderEvents.START), antes de dibujar los seres: los que arden cerca (los más
+	 * cercanos) llevarán llamas 3D, y a esos Minecraft no les pone sus láminas de fuego. Antes se decidía después de
+	 * dibujarlos, y el primer fotograma de cada ser que prendía salía cubierto de fuego pixelado.
+	 */
+	public static void pickBurning(WorldRenderContext ctx) {
+		for (int i = 0; i < BURN_MAX; i++) BURN[i] = null;
+		burnFound = 0;
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.world == null || mc.player == null || !vol()) {
+			burnIds = NO_IDS;
+			return;
+		}
+		Vec3d cp = ctx.camera().getPos();
 		int found = 0;
 		double r2 = BURN_RANGE * BURN_RANGE;
 		Entity cam = mc.getCameraEntity();
@@ -816,7 +835,7 @@ public final class MeraFxClient {
 		for (Entity e : mc.world.getEntities()) {
 			if (!(e instanceof LivingEntity) || !e.isOnFire() || e.isSpectator() || e.isInvisible()) continue;
 			if (e == cam && firstPerson) continue;
-			double d2 = e.squaredDistanceTo(camX, camY, camZ);
+			double d2 = e.squaredDistanceTo(cp.x, cp.y, cp.z);
 			if (d2 > r2) continue;
 			// los más cercanos primero (inserción en una lista corta)
 			int k = Math.min(found, BURN_MAX - 1);
@@ -830,15 +849,24 @@ public final class MeraFxClient {
 			BURN_D[k] = d2;
 			if (found < BURN_MAX) found++;
 		}
+		burnFound = found;
 		if (found == 0) {
 			burnIds = NO_IDS;
 			return;
 		}
 		int[] ids = new int[found];
+		for (int i = 0; i < found; i++) ids[i] = BURN[i].getId();
+		burnIds = ids;
+	}
+
+	/** Llamas 3D en los seres que arden cerca (los que eligió {@link #pickBurning}), del tamaño de cada uno, y humo encima. */
+	private static void emitBurning(MinecraftClient mc, float td, double dt) {
+		int found = burnFound;
+		burnFound = 0;
 		for (int i = 0; i < found; i++) {
 			Entity e = BURN[i];
 			BURN[i] = null;
-			ids[i] = e.getId();
+			if (e == null || e.isRemoved()) continue;
 			Vec3d p0 = e.getLerpedPos(td);
 			float w = Math.max(0.3f, e.getWidth()), h = Math.max(0.3f, e.getHeight());
 			int seed = e.getId() * 7919 + 17;
@@ -871,7 +899,6 @@ public final class MeraFxClient {
 			// y lo que arde echa humo
 			if (R.nextFloat() < dt * 2.5) smoke(p.x + rs() * w * 0.3, p.y + h * 1.25, p.z + rs() * w * 0.3, rs() * 0.15, 0.9, rs() * 0.15, 0.3f + w * 0.3f, 2.2f);
 		}
-		burnIds = ids;
 	}
 
 	// ------------------------------------------------------------------ los bloques de fuego, con llamas 3D
@@ -963,7 +990,7 @@ public final class MeraFxClient {
 			float hsh = ((seed * 0x9E3779B9) >>> 8) / 16777216f;
 			float hgt = (floor ? 1.1f : 0.8f) + 0.4f * hsh;
 			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx + tx * 0.42, y + (floor ? 0.0 : 0.2), cz + tz * 0.42), FWD,
-				floor ? 0.55f : 0.42f, hgt, floor ? 1f : 0f, hsh, seed, 0.85f);
+				floor ? 0.55f : 0.42f, hgt, floor ? 1f : 2f, hsh, seed, 0.85f);
 		}
 	}
 
@@ -988,7 +1015,14 @@ public final class MeraFxClient {
 	}
 
 	public static boolean meraFireDrawn(net.minecraft.world.World w, BlockPos pos) {
-		return w == mfWorld && MF_DRAWN.contains(pos.asLong());
+		if (w != mfWorld) return false;
+		long l = pos.asLong();
+		if (MF_DRAWN.contains(l)) return true;
+		// recién prendido, aún sin su primera llama 3D: si está cerca la tendrá en el próximo fotograma (sin esto, le salían
+		// las llamitas pixeladas de Minecraft, que duran uno o dos segundos, junto al fuego 3D)
+		if (!vol() || !MF.containsKey(l)) return false;
+		double dx = pos.getX() + 0.5 - camX, dy = pos.getY() + 0.5 - camY, dz = pos.getZ() + 0.5 - camZ;
+		return dx * dx + dy * dy + dz * dz < MF_RANGE * MF_RANGE;
 	}
 
 	/**
@@ -1096,17 +1130,18 @@ public final class MeraFxClient {
 		int x = MF_POS.getX(), y = MF_POS.getY(), z = MF_POS.getZ();
 		int seed = (int) (l ^ (l >>> 32)) * 31 + 11;
 		float hsh = ((seed * 0x9E3779B9) >>> 8) / 16777216f;
-		// en el suelo, desde abajo; sin suelo (pegada a algo que arde), un poco más arriba y arrimada a ese lado
+		// en el suelo, desde abajo; sin suelo (pegada a algo que arde), arrimada a ese lado con la base metida en él: así
+		// lame la pared hacia arriba (antes, separada de ella, era una bola con punta flotando delante)
 		MF_POS.set(x, y - 1, z);
 		boolean floor = w.getBlockState(MF_POS).isSideSolidFullSquare(w, MF_POS, Direction.UP);
 		double cx = x + 0.5, cy = y, cz = z + 0.5;
 		if (!floor) {
-			cy += 0.15;
+			cy += 0.05;
 			for (Direction d : SIDES) {
 				MF_POS.set(x + d.getOffsetX(), y, z + d.getOffsetZ());
 				if (w.getBlockState(MF_POS).isBurnable()) {
-					cx += d.getOffsetX() * 0.3;
-					cz += d.getOffsetZ() * 0.3;
+					cx += d.getOffsetX() * 0.45;
+					cz += d.getOffsetZ() * 0.45;
 					break;
 				}
 			}
@@ -1118,9 +1153,9 @@ public final class MeraFxClient {
 		float rad = (floor ? 0.62f : 0.45f) * (0.85f + 0.3f * hsh) * (0.65f + 0.35f * grow);
 		if (h < 0.06f) return;
 		if (v3) {
-			// (en el suelo, la base metida en él: la llama nace ancha del suelo)
-			// (y cada llama con su ritmo: si no, todas las de un incendio se mecían a la vez)
-			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx, cy, cz), FWD, rad, h, floor ? 1f : 0f, hsh, seed, 0.92f * (0.35f + 0.65f * fade));
+			// (en el suelo, varias lenguas que nacen del suelo con la base metida en él; en una pared, igual, con la base
+			// que se deshace abajo; y cada llama con su ritmo: si no, todas las de un incendio se mecían a la vez)
+			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx, cy, cz), FWD, rad, h, floor ? 1f : 2f, hsh, seed, 0.92f * (0.35f + 0.65f * fade));
 			return;
 		}
 		// sin fuego 3D: llamas sueltas que suben del bloque
@@ -1200,6 +1235,19 @@ public final class MeraFxClient {
 		return f.wallP.add(f.wallN.multiply(radiusNow * 0.6));
 	}
 
+	/**
+	 * Cuánto hay desde c hasta el suelo, más 0,3 (como mucho max): para que lo que cuelga (el brazo de abajo de una cruz)
+	 * llegue al suelo y no se meta en él. 0 si no hay suelo a esa distancia (sin límite).
+	 */
+	private static float groundBelow(Vec3d c, float max) {
+		MinecraftClient mc = MinecraftClient.getInstance();
+		if (mc.world == null || mc.player == null) return 0f;
+		BlockHitResult hit = mc.world.raycast(new RaycastContext(c, c.add(0, -max - 0.3, 0), RaycastContext.ShapeType.COLLIDER,
+			RaycastContext.FluidHandling.NONE, mc.player));
+		if (hit.getType() != HitResult.Type.BLOCK) return 0f;
+		return (float) Math.max(c.y - hit.getPos().y, 0.0) + 0.3f;
+	}
+
 	/** Los estallidos (IMPACT) en 3D: la bola de fuego que se abre, o la cruz que se abre (Jūjika). */
 	private static boolean impactVolume(Fx f, double age) {
 		float r = f.radius;
@@ -1209,7 +1257,14 @@ public final class MeraFxClient {
 				double T = 0.65;
 				if (age > T) return false;
 				float u = (float) (age / T), e = easeOut(u * 1.4);
-				vol(MeraVolumes.CROSS, f.a, d, r * (0.35f + 0.65f * e), r * (0.12f + 0.08f * e), 0, f, (float) Math.pow(1 - u, 1.3) * 1.15f);
+				float A = r * (0.35f + 0.65f * e), th = r * (0.12f + 0.08f * e);
+				// la cruz se abre delante de la pared, con su lado caliente hacia quien la lanzó (antes, con el centro en la
+				// cara del bloque, media cruz quedaba dentro y la cara que se veía era la fría: de lejos, dos manchas) y con
+				// el brazo de abajo hasta el suelo, no metido en él
+				Vec3d c = outOfWall(f, d, (th * 1.3f + 0.25f) / 0.6f);
+				// fuerte hasta casi la mitad de su vida; luego se apaga
+				float k = u < 0.4f ? 1f : (float) Math.pow(1 - (u - 0.4f) / 0.6f, 1.3);
+				vol(MeraVolumes.CROSS, c, d.multiply(-1), A, th, groundBelow(c, 1.3f * A), f, k * 1.15f);
 			}
 			case MeraFx.STYLE_LANCE -> {
 				double T = 0.5;
@@ -1380,6 +1435,25 @@ public final class MeraFxClient {
 				quad(b, x, y, z, s, 0f, (byte) 3, rgb(CR[i], CG[i], CB[i]), alpha * 0.85f);
 			}
 		}
+	}
+
+	/**
+	 * El halo verde de una luciérnaga de Hotarubi, con mezcla normal: tiñe de verde el cielo o la hierba que hay detrás.
+	 * Sumado (como el punto de luz que va encima), sobre un fondo claro solo lo aclaraba: de día eran motas blancas de
+	 * dos o tres píxeles que no se veían. Algo más grande a lo lejos, para que el enjambre se vea a 10 o 15 bloques.
+	 */
+	private static void flyHalo(BufferBuilder b, int i) {
+		float t = AGE[i] / LIFE[i];
+		float x = (float) (PX[i] + ox - camX), y = (float) (PY[i] + oy - camY), z = (float) (PZ[i] + oz - camZ);
+		if (x * fx + y * fy + z * fz < -0.5f) return;
+		float d = (float) Math.sqrt(x * x + y * y + z * z);
+		NEAR = MathHelper.clamp((d - 0.35f) / 0.9f, 0f, 1f);
+		float alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t * t);
+		float s = SIZE[i] * (2.6f + 0.1f * Math.min(d, 20f));
+		// (CR..CB: el color de la luciérnaga, ya con su desvanecido; el halo, de un verde más hondo)
+		float k = Math.max(CG[i], 1e-3f);
+		quad(b, x, y, z, s, 0f, (byte) 3, rgb(0.42f, 0.9f, 0.16f), alpha * 0.55f * k);
+		NEAR = 1f;
 	}
 
 	/** Una llama suelta junto al fuego 3D: una brasa brillante y pequeña que sube (aditiva). */
@@ -1613,14 +1687,28 @@ public final class MeraFxClient {
 				return true;
 			}
 			case MeraFx.JUJIKA_FLASH -> {
-				if (age > f.dur + 0.1) return false;
+				// (se acaba al salir la cruz de fuego: si no, seguía creciendo con el disparo ya en la pared)
+				if (f.ended || age > f.dur + 0.1) return false;
 				// la cruz de luz delante de las manos antes de la cruz de fuego
 				Vec3d dir = f.b.normalize();
 				Vec3d[] ax = axes(dir);
 				float u = (float) MathHelper.clamp(age / f.dur, 0, 1);
 				float len = 0.4f + 1.6f * u;
 				if (vol()) {
-					vol(MeraVolumes.CROSS, f.a, dir, len * 0.9f, 0.06f + 0.03f * u, 0, f, 1.3f);
+					// brazos más gruesos (antes, de lejos, un hilo de neón con cuentas) y el de abajo hasta el suelo. En
+					// primera persona, más pequeña, a la altura de las manos y de cara a la cámara (antes, a 0,9 bloques de
+					// los ojos, una cruz clara que tapaba toda la pantalla)
+					Vec3d c = f.a, cd = dir;
+					float sc = 1f, k = 1.3f;
+					if (selfView(mc, user)) {
+						c = new Vec3d(camX + fx * 1.4 - ux * 0.28, camY + fy * 1.4 - uy * 0.28, camZ + fz * 1.4 - uz * 0.28);
+						cd = new Vec3d(fx, fy, fz);
+						sc = 0.38f;
+						k = 1.1f;
+					}
+					float A = len * 0.9f * sc;
+					vol(MeraVolumes.CROSS, c, cd, A, (0.11f + 0.04f * u) * Math.max(sc, 0.6f), groundBelow(c, 1.3f * A), f, k);
+					if (sc < 1f) MeraVolumes.nearFade(1.0f);
 					return true;
 				}
 				int n = many(f, 260 * density, dt);

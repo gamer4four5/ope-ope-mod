@@ -52,10 +52,10 @@ out vec4 fragColor;
 //    3 RING      x radio, y alto, z grosor, w 1 = cortina de lenguas (el cerco de Enjōmō)
 //    4 WALL      x medio ancho, y alto, z grosor (una cortina de lenguas)
 //    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
-//    6 CROSS     x brazo, y grosor
+//    6 CROSS     x brazo, y grosor, z hasta dónde baja el brazo de abajo (el suelo; 0 = 1,3 brazos)
 //    7 LANCE     x largo, y radio (la punta en +x/2, centrada)
-//    8 FLAME     x radio, y alto, z 1 = sale del suelo (la base, metida en él: varias lenguas), w el
-//                ritmo de su vaivén 0..1 (cada llama a destiempo)
+//    8 FLAME     x radio, y alto, z 1 = sale del suelo (la base, metida en él: varias lenguas), 2 = pegada
+//                a una pared (igual, con la base que se deshace abajo), w el ritmo de su vaivén 0..1
 // =====================================================================
 
 // ---------------------------------------------------------------------
@@ -401,7 +401,9 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float A  = max(prm.x, 0.3);
         float th = (prm.y > 0.01) ? prm.y : 0.3;
         float r  = th * 0.8;
-        float b1 = mf_sdRoundBox(p - vec3(0.0, -0.15 * A, 0.0), vec3(th, A * 1.15, th), r);
+        // el brazo de abajo baja 1,3 A, o hasta el suelo si z lo dice (antes se metía en él)
+        float lo = (prm.z > 0.01) ? min(1.3 * A, prm.z) : 1.3 * A;
+        float b1 = mf_sdRoundBox(p - vec3(0.0, 0.5 * (A - lo), 0.0), vec3(th, 0.5 * (A + lo), th), r);
         float b2 = mf_sdRoundBox(p - vec3(0.0, 0.25 * A, 0.0), vec3(A * 0.85, th, th), r);
         d = mf_smin(b1, b2, th * 0.6);
         L = th * 1.4;
@@ -578,6 +580,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     // la columna de Hibashira vista desde su hueco (primera persona), y la llama que sale del suelo
     float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
     float flo = (shape > 7.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    // la que está pegada a una pared no tiene suelo que le tape la base: abajo se deshace (si no, una bola colgada)
+    float wallF = (shape > 7.5) ? step(1.5, prm.z) : 0.0;
 
     // entrada escalonada por píxel, sin cortes. Con un número sin patrón (antes, interleaved gradient noise: con
     // una tarjeta de verdad su rejilla de puntos se veía como ondas en las zonas finas)
@@ -675,6 +679,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
             float nfk = smoothstep(0.35 * nearFade, nearFade + 0.15, t);
             dens *= gf * nfk;
+            dens *= mix(1.0, smoothstep(-0.06, 0.14, u), wallF);
             vec4 look = mf_look(shape, p, prm);
             // solo el borde se rompe en jirones; la masa es continua
             float uu = clamp(u, 0.0, 1.0);
