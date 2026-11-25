@@ -45,7 +45,8 @@ out vec4 fragColor;
 //  mezcla con ONE, ONE_MINUS_SRC_ALPHA.  intensity 0..1 (hasta 2 = destello).
 //
 //  Parámetros de cada forma (prm):
-//    0 FIREBALL  x radio, y enfriado de explosión 0..1, z velocidad 0..1
+//    0 FIREBALL  x radio, y enfriado de explosión 0..1, z velocidad 0..1,
+//                w humo claro y fino 0..1 (los golpes pequeños: una bocanada gris)
 //    1 FIST      x tamaño, y largo de la estela
 //    2 PILLAR    x radio, y alto, z 1 = visto desde el hueco de dentro
 //    3 RING      x radio, y alto, z grosor
@@ -489,6 +490,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float isBall = (shape < 0.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
+    // un golpe pequeño (las balas de Higan) acaba en una bocanada de humo gris claro y fino, no en una bola negra
+    float lsB = isBall * clamp(prm.w, 0.0, 1.0);
 
     // entrada escalonada por píxel, sin cortes. Con un número sin patrón (antes, interleaved gradient noise: con
     // una tarjeta de verdad su rejilla de puntos se veía como ondas en las zonas finas)
@@ -628,6 +631,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             dens *= mix(1.0, mix(0.10, 0.22, smoke), tip);
             smoke = max(smoke, smokeX);
 
+            dens *= 1.0 - 0.55 * lsB * smoke;
             float sigma = dens * intensity * 2.8 / L * thin;
             float aE = 1.0 - exp(-sigma * stepIn);
             // la masa caliente tapa lo de detrás; la llama fina y fría sobre todo brilla (transparente)
@@ -649,7 +653,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
                 // el humo de la explosión: gris, con la luz del cielo arriba y oscuro abajo; junto al fuego, naranja
                 float Rb = max(prm.x, 0.05);
                 float hgt = smoothstep(-0.8 * Rb, 0.9 * Rb, p.y - cool * cool * Rb * 0.55);
-                vec3 lit = mix(vec3(0.085, 0.080, 0.078), vec3(0.52, 0.50, 0.49), hgt * (0.45 + 0.55 * tb / 0.6)) * amb;
+                vec3 lit = mix(mix(vec3(0.085, 0.080, 0.078), vec3(0.34, 0.33, 0.32), lsB), mix(vec3(0.52, 0.50, 0.49), vec3(0.64, 0.63, 0.61), lsB),
+                               hgt * (0.45 + 0.55 * tb / 0.6)) * amb;
                 // pegado a lo que aún arde, el humo se ve naranja por debajo (eso sí es luz propia)
                 smokeCol = mix(smokeCol, lit + mf_ramp(tempFire) * (0.7 * tempFire * (1.0 - smokeX)), smokeX);
             }

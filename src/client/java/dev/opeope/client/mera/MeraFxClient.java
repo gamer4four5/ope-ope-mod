@@ -745,6 +745,12 @@ public final class MeraFxClient {
 		spawn(SMOKE, x, y, z, vx, vy, vz, size, life);
 	}
 
+	/** Humo más oscuro (tone 1 = el gris de siempre): el que sale de una nube de humo 3D, de su mismo gris. */
+	private static void smoke(double x, double y, double z, double vx, double vy, double vz, float size, float life, float tone) {
+		int i = spawn(SMOKE, x, y, z, vx, vy, vz, size, life);
+		if (i >= 0) CR[i] = tone;
+	}
+
 	private static void steam(double x, double y, double z, double vx, double vy, double vz, float size, float life) {
 		spawn(STEAM, x, y, z, vx, vy, vz, size, life);
 	}
@@ -1233,7 +1239,8 @@ public final class MeraFxClient {
 				float inten = 1f + 0.6f * Math.max(0f, 1f - u / 0.1f);
 				if (small) inten *= (1f - smooth((u - 0.72f) / 0.28f)) * (1f - 0.5f * smooth((u - 0.35f) / 0.65f));
 				float R = r * (0.28f + 0.55f * e);
-				vol(MeraVolumes.FIREBALL, outOfWall(f, d, R), FWD, R, cool, 0, f, inten);
+				// (los pequeños acaban en una bocanada de humo gris claro y fino: oscuro parecía un agujero quemado)
+				MeraVolumes.add(MeraVolumes.FIREBALL, outOfWall(f, d, R), FWD, R, cool, 0, small ? 1f : 0f, f.id * 31 + f.kind * 7 + f.userId, inten);
 			}
 		}
 		return true;
@@ -1342,7 +1349,8 @@ public final class MeraFxClient {
 			case SMOKE -> {
 				s = SIZE[i] * (0.6f + 1.4f * t);
 				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.46f;
-				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], smokeRGB, alpha * smokeMul);
+				// (CR: lo oscuro que es este humo; junto a una nube 3D, del mismo gris que ella)
+				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], CR[i] < 0.99f ? mixRGB(0, smokeRGB, CR[i]) : smokeRGB, alpha * smokeMul);
 			}
 			case STEAM -> {
 				s = SIZE[i] * (0.6f + 1.6f * t);
@@ -1721,12 +1729,20 @@ public final class MeraFxClient {
 				// un remolino de llamas que gira alrededor de Ace y se va cerrando
 				Vec3d base = user.getLerpedPos(td);
 				float u = (float) (age / f.dur);
-				if (vol()) vol(MeraVolumes.RING, base, FWD, (float) (f.radius * (1.2 - 0.8 * u)), 2.6f, 0.5f, f, 0.85f);
-				int n = many(f, 520 * density, dt);
+				// en primera persona el remolino va por la cintura y no se cierra del todo: a la altura de los ojos y a
+				// un bloque de la cara, el fuego se veía borroso y tapaba casi toda la pantalla
+				boolean self = selfView(mc, user);
+				float ringR = (float) (f.radius * (1.2 - 0.8 * u));
+				if (self) ringR = Math.max(ringR, 2.1f);
+				if (vol()) {
+					vol(MeraVolumes.RING, base, FWD, ringR, self ? 0.95f : 2.6f, self ? 0.4f : 0.5f, f, self ? 0.75f : 0.85f);
+					if (self) MeraVolumes.nearFade(1.4f);
+				}
+				int n = many(f, (self ? 300 : 520) * density, dt);
 				for (int i = 0; i < n; i++) {
 					double ang = R.nextDouble() * Math.PI * 2 + age * 9;
-					double rad = f.radius * (1.2 - 0.8 * u) + rs() * 0.3;
-					double y = R.nextDouble() * 2.4;
+					double rad = ringR + rs() * 0.3;
+					double y = R.nextDouble() * (self ? 1.2 : 2.4);
 					double tx = -Math.sin(ang) * 6, tz = Math.cos(ang) * 6;
 					tongue(base.x + Math.cos(ang) * rad, base.y + y, base.z + Math.sin(ang) * rad, tx - Math.cos(ang) * 2, 0.6, tz - Math.sin(ang) * 2,
 						0.2f + 0.1f * u, 0.3f);
@@ -2182,12 +2198,15 @@ public final class MeraFxClient {
 		if (age < smokeEnd) {
 			boolean fireToo = age < 2.2;
 			float k = fireToo ? (float) (1 - age / 2.2) * 0.8f + 0.2f : 0.2f * (float) (1 - (age - 2.2) / (smokeEnd - 2.2));
-			int n = many(f, 260 * k * density, dt);
+			// con el fuego 3D la nube ya es el volumen: aquí, menos humo suelto y de su mismo gris (el gris claro de
+			// siempre, encima de la nube oscura, se veía como gotas claras)
+			boolean v3 = vol();
+			int n = many(f, 260 * k * density * (v3 ? 0.45f : 1f), dt);
 			double y = Math.min(age, 2.2) * area * 1.2;
 			for (int i = 0; i < n; i++) {
 				double ang = R.nextDouble() * Math.PI * 2;
 				double rad = R.nextDouble() * area * 0.5;
-				if (!fireToo || R.nextFloat() < 0.5f) smoke(c.x + Math.cos(ang) * rad, c.y + y, c.z + Math.sin(ang) * rad, Math.cos(ang) * 2, 3 + area * 0.3, Math.sin(ang) * 2, area * 0.35f, 3.2f);
+				if (!fireToo || R.nextFloat() < 0.5f) smoke(c.x + Math.cos(ang) * rad, c.y + y, c.z + Math.sin(ang) * rad, Math.cos(ang) * 2, 3 + area * 0.3, Math.sin(ang) * 2, area * 0.35f, 3.2f, v3 ? 0.55f : 1f);
 				else fire(c.x + Math.cos(ang) * rad, c.y + y * 0.6, c.z + Math.sin(ang) * rad, Math.cos(ang), 4 + area * 0.2, Math.sin(ang), area * 0.18f + 0.3f, 0.7f);
 			}
 			return true;
