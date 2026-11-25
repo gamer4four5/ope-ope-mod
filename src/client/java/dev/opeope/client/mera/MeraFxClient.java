@@ -1503,7 +1503,7 @@ public final class MeraFxClient {
 		if (vol()) {
 			// el puño de fuego en 3D, con la cola de llamas que deja detrás
 			float tail = (float) Math.min(head.distanceTo(f.a) + 0.8, 2.4 * r);
-			vol(MeraVolumes.FIST, head, dir, 0.62f * r, tail, 0, f, 1f);
+			vol(MeraVolumes.FIST, head, dir, 0.72f * r, tail, 0, f, 1f);
 		}
 		// núcleo blanco y resplandor
 		core(head.x, head.y, head.z, 0, 0, 0, 0.55f * r, 0.05f);
@@ -1525,8 +1525,20 @@ public final class MeraFxClient {
 		float fade = (float) MathHelper.clamp(1.0 - age / 0.45, 0.2, 1.0);
 		if (vol()) {
 			float gone = f.endAt > 0 ? (float) MathHelper.clamp(1 - (RoomFxClient.time() - f.endAt) / 0.25, 0, 1) : 1f;
-			// la columna del Hiken es casi igual de gruesa en todo el largo (no un chorro que se abre)
-			vol(MeraVolumes.JET, h, head.subtract(h), (float) len, r * 0.42f, 0.6f, f, 0.85f * fade * gone);
+			if (selfView(mc, user)) {
+				// en primera persona la columna sale de abajo a la derecha hacia el puño (recta delante de los ojos
+				// taparía el puño como una bola) y se aclara junto a la cámara
+				Vec3d start = new Vec3d(camX + fx * 0.85 + rx * 0.42 - ux * 0.40, camY + fy * 0.85 + ry * 0.42 - uy * 0.40,
+					camZ + fz * 0.85 + rz * 0.42 - uz * 0.40);
+				Vec3d cd = head.subtract(start);
+				if (cd.lengthSquared() > 0.25) {
+					vol(MeraVolumes.JET, start, cd, (float) cd.length(), r * 0.42f, 0.35f, f, 0.85f * fade * gone);
+					MeraVolumes.nearFade(0.9f);
+				}
+			} else {
+				// la columna del Hiken es casi igual de gruesa en todo el largo (no un chorro que se abre)
+				vol(MeraVolumes.JET, h, head.subtract(h), (float) len, r * 0.42f, 0.6f, f, 0.85f * fade * gone);
+			}
 		}
 		int n = many2(f, (float) (len * 60 * density * fade), dt);
 		for (int i = 0; i < n; i++) {

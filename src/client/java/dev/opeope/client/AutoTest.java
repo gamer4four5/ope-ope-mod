@@ -116,11 +116,12 @@ public final class AutoTest {
 	/** Las técnicas de Ace, una a una (las que se mantienen se sueltan en meraRelease). */
 	private static List<Shot> meraShots() {
 		List<Shot> l = new ArrayList<>();
-		l.add(new Shot("hiken", mera(dev.opeope.power.mera.MeraActions.HIKEN_START), 4, new int[]{6, 16, 19, 24, 32}, new int[]{11}));
+		// en tercera persona también justo después de soltar: el puño de fuego en vuelo con su columna
+		l.add(new Shot("hiken", mera(dev.opeope.power.mera.MeraActions.HIKEN_START), 4, new int[]{6, 16, 19, 24, 32}, new int[]{11, 16}));
 		l.add(new Shot("higan", mera(dev.opeope.power.mera.MeraActions.HIGAN), 6, new int[]{2, 5, 9, 14}, new int[]{4}));
 		l.add(new Shot("jujika", mera(dev.opeope.power.mera.MeraActions.JUJIKA), 6, new int[]{4, 10, 13, 18, 26}, new int[]{8}));
 		l.add(new Shot("kagero", mera(dev.opeope.power.mera.MeraActions.KAGERO_START), 8, new int[]{5, 14, 24}, new int[]{10}));
-		l.add(new Shot("entei", mera(dev.opeope.power.mera.MeraActions.ENTEI_START), -10, new int[]{12, 30, 44, 48, 54}, new int[]{26}));
+		l.add(new Shot("entei", mera(dev.opeope.power.mera.MeraActions.ENTEI_START), -10, new int[]{12, 30, 44, 48, 54}, new int[]{26, 44}));
 		l.add(new Shot("hotarubi", mera(dev.opeope.power.mera.MeraActions.HOTARUBI), 2, new int[]{6, 18, 34, 37, 44}, new int[]{14}));
 		l.add(new Shot("kyokaen", mera(dev.opeope.power.mera.MeraActions.KYOKAEN), 4, new int[]{4, 12, 26}, new int[]{8}));
 		l.add(new Shot("enjomo", mera(dev.opeope.power.mera.MeraActions.ENJOMO), 6, new int[]{6, 14, 30}, new int[]{10}));

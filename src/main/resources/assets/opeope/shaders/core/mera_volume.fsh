@@ -666,15 +666,14 @@ void main() {
     float tf = min(-b + h, tScene);
     if (tf <= tn) discard;
 
-    // con la cámara dentro del fuego (no solo cerca), se aclara para no tapar la vista
+    // con la cámara dentro del fuego (no solo cerca), lo que está pegado a ella se aclara: se ve el fuego
+    // alrededor, no una pared naranja (y lo que está lejos, como el puño al final de su estela, se ve entero)
     float dc; float Lc; float uc; vec3 nbc; vec3 nqc; float ampc;
     mf_shape(lro, VolInfo.x, VolPrm, VolTime, dc, Lc, uc, nbc, nqc, ampc);
     float inside = 1.0 - smoothstep(-0.25 * Lc, Lc * 0.8 + ampc, dc);
-    float inten = VolInfo.z * mix(1.0, 0.6, inside);
-    // dentro del fuego, lo que está pegado a la cámara se aclara: se ve el fuego alrededor, no una pared naranja
     float nearF = max(VolInfo.w, inside * 2.6);
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, inten, nearF);
+    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }
