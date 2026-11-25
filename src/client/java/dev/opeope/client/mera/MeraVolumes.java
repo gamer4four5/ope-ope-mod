@@ -234,8 +234,20 @@ public final class MeraVolumes {
 	private static final BlockPos.Mutable LPOS = new BlockPos.Mutable();
 
 	/** La luz que da cada forma: un segmento (o un aro) en sus coordenadas locales, con su alcance y su fuerza. */
+	private static boolean quiet;
+
+	/** Como {@link #add}, pero sin luz propia: para lo que Minecraft ya alumbra (un bloque de fuego). */
+	public static void addQuiet(int shape, Vec3d c, Vec3d dir, float p0, float p1, float p2, float p3, int seed, float intensity) {
+		quiet = true;
+		try {
+			add(shape, c, dir, p0, p1, p2, p3, seed, intensity);
+		} finally {
+			quiet = false;
+		}
+	}
+
 	private static void autoLight(int i, int shape, float p0, float p1, float p2, float intensity) {
-		if (!lights || nl >= MAXL) return;
+		if (!lights || quiet || nl >= MAXL) return;
 		float ax = 0, ay = 0, az = 0, bx = 0, by = 0, bz = 0, ring = 0, ringH = 0, range = 0, power = 0;
 		switch (shape) {
 			case FIREBALL -> {

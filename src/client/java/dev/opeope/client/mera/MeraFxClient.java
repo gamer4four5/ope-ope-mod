@@ -22,10 +22,14 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.texture.AbstractTexture;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import net.minecraft.block.Blocks;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import org.joml.Matrix4f;
@@ -439,6 +443,8 @@ public final class MeraFxClient {
 		// lo que arde (lo que quemó Ace, los zombis al sol): llamas en 3D en vez de las dos láminas de Minecraft
 		if (v3) emitBurning(mc, td, dt);
 		else burnIds = NO_IDS;
+		// y los bloques de fuego cercanos: llamas 3D delante de sus láminas pixeladas
+		if (v3) emitFireBlocks(mc);
 
 		simulate((float) dt);
 		boolean vols = MeraVolumes.count() > 0;
@@ -790,6 +796,95 @@ public final class MeraFxClient {
 			if (R.nextFloat() < dt * 2.5) smoke(p.x + rs() * w * 0.3, p.y + h * 1.25, p.z + rs() * w * 0.3, rs() * 0.15, 0.9, rs() * 0.15, 0.3f + w * 0.3f, 2.2f);
 		}
 		burnIds = ids;
+	}
+
+	// ------------------------------------------------------------------ los bloques de fuego, con llamas 3D
+
+	private static final int FB_MAX = 16, FB_RXZ = 14, FB_RY = 6, FB_SLICES = 6;
+	private static final double FB_RANGE = 22;
+	/** Los bloques de fuego vistos alrededor de la cámara (la última vuelta completa y lo que va saliendo). */
+	private static final LongOpenHashSet FB_SEEN = new LongOpenHashSet(), FB_SCAN = new LongOpenHashSet();
+	private static int fbSlice;
+	private static final BlockPos.Mutable FB_POS = new BlockPos.Mutable();
+	private static final long[] FB_PICK = new long[FB_MAX];
+	private static final double[] FB_D = new double[FB_MAX];
+
+	/**
+	 * Los bloques de fuego de Minecraft (los que dejan las técnicas al quemar el suelo) son láminas pixeladas: los más
+	 * cercanos llevan delante una llama 3D, del lado que mira a la cámara. Se buscan por partes (un trozo de la caja
+	 * alrededor de la cámara en cada fotograma) y no dan luz propia: el bloque ya alumbra.
+	 */
+	private static void emitFireBlocks(MinecraftClient mc) {
+		var w = mc.world;
+		int bx = MathHelper.floor(camX), by = MathHelper.floor(camY), bz = MathHelper.floor(camZ);
+		int span = 2 * FB_RXZ + 1;
+		int x0 = bx - FB_RXZ + fbSlice * span / FB_SLICES, x1 = bx - FB_RXZ + (fbSlice + 1) * span / FB_SLICES;
+		for (int x = x0; x < x1; x++) {
+			for (int z = bz - FB_RXZ; z <= bz + FB_RXZ; z++) {
+				for (int y = by - FB_RY; y <= by + FB_RY; y++) {
+					FB_POS.set(x, y, z);
+					if (w.getBlockState(FB_POS).isOf(Blocks.FIRE)) {
+						long l = FB_POS.asLong();
+						FB_SCAN.add(l);
+						FB_SEEN.add(l);
+					}
+				}
+			}
+		}
+		if (++fbSlice >= FB_SLICES) {
+			fbSlice = 0;
+			FB_SEEN.clear();
+			FB_SEEN.addAll(FB_SCAN);
+			FB_SCAN.clear();
+		}
+		if (FB_SEEN.isEmpty()) return;
+		// los más cercanos que siguen ardiendo
+		int found = 0;
+		double r2 = FB_RANGE * FB_RANGE;
+		LongIterator it = FB_SEEN.iterator();
+		while (it.hasNext()) {
+			long l = it.nextLong();
+			FB_POS.set(l);
+			if (!w.getBlockState(FB_POS).isOf(Blocks.FIRE)) {
+				it.remove();
+				continue;
+			}
+			double dx = FB_POS.getX() + 0.5 - camX, dy = FB_POS.getY() + 0.5 - camY, dz = FB_POS.getZ() + 0.5 - camZ;
+			double d2 = dx * dx + dy * dy + dz * dz;
+			if (d2 > r2) continue;
+			int k = Math.min(found, FB_MAX - 1);
+			if (found == FB_MAX && d2 >= FB_D[k]) continue;
+			while (k > 0 && FB_D[k - 1] > d2) {
+				FB_PICK[k] = FB_PICK[k - 1];
+				FB_D[k] = FB_D[k - 1];
+				k--;
+			}
+			FB_PICK[k] = l;
+			FB_D[k] = d2;
+			if (found < FB_MAX) found++;
+		}
+		for (int i = 0; i < found; i++) {
+			long l = FB_PICK[i];
+			FB_POS.set(l);
+			int x = FB_POS.getX(), y = FB_POS.getY(), z = FB_POS.getZ();
+			double cx = x + 0.5, cz = z + 0.5;
+			double tx = camX - cx, tz = camZ - cz, tl = Math.sqrt(tx * tx + tz * tz);
+			if (tl < 1e-3) {
+				tx = 0;
+				tz = 1;
+			} else {
+				tx /= tl;
+				tz /= tl;
+			}
+			// en el suelo, desde abajo; colgado de una pared (sin suelo), un poco más arriba y más pequeña
+			FB_POS.set(x, y - 1, z);
+			boolean floor = !w.getBlockState(FB_POS).isAir();
+			int seed = (int) (l ^ (l >>> 32)) * 31 + 7;
+			float hsh = ((seed * 0x9E3779B9) >>> 8) / 16777216f;
+			float hgt = (floor ? 1.1f : 0.8f) + 0.4f * hsh;
+			MeraVolumes.addQuiet(MeraVolumes.FLAME, new Vec3d(cx + tx * 0.42, y + (floor ? 0.0 : 0.2), cz + tz * 0.42), FWD,
+				floor ? 0.55f : 0.42f, hgt, 0, 0, seed, 0.85f);
+		}
 	}
 
 	// ------------------------------------------------------------------ el fuego 3D (volúmenes del shader)
@@ -1400,8 +1495,18 @@ public final class MeraFxClient {
 				return true;
 			}
 			case MeraFx.DASH -> {
-				if (age > f.dur + 0.25 || user == null) return false;
+				if (age > f.dur + 0.35 || user == null) return false;
 				Vec3d pos = user.getLerpedPos(td).add(0, 0.9, 0);
+				// la estela de fuego por donde pasó (desde donde arrancó, hasta 6 bloques) y que se apaga al acabar:
+				// antes era solo el tramo del último fotograma y con muchos FPS casi no se veía
+				if (vol() && !selfView(mc, user)) {
+					Vec3d back = f.a.add(0, 0.9, 0).subtract(pos);
+					float bl = (float) back.length();
+					if (bl > 0.6f) {
+						float fade = age <= f.dur ? 1f : (float) Math.max(0.0, 1.0 - (age - f.dur) / 0.35);
+						MeraVolumes.add(MeraVolumes.JET, pos, back.multiply(1.0 / bl), Math.min(bl, 6f), 0.45f, 0, 0, f.id * 31 + 5, 0.7f * fade);
+					}
+				}
 				if (age <= f.dur) {
 					// el cuerpo es un cometa de fuego
 					Vec3d dir = f.b.subtract(f.a);
@@ -1415,15 +1520,7 @@ public final class MeraFxClient {
 						else tongue(p.x + rs() * r, p.y + rs() * r, p.z + rs() * r, -dir.x * 6, -dir.y * 6, -dir.z * 6, 0.3f, 0.3f);
 					}
 					core(pos.x, pos.y, pos.z, 0, 0, 0, 0.55f, 0.06f);
-					if (vol() && !selfView(mc, user)) {
-						vol(MeraVolumes.FIST, pos, dir, 0.55f, 2.8f, 0, f, 1f);
-						// la estela: el tramo recorrido desde el fotograma anterior, para que se vea el rastro de fuego
-						Vec3d trail = from.subtract(pos);
-						float bl = (float) trail.length();
-						if (bl > 0.35f) {
-							MeraVolumes.add(MeraVolumes.JET, pos, trail.normalize(), Math.min(bl, 7f), 0.40f, 0, 0, f.id * 31 + 5, 0.6f);
-						}
-					}
+					if (vol() && !selfView(mc, user)) vol(MeraVolumes.FIST, pos, dir, 0.55f, 2.8f, 0, f, 1f);
 					f.last = pos;
 				} else if (f.acc2 == 0) {
 					// vuelve a tomar forma: las llamas se juntan en el cuerpo
