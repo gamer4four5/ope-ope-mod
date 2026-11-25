@@ -97,7 +97,8 @@ jobs:
           ls capturas/galeria | wc -l
           grep -E "AUTOTEST galería" galeria.log | tail -90 || true
       - name: Galería de la Mera Mera no Mi (capturas de cada técnica de Ace)
-        if: startsWith(github.ref_name, 'mera-') || contains(github.event.head_commit.message, '[galeria-mera]')
+        # también si falló alguna prueba de Law del cliente: la galería de Ace no depende de ellas
+        if: ${{ !cancelled() && (startsWith(github.ref_name, 'mera-') || contains(github.event.head_commit.message, '[galeria-mera]')) }}
         continue-on-error: true
         run: |
           export DISPLAY=:99
