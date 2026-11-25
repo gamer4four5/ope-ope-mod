@@ -108,6 +108,8 @@ public final class AutoTest {
 	public static final boolean GALLERY = Boolean.getBoolean("opeope.gallery");
 	/** Con -Dopeope.gallery.mera=true (./gradlew runMeraGalleryClient): la galería de la Mera Mera no Mi (Ace). */
 	public static final boolean MERA = GALLERY && Boolean.getBoolean("opeope.gallery.mera");
+	/** Con -Dopeope.gallery.noche=true la galería se hace a medianoche: el fuego también tiene que verse bien de noche. */
+	public static final boolean NIGHT = GALLERY && Boolean.getBoolean("opeope.gallery.noche");
 
 	private static BiConsumer<ServerPlayerEntity, PlayerPower> mera(int action) {
 		return (sp, pw) -> dev.opeope.power.mera.MeraPowers.handle(sp, pw, action, 0);
@@ -444,7 +446,8 @@ public final class AutoTest {
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
 		if (gallery == null) gallery = MERA ? meraShots() : galleryShots();
 		if (g == 0) {
-			mc.getWindow().setWindowedSize(1280, 720);
+			// -Dopeope.gallery.ancho y .alto: otro tamaño de ventana, para medir los fotogramas al tamaño de la pantalla
+			mc.getWindow().setWindowedSize(Integer.getInteger("opeope.gallery.ancho", 1280), Integer.getInteger("opeope.gallery.alto", 720));
 			if (!framesHooked) {
 				framesHooked = true;
 				net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents.END.register(ctx -> frames++);
@@ -688,7 +691,7 @@ public final class AutoTest {
 		int kind = MERA ? 3 : 1;
 		if (!dev.opeope.registry.ModAttachments.hasFruit(sp) || dev.opeope.registry.ModAttachments.getFruitKind(sp) != kind) PowerManager.grantFruit(sp, kind);
 		sp.changeGameMode(GameMode.CREATIVE);
-		w.setTimeOfDay(6000);
+		w.setTimeOfDay(NIGHT ? 18000 : 6000);
 		w.setWeather(20 * 600, 0, false, false);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_DAYLIGHT_CYCLE).set(false, srv);
 		w.getGameRules().get(net.minecraft.world.GameRules.DO_WEATHER_CYCLE).set(false, srv);

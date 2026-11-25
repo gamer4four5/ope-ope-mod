@@ -34,6 +34,10 @@ loom {
 			name "Mera Gallery Client"
 			programArgs "--quickPlaySingleplayer=Prueba"
 			vmArgs "-Xmx3G", "-Dopeope.autotest=true", "-Dopeope.gallery=true", "-Dopeope.gallery.mera=true"
+			// -Pnoche=true: la galería a medianoche. -Pancho=1920 -Palto=1080: la ventana a otro tamaño (para medir fotogramas)
+			if (project.hasProperty("noche")) vmArgs "-Dopeope.gallery.noche=true"
+			if (project.hasProperty("ancho")) vmArgs "-Dopeope.gallery.ancho=${project.ancho}"
+			if (project.hasProperty("alto")) vmArgs "-Dopeope.gallery.alto=${project.alto}"
 			runDir "run"
 		}
 	}
