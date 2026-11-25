@@ -2639,7 +2639,7 @@ public final class MeraFxClient {
 	/**
 	 * Primera persona: la llamarada de lo que atraviesa tu cuerpo. Va abajo en la pantalla (no tapa la mira): lo que te
 	 * cruza de lado (una flecha, el tajo de una espada) deja una estela de fuego en su mismo sentido; un golpe de frente,
-	 * una llama del lado por donde entró; una explosión o una caída, una llama mayor.
+	 * una llama del lado por donde entró; una caída, una llama mayor; una explosión, tres.
 	 */
 	private static void scatterSelf(Fx f, double age) {
 		float fade = (float) Math.max(0.0, 1.0 - age / SCATTER_SELF);
@@ -2654,14 +2654,25 @@ public final class MeraFxClient {
 			// (una lanza fina: el chorro, tan cerca de los ojos, llenaría media pantalla)
 			double run = easeOut(age / 0.14);
 			vol(MeraVolumes.LANCE, base.add(d.multiply(-0.3 + 0.4 * run)), d, 0.5f + 0.35f * (float) run, slash ? 0.06f : 0.08f, 0, f, 0.9f * fade);
+			// (pegado a los ojos se aclara: es un destello, no una pared de fuego)
+			MeraVolumes.nearFade(0.45f);
 		} else {
-			float big = f.style == MeraVoxelBody.BLAST ? 1.7f : f.style == MeraVoxelBody.FALL ? 1.3f : 1f;
-			float h = 0.34f * big;
-			// (la llama nace en su base: la punta queda justo debajo de la mira)
-			Vec3d c = base.add(right.multiply(MathHelper.clamp(-br, -1.0, 1.0) * 0.4)).add(0, 0.26 - h, 0);
-			MeraVolumes.add(MeraVolumes.FLAME, c, FWD, 0.1f * big, h, 0, 0, f.id * 31 + 17, 0.9f * fade);
+			boolean blast = f.style == MeraVoxelBody.BLAST;
+			float big = blast ? 1.5f : f.style == MeraVoxelBody.FALL ? 1.25f : 1f;
+			// (la llama nace en su base, justo por encima de los corazones: se ve entera, con la punta debajo de la mira.
+			// Antes la grande tenía la base por debajo de la pantalla y de una explosión solo asomaba la punta)
+			Vec3d c = base.add(right.multiply(MathHelper.clamp(-br, -1.0, 1.0) * (blast ? 0.22 : 0.4))).add(0, -0.08, 0);
+			scatterFlame(c, 0.14f * big, 0.25f + 0.1f * big, 0f, f.id * 31 + 17, fade);
+			if (blast) {
+				// una explosión te deshace medio cuerpo: otras dos llamas, más bajas, a los lados
+				scatterFlame(c.add(right.multiply(-0.42)), 0.13f, 0.3f, 0.35f, f.id * 31 + 18, fade);
+				scatterFlame(c.add(right.multiply(0.42)), 0.13f, 0.27f, 0.7f, f.id * 31 + 19, fade);
+			}
 		}
-		// (pegado a los ojos se aclara: es un destello, no una pared de fuego)
+	}
+
+	private static void scatterFlame(Vec3d c, float r, float h, float sway, int seed, float fade) {
+		MeraVolumes.add(MeraVolumes.FLAME, c, FWD, r, h, 0, sway, seed, 0.9f * fade);
 		MeraVolumes.nearFade(0.45f);
 	}
 
