@@ -81,6 +81,8 @@ public final class MeraVoxelBody {
 
 	/** Para las pruebas: texels quitados y texels partidos en el último dibujo de cada jugador. */
 	private static final Map<Integer, int[]> STATS = new HashMap<>();
+	/** Y los del dibujo con más texels quitados desde el último clear() (la prueba no depende de en qué fotograma mira). */
+	private static final Map<Integer, int[]> PEAK = new HashMap<>();
 
 	static double now() {
 		return System.nanoTime() / 1e9;
@@ -96,6 +98,7 @@ public final class MeraVoxelBody {
 		SOLID.clear();
 		GLOW.clear();
 		STATS.clear();
+		PEAK.clear();
 	}
 
 	public static boolean hasHoles(int entityId) {
@@ -107,6 +110,20 @@ public final class MeraVoxelBody {
 	public static int[] stats(int entityId) {
 		int[] s = STATS.get(entityId);
 		return s != null ? s.clone() : new int[2];
+	}
+
+	/** Lo mismo, del dibujo en que más texels se quitaron desde el último clear() (0, 0 si no se dibujó con huecos). */
+	public static int[] peak(int entityId) {
+		keepPeak(entityId);
+		int[] s = PEAK.get(entityId);
+		return s != null ? s.clone() : new int[2];
+	}
+
+	private static void keepPeak(int entityId) {
+		int[] s = STATS.get(entityId);
+		if (s == null) return;
+		int[] p = PEAK.get(entityId);
+		if (p == null || s[0] > p[0]) PEAK.put(entityId, s.clone());
 	}
 
 	// ------------------------------------------------------------------ abrir huecos
@@ -212,6 +229,7 @@ public final class MeraVoxelBody {
 			l.removeIf(h -> t >= h.end());
 			if (l.isEmpty()) {
 				HOLES.remove(e.getId());
+				keepPeak(e.getId());
 				STATS.remove(e.getId());
 				return base;
 			}
@@ -246,6 +264,7 @@ public final class MeraVoxelBody {
 			flushBase = base;
 			SOLID.clear();
 			GLOW.clear();
+			keepPeak(e.getId());
 			int[] stats = STATS.computeIfAbsent(e.getId(), k -> new int[2]);
 			stats[0] = 0;
 			stats[1] = 0;

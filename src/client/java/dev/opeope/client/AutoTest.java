@@ -132,11 +132,12 @@ public final class AutoTest {
 		l.add(new Shot("hibashira", mera(dev.opeope.power.mera.MeraActions.HIBASHIRA), 0, new int[]{8, 17, 22, 32}, new int[]{20}));
 		l.add(new Shot("impulso", mera(dev.opeope.power.mera.MeraActions.DASH), 0, new int[]{2, 5}, new int[]{3}));
 		l.add(new Shot("cuerpo", mera(dev.opeope.power.mera.MeraActions.BODY), 0, new int[]{6, 20}, new int[]{10, 30}));
-		// el cuerpo de cubitos: lo atraviesan una flecha, una espada, un golpe fuerte y una explosión. Capturas en tercera
-		// persona al abrirse (3), a medio cerrar (12) y cerrado (30)
-		l.add(new Shot("logia-flecha", (sp, pw) -> logiaArrow(sp), 0, new int[]{4}, new int[]{3, 12, 30}));
-		l.add(new Shot("logia-espada", (sp, pw) -> logiaHit(sp, new ItemStack(Items.IRON_SWORD), 6f), 0, new int[]{4}, new int[]{3, 12, 30}));
-		l.add(new Shot("logia-golpe", (sp, pw) -> logiaHit(sp, ItemStack.EMPTY, 12f), 0, new int[]{4}, new int[]{3, 12, 30}));
+		// el cuerpo de cubitos: lo atraviesan una flecha, una espada, un golpe fuerte y una explosión. Primero la captura en
+		// primera persona (4: la llamarada de abajo en la pantalla dura menos de medio segundo, y la cola va una captura
+		// por fotograma) y después las de tercera persona: abierto (5), a medio cerrar (12) y cerrado (30)
+		l.add(new Shot("logia-flecha", (sp, pw) -> logiaArrow(sp), 0, new int[]{4}, new int[]{5, 12, 30}));
+		l.add(new Shot("logia-espada", (sp, pw) -> logiaHit(sp, new ItemStack(Items.IRON_SWORD), 6f), 0, new int[]{4}, new int[]{5, 12, 30}));
+		l.add(new Shot("logia-golpe", (sp, pw) -> logiaHit(sp, ItemStack.EMPTY, 12f), 0, new int[]{4}, new int[]{5, 12, 30}));
 		l.add(new Shot("logia-explosion", (sp, pw) -> {
 			boolean inv = sp.getAbilities().invulnerable;
 			sp.getAbilities().invulnerable = false;
@@ -144,7 +145,7 @@ public final class AutoTest {
 			sp.getServerWorld().createExplosion(null, sp.getX() + Math.cos(yaw) * 1.6, sp.getY() + 0.8, sp.getZ() + Math.sin(yaw) * 1.6, 2.5f,
 				net.minecraft.world.World.ExplosionSourceType.NONE);
 			sp.getAbilities().invulnerable = inv;
-		}, 0, new int[]{4}, new int[]{3, 12, 30}));
+		}, 0, new int[]{4}, new int[]{5, 12, 30}));
 		// la fuerza: un Hiken de un toque tumba a un zombi con armadura de hierro, y el fuego de Ace no quema a su lobo
 		l.add(new Shot("fuerza", AutoTest::fuerzaSetup, 4, new int[]{12}, new int[]{}));
 		return l;
@@ -243,12 +244,12 @@ public final class AutoTest {
 		MinecraftClient mc = MinecraftClient.getInstance();
 		if (mc.player == null) return;
 		int id = mc.player.getId();
-		if (r == 8 + 5) {
-			int[] s = dev.opeope.client.mera.MeraVoxelBody.stats(id);
+		if (r == 8 + 30) {
+			// (el dibujo con el hueco más abierto de toda la escena: en primera persona el cuerpo solo se dibuja en las
+			// capturas de fuera, y en la CI salen tarde; mirar el dibujo de un tick fijo fallaba allí con 0 de 0)
+			int[] s = dev.opeope.client.mera.MeraVoxelBody.peak(id);
 			OpeOpeMod.LOG.info("AUTOTEST cubitos {}: {} texels quitados de {} partidos", name, s[0], s[1]);
 			check(s[0] > 0 && s[0] < s[1], "cubitos " + name + ": se abre un hueco (texels quitados, no todos)", s[0] + " de " + s[1]);
-		}
-		if (r == 8 + 30) {
 			check(!dev.opeope.client.mera.MeraVoxelBody.hasHoles(id), "cubitos " + name + ": al segundo y medio el cuerpo vuelve a estar entero",
 				"sigue con huecos");
 		}
