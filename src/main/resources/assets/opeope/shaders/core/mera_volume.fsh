@@ -451,7 +451,7 @@ vec3 mf_bands(float t)
 
 // ---------------------------------------------------------------------
 vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
-              float shape, vec4 prm, float time, float seed, float intensity, float nearFade)
+              float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float thin)
 {
     float flash = clamp(intensity - 1.0, 0.0, 1.0);   // destello del golpe
     intensity = clamp(intensity, 0.0, 1.0);
@@ -587,7 +587,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             dens *= mix(1.0, mix(0.10, 0.22, smoke), tip);
             smoke = max(smoke, smokeX);
 
-            float sigma = dens * intensity * 2.8 / L;
+            float sigma = dens * intensity * 2.8 / L * thin;
             float aE = 1.0 - exp(-sigma * stepIn);
             // la masa caliente tapa lo de detrás; la llama fina y fría sobre todo brilla (transparente)
             float aA = aE * mix(mix(0.30, 0.70, massy * (1.0 - w)), 1.0, smoothstep(0.12, 0.50, temp));
@@ -696,9 +696,14 @@ void main() {
     float dc; float Lc; float uc; vec3 nbc; vec3 nqc; float ampc;
     mf_shape(lro, VolInfo.x, VolPrm, VolTime, dc, Lc, uc, nbc, nqc, ampc);
     float inside = 1.0 - smoothstep(-0.25 * Lc, Lc * 0.8 + ampc, dc);
-    float nearF = max(VolInfo.w, inside * 2.6);
+    // dentro de una bola grande (la explosión de Entei) el hueco crece con ella: el fuego se ve alrededor, a unos
+    // bloques, y no como una pared amarilla pegada a la cara
+    float ballR = (VolInfo.x < 0.5) ? max(VolPrm.x, 0.05) : 0.0;
+    float nearF = max(VolInfo.w, inside * max(2.6, 0.7 * ballR));
+    // y desde dentro se ve a través (bruma de fuego): se sigue viendo el mundo, no una pantalla amarilla
+    float thin = mix(1.0, 0.35, inside * smoothstep(3.0, 7.0, ballR));
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF);
+    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }

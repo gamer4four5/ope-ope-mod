@@ -436,6 +436,9 @@ public final class MeraFxClient {
 			int hidden = MeraAnim.hiddenParts(pl.getId());
 			if (hidden != 0 && !MeraAnim.dashing(pl.getId())) emitHiddenParts(mc, pl, hidden, td, dt, density);
 		}
+		// lo que arde (lo que quemó Ace, los zombis al sol): llamas en 3D en vez de las dos láminas de Minecraft
+		if (v3) emitBurning(mc, td, dt);
+		else burnIds = NO_IDS;
 
 		simulate((float) dt);
 		boolean vols = MeraVolumes.count() > 0;
@@ -688,6 +691,105 @@ public final class MeraFxClient {
 		int n = (int) f.acc;
 		f.acc -= n;
 		return n;
+	}
+
+	// ------------------------------------------------------------------ el fuego de Minecraft, con el fuego 3D
+
+	private static final int[] NO_IDS = new int[0];
+	/** Los seres que este fotograma arden con llamas 3D: a esos Minecraft no les pone sus láminas de fuego. */
+	private static volatile int[] burnIds = NO_IDS;
+	private static final int BURN_MAX = 8;
+	private static final double BURN_RANGE = 32;
+	private static final Entity[] BURN = new Entity[BURN_MAX];
+	private static final double[] BURN_D = new double[BURN_MAX];
+
+	/** Para el render de entidades (Entity#doesRenderOnFire): ¿este ya arde en 3D? */
+	public static boolean burns3D(Entity e) {
+		int[] ids = burnIds;
+		if (ids.length == 0 || e.getWorld() == null || !e.getWorld().isClient()) return false;
+		int id = e.getId();
+		for (int k : ids) if (k == id) return true;
+		return false;
+	}
+
+	/**
+	 * El humo de los bloques de fuego (AbstractFireBlock#randomDisplayTick): Minecraft lo pinta con cuadraditos negros
+	 * que suben; con el fuego 3D, humo suave del color que da la luz del sitio. Devuelve false si debe salir el de
+	 * Minecraft.
+	 */
+	public static boolean fireSmoke(double x, double y, double z) {
+		if (!vol()) return false;
+		// de cada tres soplos, uno; y si hay muchas llamas en el aire, ninguno (antes que quitarle sitio a una técnica)
+		if (count > MAX * 0.6f || R.nextFloat() < 0.62f) return true;
+		smoke(x, y, z, rs() * 0.12, 0.55 + R.nextFloat() * 0.35, rs() * 0.12, 0.32f + R.nextFloat() * 0.25f, 2.4f + R.nextFloat() * 1.4f);
+		return true;
+	}
+
+	/** Llamas 3D en los seres que arden cerca (los más cercanos), del tamaño de cada uno, y un hilo de humo encima. */
+	private static void emitBurning(MinecraftClient mc, float td, double dt) {
+		int found = 0;
+		double r2 = BURN_RANGE * BURN_RANGE;
+		Entity cam = mc.getCameraEntity();
+		boolean firstPerson = mc.options.getPerspective().isFirstPerson();
+		for (Entity e : mc.world.getEntities()) {
+			if (!(e instanceof LivingEntity) || !e.isOnFire() || e.isSpectator() || e.isInvisible()) continue;
+			if (e == cam && firstPerson) continue;
+			double d2 = e.squaredDistanceTo(camX, camY, camZ);
+			if (d2 > r2) continue;
+			// los más cercanos primero (inserción en una lista corta)
+			int k = Math.min(found, BURN_MAX - 1);
+			if (found == BURN_MAX && d2 >= BURN_D[k]) continue;
+			while (k > 0 && BURN_D[k - 1] > d2) {
+				BURN[k] = BURN[k - 1];
+				BURN_D[k] = BURN_D[k - 1];
+				k--;
+			}
+			BURN[k] = e;
+			BURN_D[k] = d2;
+			if (found < BURN_MAX) found++;
+		}
+		if (found == 0) {
+			burnIds = NO_IDS;
+			return;
+		}
+		int[] ids = new int[found];
+		for (int i = 0; i < found; i++) {
+			Entity e = BURN[i];
+			BURN[i] = null;
+			ids[i] = e.getId();
+			Vec3d p0 = e.getLerpedPos(td);
+			float w = Math.max(0.3f, e.getWidth()), h = Math.max(0.3f, e.getHeight());
+			int seed = e.getId() * 7919 + 17;
+			float rad = MathHelper.clamp(w * 0.75f, 0.32f, 1.6f);
+			// el cuerpo del ser tapa lo que arde dentro de él (está en la profundidad): las llamas van hacia el lado que
+			// mira a la cámara, como las láminas de Minecraft, pero con volumen
+			double tx = camX - p0.x, tz = camZ - p0.z, tl = Math.sqrt(tx * tx + tz * tz);
+			if (tl < 1e-3) {
+				tx = 0;
+				tz = 1;
+			} else {
+				tx /= tl;
+				tz /= tl;
+			}
+			Vec3d p = p0.add(tx * w * 0.55, 0, tz * w * 0.55);
+			// la llama grande desde los pies, más alta que el ser
+			MeraVolumes.add(MeraVolumes.FLAME, p, FWD, rad, h * 1.3f + 0.45f, 0, 0, seed, 0.92f);
+			double a = (seed % 628) / 100.0;
+			if (h > 1.2f) {
+				// los altos (zombis, jugadores): otra lengua desde el pecho, un poco a un lado
+				Vec3d q = p.add(Math.cos(a) * w * 0.3, h * 0.45, Math.sin(a) * w * 0.3);
+				MeraVolumes.add(MeraVolumes.FLAME, q, FWD, rad * 0.72f, h * 0.85f, 0, 0, seed + 1, 0.85f);
+			}
+			if (w > 0.85f) {
+				// los anchos (cerdos, vacas): dos lenguas más, a los lados
+				double sx = -tz * w * 0.42, sz = tx * w * 0.42;
+				MeraVolumes.add(MeraVolumes.FLAME, p.add(sx, h * 0.15, sz), FWD, rad * 0.62f, h * 1.1f + 0.25f, 0, 0, seed + 2, 0.8f);
+				MeraVolumes.add(MeraVolumes.FLAME, p.add(-sx, h * 0.15, -sz), FWD, rad * 0.62f, h * 1.1f + 0.25f, 0, 0, seed + 3, 0.8f);
+			}
+			// y lo que arde echa humo
+			if (R.nextFloat() < dt * 2.5) smoke(p.x + rs() * w * 0.3, p.y + h * 1.25, p.z + rs() * w * 0.3, rs() * 0.15, 0.9, rs() * 0.15, 0.3f + w * 0.3f, 2.2f);
+		}
+		burnIds = ids;
 	}
 
 	// ------------------------------------------------------------------ el fuego 3D (volúmenes del shader)
@@ -1177,10 +1279,13 @@ public final class MeraFxClient {
 				if (f.ended || age > f.dur || user == null) return false;
 				float r = 1f + 5f * (float) Math.min(1.0, age / 3.5);
 				Vec3d base = user.getLerpedPos(td);
-				Vec3d sun = base.add(0, user.getHeight() + 1.2 + r, 0);
+				// la misma altura que MeraPowers.sunPos
+				Vec3d sun = base.add(0, user.getHeight() + 1.6 + r * 1.15, 0);
 				sun(f, sun, r, dt, density, now, false);
 				if (vol()) {
 					vol(MeraVolumes.FIREBALL, sun, FWD, r, 0, 0, f, 1f);
+					// en primera persona, las llamas que cuelgan del sol no se pegan a la cara
+					if (selfView(mc, user)) MeraVolumes.nearFade(2.2f);
 					Vec3d hh = hand(mc, user, 1, td);
 					Vec3d to = sun.subtract(hh);
 					double L = to.length() - r * 0.7;

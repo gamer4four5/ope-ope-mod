@@ -317,18 +317,46 @@ public final class AutoTest {
 	private static void farCameraMove(MinecraftClient mc) {
 		if (mc.player == null || mc.world == null) return;
 		Vec3d p = mc.player.getPos();
-		double yaw = Math.toRadians(mc.player.getYaw());
-		// detrás del jugador y un poco en alto, mirándolo (la tercera persona añade sus 4 bloques)
-		Vec3d c = p.add(Math.sin(yaw) * farBack, farUp, -Math.cos(yaw) * farBack);
-		Vec3d to = p.add(0, 1.2, 0).subtract(c);
-		float yawTo = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
-		float pitchTo = (float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)));
 		if (farStand == null || farStand.getWorld() != mc.world) {
-			farStand = new net.minecraft.entity.decoration.ArmorStandEntity(mc.world, c.x, c.y, c.z);
+			farStand = new net.minecraft.entity.decoration.ArmorStandEntity(mc.world, p.x, p.y, p.z);
 			farStand.setInvisible(true);
 			farStand.setNoGravity(true);
 			farStand.noClip = true;
 		}
+		double eyeH = farStand.getEyeY() - farStand.getY();
+		Vec3d head = p.add(0, 1.2, 0);
+		double yaw = Math.toRadians(mc.player.getYaw());
+		// detrás del jugador y un poco en alto, mirándolo (la tercera persona añade sus 4 bloques). Si por ahí hay un
+		// árbol o una pared, se prueba un poco a los lados y más alto: antes la cámara acababa dentro de las hojas.
+		Vec3d eye = null;
+		double bestFree = -1;
+		outer:
+		for (double up : new double[] {farUp, farUp + 2.5, farUp + 5}) {
+			for (double off : new double[] {0, 30, -30, 60, -60}) {
+				double a = yaw + Math.toRadians(off);
+				Vec3d e = p.add(Math.sin(a) * farBack, up + eyeH, -Math.cos(a) * farBack);
+				Vec3d dir = e.subtract(head);
+				double len = dir.length();
+				dir = dir.multiply(1.0 / len);
+				Vec3d end = head.add(dir.multiply(len + 4.6));
+				net.minecraft.util.hit.BlockHitResult hit = mc.world.raycast(new net.minecraft.world.RaycastContext(head, end,
+					net.minecraft.world.RaycastContext.ShapeType.OUTLINE, net.minecraft.world.RaycastContext.FluidHandling.NONE, mc.player));
+				double free = hit.getType() == net.minecraft.util.hit.HitResult.Type.MISS ? len + 4.6 : hit.getPos().distanceTo(head);
+				if (free >= len + 4.5) {
+					eye = e;
+					break outer;
+				}
+				if (free > bestFree) {
+					bestFree = free;
+					// lo más lejos que cabe: la cámara queda medio bloque antes de lo que la tapa
+					eye = head.add(dir.multiply(Math.max(1.5, free - 4.6 - 0.5)));
+				}
+			}
+		}
+		Vec3d c = eye.subtract(0, eyeH, 0);
+		Vec3d to = head.subtract(eye);
+		float yawTo = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
+		float pitchTo = (float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)));
 		farStand.refreshPositionAndAngles(c.x, c.y, c.z, yawTo, pitchTo);
 		farStand.prevYaw = yawTo;
 		farStand.prevPitch = pitchTo;

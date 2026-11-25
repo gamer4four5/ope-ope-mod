@@ -71,6 +71,33 @@ dependencies {
 	if (project.hasProperty("iris")) modRuntimeOnly "maven.modrinth:iris:${project.iris}"
 }
 
+// Iris trae dentro sus librerías (jcpp, glsl-transformer, antlr) como jars anidados, y en el entorno de desarrollo
+// nadie las saca: al cargar el shaderpack faltaba org.anarres.cpp.PreprocessorListener y Photon no arrancaba.
+// Aquí se sacan del jar de Iris y se ponen en el classpath de la prueba.
+configurations {
+	irisNested
+}
+if (project.hasProperty("iris")) {
+	dependencies {
+		irisNested("maven.modrinth:iris:${project.iris}") { transitive = false }
+	}
+	def irisLibsDir = layout.buildDirectory.dir("iris-libs").get().asFile
+	def unpackIrisLibs = tasks.register("unpackIrisLibs", Copy) {
+		from({ configurations.irisNested.collect { zipTree(it) } }) {
+			include "META-INF/jars/*.jar"
+			exclude "META-INF/jars/fabric-*.jar"   // las piezas de Fabric API ya están
+			eachFile { it.path = it.name }
+		}
+		includeEmptyDirs = false
+		into irisLibsDir
+	}
+	def irisLibs = files({ fileTree(irisLibsDir).matching { include "*.jar" }.files })
+	irisLibs.builtBy(unpackIrisLibs)
+	dependencies {
+		runtimeOnly irisLibs
+	}
+}
+
 processResources {
 	inputs.property "version", project.version
 	filesMatching("fabric.mod.json") {

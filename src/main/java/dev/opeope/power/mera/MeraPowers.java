@@ -382,8 +382,9 @@ public final class MeraPowers {
 		return 1.0f + 5.0f * k;
 	}
 
+	/** Dónde flota el sol mientras se carga: bien alto, para que su borde de llamas no le tape la vista a Ace. */
 	static Vec3d sunPos(ServerPlayerEntity p, float radius) {
-		return p.getPos().add(0, p.getHeight() + 1.2 + radius, 0);
+		return p.getPos().add(0, p.getHeight() + 1.6 + radius * 1.15, 0);
 	}
 
 	private static void enteiRelease(ServerPlayerEntity p, PlayerPower pw, MeraState st) {

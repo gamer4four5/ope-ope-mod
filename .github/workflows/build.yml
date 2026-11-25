@@ -153,7 +153,8 @@ jobs:
           echo "photon: $URL"
           curl -fsSL -o "run/shaderpacks/$PACK" "$URL"
           printf 'enableShaders=true\nshaderPack=%s\n' "$PACK" > run/config/iris.properties
-          timeout 900 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" > galeria-mera-iris.log 2>&1
+          # con Photon el procesador dibuja muy despacio (no hay tarjeta gráfica): más margen
+          timeout 1800 ./gradlew runMeraGalleryClient --console=plain "-Psodium=$SODIUM" "-Piris=$IRIS" > galeria-mera-iris.log 2>&1
           echo "exit=$?"
           for f in run/screenshots/autotest-mera-*.png; do
             [ -f "$f" ] || continue
