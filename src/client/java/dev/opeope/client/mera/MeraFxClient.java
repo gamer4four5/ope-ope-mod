@@ -1693,7 +1693,7 @@ public final class MeraFxClient {
 			case MeraFx.HIKEN_CHARGE -> {
 				if (f.ended || age > f.dur || user == null) return false;
 				// el puño se envuelve en fuego que crece con la carga
-				float k = (float) Math.min(1.0, age / 1.5);
+				float k = (float) Math.min(1.0, age / (MeraTechs.HIKEN_FULL / 20.0));
 				Vec3d h = hand(mc, user, 1, td);
 				Vec3d sh = shoulder(user, 1, td);
 				int n = many(f, (90 + 320 * k) * density, dt);
@@ -1810,10 +1810,10 @@ public final class MeraFxClient {
 			}
 			case MeraFx.ENTEI_CHARGE -> {
 				if (f.ended || age > f.dur || user == null) return false;
-				float r = 1f + 5f * (float) Math.min(1.0, age / 3.5);
+				// el mismo tamaño y la misma altura que en el servidor (MeraPowers.sunRadius y sunPos)
+				float r = MeraTechs.sunRadius((float) (age / (MeraTechs.ENTEI_FULL / 20.0)));
 				Vec3d base = user.getLerpedPos(td);
-				// la misma altura que MeraPowers.sunPos
-				Vec3d sun = base.add(0, user.getHeight() + 1.6 + r * 1.15, 0);
+				Vec3d sun = base.add(0, MeraTechs.sunHeight(user.getHeight(), r), 0);
 				sun(f, sun, r, dt, density, now, false);
 				if (vol()) {
 					// (w = 2: un sol, con el centro casi blanco y más resplandor; no la bola anaranjada de una explosión)
@@ -1927,6 +1927,8 @@ public final class MeraFxClient {
 				if (f.ended || age > f.dur + 0.1 || user == null) return false;
 				Vec3d h = hand(mc, user, 1, td);
 				Vec3d dir = user.getRotationVec(td);
+				// el chorro llega hasta donde quema en el servidor (kr: lo que ha crecido respecto a los 11 bloques de antes)
+				double kr = MeraTechs.KAGERO_REACH / 11.0;
 				if (vol()) {
 					float grow = easeOut(age / 0.18);
 					if (selfView(mc, user)) {
@@ -1934,25 +1936,25 @@ public final class MeraFxClient {
 						// pantalla en diagonal como un lanzallamas (si fuese recto delante de los ojos se vería como una bola)
 						Vec3d start = new Vec3d(camX + fx * 0.85 + rx * 0.42 - ux * 0.40, camY + fy * 0.85 + ry * 0.42 - uy * 0.40,
 							camZ + fz * 0.85 + rz * 0.42 - uz * 0.40);
-						Vec3d aim = new Vec3d(camX, camY, camZ).add(dir.multiply(0.6 + 8.8 * grow));
+						Vec3d aim = new Vec3d(camX, camY, camZ).add(dir.multiply(0.6 + 8.8 * kr * grow));
 						Vec3d jd = aim.subtract(start);
 						vol(MeraVolumes.JET, start, jd, (float) jd.length(), 1.9f, 0, f, 1f);
 						MeraVolumes.nearFade(0.9f);
 					} else {
-						vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.9f, 0, f, 1f);
+						vol(MeraVolumes.JET, h, dir, (float) (9.5 * kr) * grow, 2.2f, 0, f, 1f);
 					}
 				}
 				int n = many(f, 620 * density, dt);
 				for (int i = 0; i < n; i++) {
 					double spread = 0.16;
-					Vec3d v = dir.add(rs() * spread, rs() * spread, rs() * spread).normalize().multiply(14 + R.nextDouble() * 6);
+					Vec3d v = dir.add(rs() * spread, rs() * spread, rs() * spread).normalize().multiply((14 + R.nextDouble() * 6) * kr);
 					double o = R.nextDouble() * 0.4;
 					float life = 0.42f + R.nextFloat() * 0.25f;
 					if (R.nextFloat() < 0.6f) fire(h.x + v.x * o * 0.05, h.y + v.y * o * 0.05, h.z + v.z * o * 0.05, v.x, v.y, v.z, 0.16f + R.nextFloat() * 0.14f, life);
 					else tongue(h.x, h.y, h.z, v.x, v.y, v.z, 0.2f, life * 0.9f);
 				}
 				if (R.nextFloat() < dt * 40) glow(h.x, h.y, h.z, 0, 0, 0, 0.7f, 0.12f, 1f, 0.75f, 0.35f);
-				if (R.nextFloat() < dt * 25) smoke(h.x + dir.x * 8, h.y + dir.y * 8 + 0.5, h.z + dir.z * 8, dir.x * 2, 1, dir.z * 2, 0.6f, 1.4f);
+				if (R.nextFloat() < dt * 25) smoke(h.x + dir.x * 8 * kr, h.y + dir.y * 8 * kr + 0.5, h.z + dir.z * 8 * kr, dir.x * 2, 1, dir.z * 2, 0.6f, 1.4f);
 				return true;
 			}
 			case MeraFx.DASH -> {
@@ -2733,7 +2735,7 @@ public final class MeraFxClient {
 		float heat = 0f;
 		for (Fx f : FX) {
 			if (f.kind == MeraFx.ENTEI_CHARGE && !f.ended && f.userId == mc.player.getId()) {
-				heat = Math.max(heat, (float) Math.min(1.0, f.age(now) / 3.5));
+				heat = Math.max(heat, (float) Math.min(1.0, f.age(now) / (MeraTechs.ENTEI_FULL / 20.0)));
 			}
 		}
 		if (heat > 0.02f) {

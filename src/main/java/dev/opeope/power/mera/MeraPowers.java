@@ -32,6 +32,8 @@ import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.ElderGuardianEntity;
 import net.minecraft.entity.mob.WardenEntity;
+import net.minecraft.entity.passive.AbstractHorseEntity;
+import net.minecraft.entity.passive.TameableEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ProjectileEntity;
 import net.minecraft.item.ItemStack;
@@ -55,9 +57,12 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.GameRules;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
+import net.minecraft.world.explosion.Explosion;
+import net.minecraft.world.explosion.ExplosionBehavior;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -85,8 +90,39 @@ public final class MeraPowers {
 
 	public static final int KIND = 3;
 
-	static final int HIKEN_FULL = 30, ENTEI_FULL = 70, KAGERO_MAX = 34, DASH_TICKS = 6;
+	static final int HIKEN_FULL = MeraTechs.HIKEN_FULL, ENTEI_FULL = MeraTechs.ENTEI_FULL, KAGERO_MAX = 40, DASH_TICKS = 6;
+	/** Hikyaku: cuántos impulsos seguidos en el aire antes de tocar el suelo. */
+	static final int HIKYAKU_AIR = 3;
 	private static final Identifier LOGIA_BLAST_ID = OpeOpeMod.id("mera_logia_blast");
+
+	// --- la fuerza del fuego. El daño va en puntos de vida (20 = un jugador o un zombi) y salta la armadura: una coraza
+	// no para el fuego de Ace (opeope:mera está en bypasses_armor, como el Gamma Knife de Law y la gravedad).
+
+	/** Cada rango de maestría (la recompensa) aviva el fuego un 15 %: hasta +60 %. */
+	private static final float MIGHT_PER_TIER = 0.15f;
+	/** Lo que ya es de fuego (blazes, cubos de magma, casi todo el Nether) aguanta mejor, pero también se quema. */
+	private static final float FIRE_IMMUNE = 0.6f;
+	/**
+	 * Hiken: desde esta carga (0,35 es un toque y 1 la carga completa) el puño revienta el terreno donde pega y se lleva
+	 * por delante la madera. Por debajo solo aparta hojas, lana y hierba.
+	 */
+	private static final float HIKEN_HEAVY = 0.6f;
+
+	/**
+	 * Las explosiones de la fruta rompen y empujan como las de Minecraft, pero el daño lo pone el fuego (areaBurn), no la
+	 * onda, y no se llevan por delante cofres ni nada que guarde cosas.
+	 */
+	private static final ExplosionBehavior BLAST_ONLY = new ExplosionBehavior() {
+		@Override
+		public boolean shouldDamage(Explosion explosion, Entity entity) {
+			return false;
+		}
+
+		@Override
+		public boolean canDestroyBlock(Explosion explosion, BlockView world, BlockPos pos, BlockState state, float power) {
+			return !state.hasBlockEntity();
+		}
+	};
 
 	private static final Map<UUID, MeraState> STATES = new HashMap<>();
 	private static final List<Shot> SHOTS = new ArrayList<>();
@@ -238,9 +274,15 @@ public final class MeraPowers {
 			if (!world.isClient && player instanceof ServerPlayerEntity sp && isMera(sp) && !sp.isSpectator()
 				&& sp.getMainHandStack().isEmpty() && entity instanceof LivingEntity le && le.isAlive()) {
 				MeraState st = state(sp);
-				// los puños de Ace arden: el golpe normal prende al que lo recibe
-				if (!sp.isTouchingWater()) {
-					le.setOnFireFor(st.fireBody ? 6f : 3f);
+				// los puños de Ace arden: el golpe con la mano vacía quema de verdad y empuja (más con el golpe cargado,
+				// como cualquier golpe de Minecraft, y más todavía con el Cuerpo de llamas)
+				if (!sp.isTouchingWater() && !(le instanceof ArmorStandEntity)) {
+					float full = MathHelper.clamp(sp.getAttackCooldownProgress(0.5f), 0.25f, 1f);
+					Vec3d look = sp.getRotationVec(1f);
+					hurt(le, sp, (st.fireBody ? 9f : 6f) * full, st.fireBody ? 8f : 5f);
+					double kb = (st.fireBody ? 0.75 : 0.45) * full;
+					le.addVelocity(look.x * kb, 0.1 + kb * 0.25, look.z * kb);
+					le.velocityModified = true;
 					Vec3d at = le.getPos().add(0, le.getHeight() * 0.6, 0);
 					send(sp.getServerWorld(), MeraFx.PUNCH, sp.getId(), 0, at, sp.getRotationVec(1f), 0.8f, st.fireBody ? 1.4f : 1f, 8, 0);
 					snd(sp.getServerWorld(), at, SoundEvents.ITEM_FIRECHARGE_USE, 0.5f, 1.5f);
@@ -303,11 +345,7 @@ public final class MeraPowers {
 		scatter(sp, st, attacker != null && attacker != sp ? attacker : direct, blast);
 		// quien golpea con la mano a un cuerpo de fuego se quema
 		if (attacker instanceof LivingEntity le && attacker != sp && attacker == direct && le.squaredDistanceTo(sp) < 25) {
-			le.setOnFireFor(st.fireBody ? 6f : 2f);
-			if (st.fireBody) {
-				le.timeUntilRegen = 0;
-				le.damage(burn(sp), 2.5f);
-			}
+			hurt(le, sp, st.fireBody ? 7f : 3f, st.fireBody ? 8f : 4f);
 		}
 		return false;
 	}
@@ -405,9 +443,36 @@ public final class MeraPowers {
 		return false;
 	}
 
+	/** Pone la espera de una técnica. La maestría (la recompensa) la acorta igual que en las demás frutas: hasta el 55 %. */
 	private static void cool(PlayerPower pw, Tech t, int ticks) {
-		pw.cooldowns[t.ordinal()] = pw.freeMode ? 0 : ticks;
+		double mul = Math.max(0.55, 1.0 - 0.10 * pw.masteryTier());
+		pw.cooldowns[t.ordinal()] = pw.freeMode ? 0 : Math.max(1, (int) Math.round(ticks * mul));
 		pw.dirty = true;
+	}
+
+	/** Lo que la maestría aviva el fuego de este jugador (1 sin recompensa … 1,6 con la más alta). */
+	private static float might(ServerPlayerEntity owner) {
+		PlayerPower pw = PowerManager.peek(owner.getUuid());
+		return 1f + MIGHT_PER_TIER * (pw != null ? pw.masteryTier() : 0);
+	}
+
+	/**
+	 * Quema a alguien con el fuego de Ace y lo deja ardiendo (fire, en segundos): el daño entra entero aunque acabe de
+	 * recibir otro golpe, y crece con la maestría.
+	 */
+	private static boolean hurt(LivingEntity le, ServerPlayerEntity owner, float dmg, float fire) {
+		if (spared(owner, le)) return false;
+		if (fire > 0) le.setOnFireFor(fire);
+		le.timeUntilRegen = 0;
+		return le.damage(burn(owner), dmg * might(owner) * (le.isFireImmune() ? FIRE_IMMUNE : 1f));
+	}
+
+	/** A quién no quema su fuego: sus mascotas, lo que monta y quien juega en creativo o solo mira. */
+	private static boolean spared(ServerPlayerEntity owner, Entity e) {
+		if (e instanceof PlayerEntity pl) return pl.isCreative() || pl.isSpectator();
+		if (e == owner.getVehicle() || e.getVehicle() == owner) return true;
+		if (e instanceof TameableEntity t) return owner.getUuid().equals(t.getOwnerUuid());
+		return e instanceof AbstractHorseEntity h && owner.getUuid().equals(h.getOwnerUuid());
 	}
 
 	private static boolean wetBlock(ServerPlayerEntity p, MeraState st) {
@@ -445,12 +510,14 @@ public final class MeraPowers {
 		float k = 0.35f + 0.65f * Math.min(1f, st.hikenCharge / (float) HIKEN_FULL);
 		Vec3d dir = p.getRotationVec(1f);
 		Vec3d start = hand(p, 1).add(dir.multiply(0.6));
-		double radius = 1.0 + 1.7 * k;
-		double speed = 2.0 + 0.9 * k;
-		int life = (int) (22 + 20 * k);
-		Shot s = new Shot(Shot.HIKEN, p, start, dir.multiply(speed), radius, 8f + 14f * k, life);
+		// un toque ya tumba a un zombi; cargado, es una columna de fuego de más de seis bloques de ancho
+		double radius = 1.3 + 2.0 * k;
+		double speed = 2.3 + 1.0 * k;
+		int life = (int) (20 + 16 * k);
+		Shot s = new Shot(Shot.HIKEN, p, start, dir.multiply(speed), radius, 22f + 26f * k, life);
 		s.power = k;
 		s.pierce = 99;
+		s.burnBudget = (int) (60 + 260 * k);
 		SHOTS.add(s);
 		send(w, MeraFx.HIKEN_SHOT, p.getId(), s.id, start, s.vel, (float) radius, k, life, 0);
 		snd(w, start, SoundEvents.ENTITY_BLAZE_SHOOT, 1.3f, 0.55f);
@@ -476,13 +543,12 @@ public final class MeraPowers {
 	}
 
 	static float sunRadius(int charge) {
-		float k = Math.min(1f, charge / (float) ENTEI_FULL);
-		return 1.0f + 5.0f * k;
+		return MeraTechs.sunRadius(charge / (float) ENTEI_FULL);
 	}
 
 	/** Dónde flota el sol mientras se carga: bien alto, para que su borde de llamas no le tape la vista a Ace. */
 	static Vec3d sunPos(ServerPlayerEntity p, float radius) {
-		return p.getPos().add(0, p.getHeight() + 1.6 + radius * 1.15, 0);
+		return p.getPos().add(0, MeraTechs.sunHeight(p.getHeight(), radius), 0);
 	}
 
 	private static void enteiRelease(ServerPlayerEntity p, PlayerPower pw, MeraState st) {
@@ -503,12 +569,14 @@ public final class MeraPowers {
 		dir = dir.normalize();
 		// el sol sale ya por delante de Ace (no le pasa por encima de la cabeza tapándole la vista)
 		from = from.add(dir.multiply(r * 0.8 + 1.0));
-		double speed = 1.25;
-		Shot s = new Shot(Shot.ENTEI, p, from, dir.multiply(speed), r, 16f + 4.5f * r, 110);
+		double speed = 1.5;
+		// en el centro, a tope, más de 120 de daño: lo que no es un jefe no lo cuenta
+		Shot s = new Shot(Shot.ENTEI, p, from, dir.multiply(speed), r, 26f + 14f * r, 100);
 		s.power = r;
 		s.pierce = 0;
+		s.burnBudget = 420;
 		SHOTS.add(s);
-		send(w, MeraFx.ENTEI_SHOT, p.getId(), s.id, from, s.vel, r, Math.min(1f, st.enteiCharge / (float) ENTEI_FULL), 110, 0);
+		send(w, MeraFx.ENTEI_SHOT, p.getId(), s.id, from, s.vel, r, Math.min(1f, st.enteiCharge / (float) ENTEI_FULL), 100, 0);
 		snd(w, from, SoundEvents.ENTITY_BLAZE_SHOOT, 2f, 0.4f);
 		snd(w, from, SoundEvents.ENTITY_GHAST_SHOOT, 1.6f, 0.4f);
 		cool(pw, MeraTechs.ENTEI, MeraTechs.ENTEI_CD);
@@ -550,7 +618,7 @@ public final class MeraPowers {
 		ServerWorld w = p.getServerWorld();
 		Vec3d dir = p.getRotationVec(1f);
 		Vec3d origin = hand(p, 1);
-		double len = 11.0, cos = Math.cos(Math.toRadians(24));
+		double len = MeraTechs.KAGERO_REACH, cos = Math.cos(Math.toRadians(26));
 		boolean hitTick = st.kageroTicks % 4 == 0;
 		for (Entity e : w.getOtherEntities(p, new Box(origin, origin).expand(len + 1))) {
 			Vec3d c = e.getPos().add(0, e.getHeight() * 0.5, 0);
@@ -565,10 +633,8 @@ public final class MeraPowers {
 			}
 			if (!(e instanceof LivingEntity le) || !le.isAlive() || e instanceof ArmorStandEntity) continue;
 			if (hitTick) {
-				le.setOnFireFor(5f);
-				le.timeUntilRegen = 0;
-				le.damage(burn(p), le.isFireImmune() ? 1.0f : 2.5f);
-				le.addVelocity(dir.x * 0.28, 0.06, dir.z * 0.28);
+				hurt(le, p, 6f, 8f);
+				le.addVelocity(dir.x * 0.32, 0.06, dir.z * 0.32);
 				le.velocityModified = true;
 				send(w, MeraFx.EMBER_HIT, p.getId(), 0, c, dir, 0.7f, 0.8f, 10, 0);
 			}
@@ -598,6 +664,7 @@ public final class MeraPowers {
 		if (dir.lengthSquared() < 1e-4) dir = new Vec3d(0, 0, 1);
 		st.dashDir = dir.normalize();
 		st.dashTicks = DASH_TICKS;
+		st.dashHit.clear();
 		st.fallSafeTicks = Math.max(st.fallSafeTicks, 50);
 		ServerWorld w = p.getServerWorld();
 		Vec3d from = p.getPos();
@@ -616,11 +683,11 @@ public final class MeraPowers {
 		p.velocityModified = true;
 		p.fallDistance = 0f;
 		ServerWorld w = p.getServerWorld();
-		for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(0.9), e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
+		for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(1.1), e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
 			LivingEntity le = (LivingEntity) e;
-			if (le.getFireTicks() > 40) continue;
-			le.setOnFireFor(4f);
-			le.damage(burn(p), 3f);
+			// a cada uno lo atraviesa una vez por impulso (aunque ya estuviera ardiendo)
+			if (!st.dashHit.add(le.getId())) continue;
+			hurt(le, p, 9f, 6f);
 			send(w, MeraFx.EMBER_HIT, p.getId(), 0, le.getPos().add(0, le.getHeight() * 0.5, 0), st.dashDir, 0.6f, 0.8f, 10, 0);
 		}
 	}
@@ -647,12 +714,14 @@ public final class MeraPowers {
 		send(w, MeraFx.HIKYAKU, p.getId(), 0, p.getPos(), new Vec3d(flat.x, up, flat.z), 1f, 1f, 14, 0);
 		snd(w, p.getPos(), SoundEvents.ENTITY_BLAZE_SHOOT, 0.9f, 1.35f);
 		snd(w, p.getPos(), SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 0.35f, 1.8f);
-		// el estallido bajo los pies empuja y prende lo de alrededor
-		for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(2.2, 0.6, 2.2), e -> e instanceof LivingEntity le && le.isAlive())) {
-			((LivingEntity) e).setOnFireFor(3f);
+		// el estallido bajo los pies quema, empuja y prende lo de alrededor
+		for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(2.6, 0.8, 2.6),
+			e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
+			LivingEntity le = (LivingEntity) e;
+			hurt(le, p, 5f, 4f);
 			Vec3d push = e.getPos().subtract(p.getPos()).multiply(1, 0, 1);
-			if (push.lengthSquared() > 1e-4) push = push.normalize().multiply(0.6);
-			e.addVelocity(push.x, 0.25, push.z);
+			if (push.lengthSquared() > 1e-4) push = push.normalize().multiply(0.8);
+			e.addVelocity(push.x, 0.3, push.z);
 			e.velocityModified = true;
 		}
 		cool(pw, MeraTechs.HIKYAKU, MeraTechs.HIKYAKU_CD);
@@ -664,9 +733,9 @@ public final class MeraPowers {
 		if (wetBlock(p, st)) return;
 		if (!ready(p, pw, MeraTechs.HIGAN, "Higan")) return;
 		ServerWorld w = p.getServerWorld();
-		send(w, MeraFx.HIGAN_POSE, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 18, 0);
+		send(w, MeraFx.HIGAN_POSE, p.getId(), 0, p.getPos(), Vec3d.ZERO, 0f, 0f, 20, 0);
 		cool(pw, MeraTechs.HIGAN, MeraTechs.HIGAN_CD);
-		for (int i = 0; i < 12; i++) {
+		for (int i = 0; i < 14; i++) {
 			final int n = i;
 			DELAYED.add(new Delayed(3 + i, () -> {
 				if (!p.isAlive() || !isMera(p) || p.isTouchingWater()) return;
@@ -675,9 +744,9 @@ public final class MeraPowers {
 				// pequeña dispersión, como la ráfaga del manga
 				dir = dir.add((w.random.nextDouble() - 0.5) * 0.035, (w.random.nextDouble() - 0.5) * 0.035, (w.random.nextDouble() - 0.5) * 0.035).normalize();
 				Vec3d start = hand(p, side).add(dir.multiply(0.5));
-				Shot s = new Shot(Shot.HIGAN, p, start, dir.multiply(3.4), 0.45, 3.5f, 24);
+				Shot s = new Shot(Shot.HIGAN, p, start, dir.multiply(3.8), 0.5, 6f, 22);
 				SHOTS.add(s);
-				send(w, MeraFx.HIGAN_BULLET, p.getId(), s.id, start, s.vel, 0.45f, 1f, 24, side > 0 ? 0 : 1);
+				send(w, MeraFx.HIGAN_BULLET, p.getId(), s.id, start, s.vel, 0.5f, 1f, 22, side > 0 ? 0 : 1);
 				snd(w, start, SoundEvents.ITEM_FIRECHARGE_USE, 0.55f, 1.6f + w.random.nextFloat() * 0.3f);
 			}));
 		}
@@ -698,10 +767,11 @@ public final class MeraPowers {
 			if (!p.isAlive() || !isMera(p)) return;
 			Vec3d dir = p.getRotationVec(1f);
 			Vec3d start = p.getEyePos().add(dir.multiply(1.1)).add(0, -0.25, 0);
-			Shot s = new Shot(Shot.JUJIKA, p, start, dir.multiply(2.0), 1.6, 14f, 40);
+			Shot s = new Shot(Shot.JUJIKA, p, start, dir.multiply(2.4), 1.8, 30f, 36);
 			s.pierce = 99;
+			s.burnBudget = 80;
 			SHOTS.add(s);
-			send(w, MeraFx.JUJIKA_SHOT, p.getId(), s.id, start, s.vel, 1.6f, 1f, 40, 0);
+			send(w, MeraFx.JUJIKA_SHOT, p.getId(), s.id, start, s.vel, 1.8f, 1f, 36, 0);
 			snd(w, start, SoundEvents.ENTITY_BLAZE_SHOOT, 1.2f, 0.8f);
 			snd(w, start, SoundEvents.ENTITY_GHAST_SHOOT, 0.8f, 0.9f);
 		}));
@@ -730,7 +800,7 @@ public final class MeraPowers {
 		}
 		st.hotarubiId = nextId++;
 		st.hotarubiCenter = center;
-		st.hotarubiCount = 22;
+		st.hotarubiCount = 24;
 		st.hotarubiTicks = 300;
 		send(w, MeraFx.HOTARUBI, p.getId(), st.hotarubiId, center, hand(p, 1), 5.5f, st.hotarubiCount, st.hotarubiTicks, 0);
 		snd(w, center, SoundEvents.BLOCK_AMETHYST_BLOCK_CHIME, 1f, 1.6f);
@@ -744,10 +814,10 @@ public final class MeraPowers {
 		Vec3d c = st.hotarubiCenter;
 		int group = st.hotarubiId;
 		int count = st.hotarubiCount;
-		List<LivingEntity> found = new ArrayList<>(w.getEntitiesByClass(LivingEntity.class, new Box(c, c).expand(9),
-			e -> e != p && e.isAlive() && !(e instanceof ArmorStandEntity) && !(e instanceof PlayerEntity pl && (pl.isCreative() || pl.isSpectator()))));
+		List<LivingEntity> found = new ArrayList<>(w.getEntitiesByClass(LivingEntity.class, new Box(c, c).expand(11),
+			e -> e != p && e.isAlive() && !(e instanceof ArmorStandEntity) && !spared(p, e)));
 		found.sort((a, b) -> Double.compare(a.squaredDistanceTo(c), b.squaredDistanceTo(c)));
-		final List<LivingEntity> targets = found.size() > 8 ? new ArrayList<>(found.subList(0, 8)) : found;
+		final List<LivingEntity> targets = found.size() > 10 ? new ArrayList<>(found.subList(0, 10)) : found;
 		send(w, MeraFx.ZONE_END, p.getId(), group, c, Vec3d.ZERO, 0f, 1f, 0, 1);
 		// una bola de fuego por víctima, más grande cuantas más luciérnagas le llegan (antes, una por luciérnaga: unas
 		// once bolas iguales una encima de otra en cada víctima, que se quemaban a blanco y llenaban las luces)
@@ -767,9 +837,8 @@ public final class MeraPowers {
 			final float rad = t != null ? Math.min(1.0f + 0.07f * hits.getOrDefault(t, 1), 1.8f) : 1.0f;
 			DELAYED.add(new Delayed(travel, () -> {
 				if (target != null && target.isAlive()) {
-					target.timeUntilRegen = 0;
-					target.damage(burn(p), target.isFireImmune() ? 1.5f : 4.5f);
-					target.setOnFireFor(7f);
+					// cada luciérnaga que llega quema: a uno solo le caen las veinticuatro
+					hurt(target, p, 6f, 10f);
 				}
 				if (!show) return;
 				Vec3d at = target != null ? target.getPos().add(0, target.getHeight() * 0.5, 0) : impact;
@@ -796,10 +865,10 @@ public final class MeraPowers {
 		Vec3d flat = new Vec3d(look.x, 0, look.z);
 		flat = flat.lengthSquared() < 1e-4 ? new Vec3d(0, 0, 1) : flat.normalize();
 		Vec3d center = p.getPos().add(flat.multiply(3.2));
-		Zone z = new Zone(Zone.WALL, p, center, 150);
+		Zone z = new Zone(Zone.WALL, p, center, 200);
 		z.normal = flat;
-		z.halfW = 4.5;
-		z.height = 5.5;
+		z.halfW = 6.0;
+		z.height = 6.5;
 		ZONES.add(z);
 		ServerWorld w = p.getServerWorld();
 		send(w, MeraFx.KYOKAEN, p.getId(), z.id, center, flat, (float) z.halfW, (float) z.height, z.ticks, 0);
@@ -815,8 +884,8 @@ public final class MeraPowers {
 		if (!ready(p, pw, MeraTechs.ENJOMO, "Enjōmō")) return;
 		Entity target = aimEntity(p, 24);
 		Vec3d center = target != null ? target.getPos() : p.getPos();
-		double radius = target != null ? 5.5 : 8.0;
-		Zone z = new Zone(Zone.RING, p, center, 220);
+		double radius = target != null ? 6.5 : 9.5;
+		Zone z = new Zone(Zone.RING, p, center, 300);
 		z.radius = radius;
 		z.height = 3.2;
 		ServerWorld w = p.getServerWorld();
@@ -844,11 +913,11 @@ public final class MeraPowers {
 			Vec3d start = p.getEyePos().add(right.multiply(1.35 * side)).add(0, 0.35, 0).add(p.getRotationVec(1f).multiply(0.4));
 			Vec3d dir = aim.subtract(start);
 			dir = dir.lengthSquared() < 1e-4 ? p.getRotationVec(1f) : dir.normalize();
-			Shot s = new Shot(Shot.SHIRANUI, p, start, dir.multiply(3.1), 0.75, 11f, 36);
+			Shot s = new Shot(Shot.SHIRANUI, p, start, dir.multiply(3.4), 0.8, 26f, 34);
 			s.delay = 10;
-			s.pierce = 6;
+			s.pierce = 8;
 			SHOTS.add(s);
-			send(w, MeraFx.SHIRANUI, p.getId(), s.id, start, s.vel, 0.75f, s.delay, 36, side > 0 ? 0 : 1);
+			send(w, MeraFx.SHIRANUI, p.getId(), s.id, start, s.vel, 0.8f, s.delay, 34, side > 0 ? 0 : 1);
 		}
 		snd(w, p.getPos(), SoundEvents.ITEM_FIRECHARGE_USE, 1f, 0.8f);
 		DELAYED.add(new Delayed(10, () -> {
@@ -879,17 +948,19 @@ public final class MeraPowers {
 				top = p.getPos();
 			} else {
 				base = p.getPos();
-				top = p.getPos().add(0, 17, 0);
+				top = p.getPos().add(0, 22, 0);
 			}
-			Zone z = new Zone(Zone.PILLAR, p, base, 34);
+			Zone z = new Zone(Zone.PILLAR, p, base, 40);
 			z.top = top;
-			z.radius = 3.3;
+			z.radius = 4.5;
 			z.down = down;
 			ZONES.add(z);
 			send(w, MeraFx.HIBASHIRA, p.getId(), z.id, base, top, (float) z.radius, down ? 1f : 0f, z.ticks, down ? 1 : 0);
 			snd(w, base, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 1.3f, 0.7f);
 			snd(w, base, SoundEvents.ENTITY_BLAZE_SHOOT, 1.6f, 0.45f);
-			if (down) igniteAround(w, base.add(0, 0.5, 0), 3.0, 0.35f);
+			// la columna deja el suelo quemado y ardiendo a su alrededor
+			scorchAround(w, base, z.radius);
+			igniteAround(w, base.add(0, 0.5, 0), z.radius, down ? 0.35f : 0.22f);
 		}));
 	}
 
@@ -927,9 +998,12 @@ public final class MeraPowers {
 			st.fallSafeTicks--;
 			p.fallDistance = 0f;
 		}
-		if (p.isOnGround()) st.hikyakuCharges = 2;
+		if (p.isOnGround()) st.hikyakuCharges = HIKYAKU_AIR;
 		// es fuego: no arde
 		if (p.isOnFire() && !p.isTouchingWater()) p.extinguish();
+		// y el fuego lo alimenta: entre llamas o en la lava se cura poco a poco
+		if (p.age % 20 == 0 && p.getHealth() < p.getMaxHealth() && !p.isTouchingWater()
+			&& (p.isInLava() || w.getBlockState(p.getBlockPos()).isIn(BlockTags.FIRE))) p.heal(1f);
 
 		if (st.blastProofTicks > 0 && --st.blastProofTicks == 0) blastProof(p, false);
 		boolean wet = p.isTouchingWater();
@@ -972,8 +1046,9 @@ public final class MeraPowers {
 			}
 			// el sol quema lo que tiene cerca
 			if (st.enteiCharge % 10 == 0) {
-				for (Entity e : w.getOtherEntities(p, new Box(sun, sun).expand(r + 1.5), e -> e instanceof LivingEntity le && le.isAlive())) {
-					if (e.getPos().add(0, e.getHeight() * 0.5, 0).distanceTo(sun) < r + 1.5) e.setOnFireFor(4f);
+				for (Entity e : w.getOtherEntities(p, new Box(sun, sun).expand(r + 2.5),
+					e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
+					if (e.getPos().add(0, e.getHeight() * 0.5, 0).distanceTo(sun) < r + 2.5) hurt((LivingEntity) e, p, 3f, 5f);
 				}
 			}
 			p.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS, 6, 1, false, false, false));
@@ -995,11 +1070,12 @@ public final class MeraPowers {
 			st.bodyBroadcastTicks = 20;
 			send(w, MeraFx.BODY, p.getId(), 0, p.getPos(), Vec3d.ZERO, 1f, 1f, 40, 0);
 		}
-		p.addStatusEffect(new StatusEffectInstance(StatusEffects.SPEED, 30, 0, false, false, false));
+		p.addStatusEffect(new StatusEffectInstance(StatusEffects.SPEED, 30, 1, false, false, false));
 		p.addStatusEffect(new StatusEffectInstance(StatusEffects.NIGHT_VISION, 260, 0, false, false, false));
 		if (p.age % 10 == 0) {
-			for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(0.9), e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
-				if (e.getFireTicks() < 20) e.setOnFireFor(3f);
+			// el calor del cuerpo: lo que se le acerca arde y se quema
+			for (Entity e : w.getOtherEntities(p, p.getBoundingBox().expand(1.6), e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
+				hurt((LivingEntity) e, p, 3f, 4f);
 			}
 			meltAround(w, p.getBlockPos(), 2);
 		}
@@ -1056,6 +1132,8 @@ public final class MeraPowers {
 		final float damage;
 		final int life;
 		int age, delay, pierce;
+		/** Bloques que aún puede quemar y apartar a su paso (hojas, hierba, lana; con fuerza, también madera). */
+		int burnBudget;
 		float power = 1f;
 		final Set<Integer> hit = new HashSet<>();
 
@@ -1095,29 +1173,32 @@ public final class MeraPowers {
 			return false;
 		}
 
-		// bloques: las hojas arden y se apartan; lo sólido detiene el fuego
-		BlockHitResult bh = rayBlocks(w, s.pos, next);
-		Vec3d end = next;
+		// bloques: lo que arde se quema y se aparta a su paso (el Hiken, la cruz y el sol); lo sólido detiene el fuego
+		boolean clears = s.burnBudget > 0 && griefing(w);
+		boolean heavy = s.kind == Shot.ENTEI || (s.kind == Shot.HIKEN && s.power >= HIKEN_HEAVY);
+		Vec3d from = s.pos, end = next;
 		boolean blocked = false;
-		if (bh.getType() == HitResult.Type.BLOCK) {
-			BlockState bs = w.getBlockState(bh.getBlockPos());
-			if ((s.kind == Shot.HIKEN || s.kind == Shot.ENTEI || s.kind == Shot.JUJIKA) && (bs.isIn(BlockTags.LEAVES) || bs.isIn(BlockTags.WOOL))
-				&& griefing(w)) {
-				w.breakBlock(bh.getBlockPos(), false);
-				w.spawnParticles(ParticleTypes.FLAME, bh.getPos().x, bh.getPos().y, bh.getPos().z, 6, 0.3, 0.3, 0.3, 0.02);
-			} else {
-				end = bh.getPos();
-				blocked = true;
+		for (int i = 0; ; i++) {
+			BlockHitResult bh = rayBlocks(w, from, next);
+			if (bh.getType() != HitResult.Type.BLOCK) break;
+			if (i < 12 && clears && s.burnBudget > 0 && burnsAway(w.getBlockState(bh.getBlockPos()), heavy)) {
+				burnAway(w, bh.getBlockPos(), true);
+				s.burnBudget--;
+				from = bh.getPos();
+				continue;
 			}
+			end = bh.getPos();
+			blocked = true;
+			break;
 		}
 
 		// seres en el camino
 		Box sweep = new Box(s.pos, end).expand(s.radius + 1.0);
 		for (Entity e : w.getOtherEntities(s.owner, sweep, e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
-			if (s.hit.contains(e.getId())) continue;
-			if (e instanceof PlayerEntity pl && (pl.isCreative() || pl.isSpectator())) continue;
+			if (s.hit.contains(e.getId()) || spared(s.owner, e)) continue;
 			Vec3d c = e.getPos().add(0, e.getHeight() * 0.5, 0);
-			double reach = s.radius + Math.max(e.getWidth(), e.getHeight()) * 0.45;
+			// el sol estalla cuando lo toca su núcleo, no al rozar a alguien con el borde de sus llamas
+			double reach = (s.kind == Shot.ENTEI ? s.radius * 0.6 : s.radius) + Math.max(e.getWidth(), e.getHeight()) * 0.45;
 			if (distToSegment(c, s.pos, end) > reach) continue;
 			LivingEntity le = (LivingEntity) e;
 			if (s.kind == Shot.ENTEI) {
@@ -1125,15 +1206,12 @@ public final class MeraPowers {
 				return false;
 			}
 			s.hit.add(e.getId());
-			le.timeUntilRegen = 0;
-			float dmg = le.isFireImmune() ? s.damage * 0.4f : s.damage;
-			le.damage(burn(s.owner), dmg);
-			le.setOnFireFor(s.kind == Shot.HIGAN ? 3f : 8f);
+			hurt(le, s.owner, s.damage, s.kind == Shot.HIGAN ? 4f : 10f);
 			double kb = switch (s.kind) {
-				case Shot.HIKEN -> 1.1 + 0.9 * s.power;
-				case Shot.JUJIKA -> 1.0;
-				case Shot.SHIRANUI -> 0.55;
-				default -> 0.18;
+				case Shot.HIKEN -> 1.3 + 1.1 * s.power;
+				case Shot.JUJIKA -> 1.2;
+				case Shot.SHIRANUI -> 0.7;
+				default -> 0.2;
 			};
 			le.addVelocity(dir.x * kb, 0.2 + kb * 0.25, dir.z * kb);
 			le.velocityModified = true;
@@ -1150,11 +1228,14 @@ public final class MeraPowers {
 		}
 		s.pos = next;
 		s.age++;
+		if (clears) burnSphere(w, s, next, heavy);
+		// el puño deja un rastro de fuego por donde pasa
+		if (s.kind == Shot.HIKEN && s.age % 2 == 0) igniteAround(w, next, Math.min(s.radius, 3.0), 0.08f, 5);
 		if (s.kind == Shot.ENTEI) {
 			// el sol pasa y lo de debajo se prende
 			if (s.age % 4 == 0) {
 				for (Entity e : w.getOtherEntities(s.owner, new Box(next, next).expand(s.radius + 3), e -> e instanceof LivingEntity le && le.isAlive())) {
-					e.setOnFireFor(5f);
+					if (!spared(s.owner, e)) e.setOnFireFor(6f);
 				}
 			}
 			if (s.age % 6 == 0) snd(w, next, SoundEvents.BLOCK_FIRE_AMBIENT, 2.5f, 0.4f);
@@ -1170,23 +1251,29 @@ public final class MeraPowers {
 	private static void impact(ServerWorld w, Shot s, Vec3d at, Vec3d dir) {
 		switch (s.kind) {
 			case Shot.HIKEN -> {
-				double r = 2.4 + 2.2 * s.power;
-				areaBurn(w, s.owner, at, r, s.damage * 0.55f, 1.0 + s.power, s.hit);
-				igniteAround(w, at, r * 0.7, 0.28f);
+				double r = 3.0 + 3.0 * s.power;
+				areaBurn(w, s.owner, at, r, s.damage * 0.6f, 1.2 + 1.2 * s.power, s.hit);
+				if (s.power >= HIKEN_HEAVY) {
+					// cargado revienta donde pega: un boquete de verdad (con mobGriefing) y el suelo quemado alrededor
+					blast(w, s.owner, at, 1.8f + 2.2f * (s.power - HIKEN_HEAVY) / (1f - HIKEN_HEAVY), false);
+					scorchAround(w, at, r * 0.8);
+				}
+				igniteAround(w, at, r * 0.7, 0.28f, 30);
 				send(w, MeraFx.IMPACT, s.owner.getId(), s.id, at, dir, (float) r, s.power, 26, MeraFx.STYLE_ROUND);
 				snd(w, at, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 1.6f, 0.85f);
 				snd(w, at, SoundEvents.ENTITY_BLAZE_SHOOT, 1.4f, 0.5f);
 			}
 			case Shot.JUJIKA -> {
-				areaBurn(w, s.owner, at, 3.6, 9f, 1.0, s.hit);
-				igniteAround(w, at, 2.2, 0.3f);
-				send(w, MeraFx.IMPACT, s.owner.getId(), s.id, at, dir, 3.6f, 1f, 24, MeraFx.STYLE_CROSS);
+				areaBurn(w, s.owner, at, 4.5, 18f, 1.2, s.hit);
+				blast(w, s.owner, at, 2.0f, false);
+				igniteAround(w, at, 2.8, 0.3f);
+				send(w, MeraFx.IMPACT, s.owner.getId(), s.id, at, dir, 4.5f, 1f, 24, MeraFx.STYLE_CROSS);
 				snd(w, at, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 1.3f, 1.05f);
 			}
 			case Shot.SHIRANUI -> {
-				areaBurn(w, s.owner, at, 1.8, 4f, 0.4, s.hit);
-				igniteAround(w, at, 1.2, 0.4f);
-				send(w, MeraFx.IMPACT, s.owner.getId(), s.id, at, dir, 1.6f, 0.6f, 18, MeraFx.STYLE_LANCE);
+				areaBurn(w, s.owner, at, 2.6, 12f, 0.6, s.hit);
+				igniteAround(w, at, 1.6, 0.4f);
+				send(w, MeraFx.IMPACT, s.owner.getId(), s.id, at, dir, 2.2f, 0.6f, 18, MeraFx.STYLE_LANCE);
 				snd(w, at, SoundEvents.ITEM_FIRECHARGE_USE, 1f, 0.7f);
 			}
 			case Shot.ENTEI -> enteiBlast(w, s, at);
@@ -1200,30 +1287,28 @@ public final class MeraPowers {
 
 	private static void enteiBlast(ServerWorld w, Shot s, Vec3d at) {
 		double r = s.radius;
-		double area = r * 2.3 + 2;
-		areaBurn(w, s.owner, at, area, s.damage, 1.6 + r * 0.2, s.hit);
+		double area = r * 2.4 + 3;
+		areaBurn(w, s.owner, at, area, s.damage, 1.8 + r * 0.22, s.hit);
 		send(w, MeraFx.ENTEI_BLAST, s.owner.getId(), s.id, at, Vec3d.ZERO, (float) area, (float) r, 50, 0);
 		snd(w, at, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 3f, 0.55f);
 		snd(w, at, SoundEvents.ENTITY_DRAGON_FIREBALL_EXPLODE, 2.5f, 0.6f);
-		float power = (float) Math.min(7.0, 2.0 + r * 0.9);
-		// la explosión de verdad: respeta mobGriefing (sin él no rompe bloques). El fuego lo pone igniteAround: el de Ace,
-		// en 3D, en vez de las láminas pixeladas que deja una explosión de Minecraft
-		w.createExplosion(s.owner, burn(s.owner), null, at.x, at.y, at.z, power, false, World.ExplosionSourceType.MOB);
-		igniteAround(w, at, area * 0.6, 0.18f);
+		// la explosión de verdad: respeta mobGriefing (sin él no rompe bloques). El daño lo pone areaBurn, y el fuego,
+		// igniteAround: el de Ace, en 3D, en vez de las láminas pixeladas que deja una explosión de Minecraft
+		blast(w, s.owner, at, (float) Math.min(8.5, 2.5 + r * 0.9), true);
+		scorchAround(w, at, area * 0.55);
+		igniteAround(w, at, area * 0.6, 0.18f, 60);
 	}
 
 	private static void areaBurn(ServerWorld w, ServerPlayerEntity owner, Vec3d at, double r, float dmg, double kb, Set<Integer> skip) {
 		for (Entity e : w.getOtherEntities(owner, new Box(at, at).expand(r), e -> e instanceof LivingEntity le && le.isAlive() && !(e instanceof ArmorStandEntity))) {
-			if (skip.contains(e.getId())) continue;
-			if (e instanceof PlayerEntity pl && (pl.isCreative() || pl.isSpectator())) continue;
+			if (skip.contains(e.getId()) || spared(owner, e)) continue;
 			Vec3d c = e.getPos().add(0, e.getHeight() * 0.5, 0);
 			double d = c.distanceTo(at);
 			if (d > r) continue;
 			LivingEntity le = (LivingEntity) e;
+			// en el centro entra entero; en el borde, el 40 %
 			float f = (float) (1.0 - 0.6 * d / r);
-			le.timeUntilRegen = 0;
-			le.damage(burn(owner), (le.isFireImmune() ? 0.4f : 1f) * dmg * f);
-			le.setOnFireFor(8f);
+			hurt(le, owner, dmg * f, 10f);
 			Vec3d push = c.subtract(at);
 			push = push.lengthSquared() < 1e-4 ? new Vec3d(0, 1, 0) : push.normalize();
 			le.addVelocity(push.x * kb * f, 0.35 * kb * f + 0.15, push.z * kb * f);
@@ -1285,10 +1370,7 @@ public final class MeraPowers {
 					double sgn = n >= 0 ? 1 : -1;
 					le.addVelocity(z.normal.x * 0.45 * sgn, 0.12, z.normal.z * 0.45 * sgn);
 					le.velocityModified = true;
-					if (burnTick) {
-						le.setOnFireFor(5f);
-						le.damage(burn(z.owner), le.isFireImmune() ? 0.5f : 2f);
-					}
+					if (burnTick) hurt(le, z.owner, 6f, 6f);
 				}
 				if (z.age % 8 == 0) snd(w, z.center, SoundEvents.BLOCK_FIRE_AMBIENT, 1.6f, 0.7f);
 			}
@@ -1313,10 +1395,7 @@ public final class MeraPowers {
 					double sgn = in ? -1 : 1;
 					le.addVelocity(d.x / dist * 0.55 * sgn, 0.15, d.z / dist * 0.55 * sgn);
 					le.velocityModified = true;
-					if (burnTick) {
-						le.setOnFireFor(5f);
-						le.damage(burn(z.owner), le.isFireImmune() ? 0.5f : 2f);
-					}
+					if (burnTick) hurt(le, z.owner, 6f, 6f);
 				}
 				if (z.age % 8 == 0) snd(w, z.center, SoundEvents.BLOCK_FIRE_AMBIENT, 2f, 0.6f);
 			}
@@ -1330,14 +1409,10 @@ public final class MeraPowers {
 					LivingEntity le = (LivingEntity) e;
 					if (z.age <= 3 && !z.inside.contains(e.getId())) {
 						z.inside.add(e.getId());
-						le.addVelocity(0, z.down ? -0.8 : 1.25, 0);
+						le.addVelocity(0, z.down ? -0.9 : 1.5, 0);
 						le.velocityModified = true;
 					}
-					if (hitTick) {
-						le.timeUntilRegen = 0;
-						le.damage(burn(z.owner), le.isFireImmune() ? 1f : 4f);
-						le.setOnFireFor(8f);
-					}
+					if (hitTick) hurt(le, z.owner, 10f, 10f);
 				}
 				if (z.age % 6 == 0) snd(w, z.center, SoundEvents.BLOCK_FIRE_AMBIENT, 2.5f, 0.5f);
 			}
@@ -1426,17 +1501,102 @@ public final class MeraPowers {
 	 * 3D y se apaga solo en unos segundos (lo que arde al lado sigue con el fuego de Minecraft).
 	 */
 	private static void igniteAround(ServerWorld w, Vec3d c, double r, float chance) {
+		igniteAround(w, c, r, chance, 24);
+	}
+
+	private static void igniteAround(ServerWorld w, Vec3d c, double r, float chance, int max) {
 		if (!griefing(w)) return;
 		int ir = (int) Math.ceil(r);
 		BlockPos base = BlockPos.ofFloored(c);
 		BlockState fire = ModBlocks.MERA_FIRE.getDefaultState();
-		int placed = 0;
+		// si salen más sitios que el tope, se queda con unos cuantos al azar de toda la zona (antes se quedaba con los
+		// primeros que encontraba: el fuego de una explosión grande caía siempre hacia el mismo lado)
+		List<BlockPos> picked = new ArrayList<>();
+		int seen = 0;
 		for (BlockPos bp : BlockPos.iterate(base.add(-ir, -ir, -ir), base.add(ir, ir, ir))) {
-			if (placed > 24) break;
 			if (bp.getSquaredDistance(c) > r * r || w.random.nextFloat() > chance) continue;
 			if (!w.getBlockState(bp).isAir() || !fire.canPlaceAt(w, bp)) continue;
-			w.setBlockState(bp, fire, 11);
-			placed++;
+			seen++;
+			if (picked.size() <= max) picked.add(bp.toImmutable());
+			else {
+				int k = w.random.nextInt(seen);
+				if (k <= max) picked.set(k, bp.toImmutable());
+			}
+		}
+		for (BlockPos bp : picked) w.setBlockState(bp, fire, 11);
+	}
+
+	/**
+	 * Una explosión de verdad en ese punto: rompe bloques (solo con mobGriefing) y empuja, sin hacer daño por su cuenta.
+	 * puffs: con las nubes de explosión de Minecraft (el estallido del sol) o sin ellas (el fuego ya lo dibuja el cliente).
+	 */
+	private static void blast(ServerWorld w, ServerPlayerEntity owner, Vec3d at, float power, boolean puffs) {
+		if (puffs) {
+			w.createExplosion(owner, burn(owner), BLAST_ONLY, at.x, at.y, at.z, power, false, World.ExplosionSourceType.MOB);
+		} else {
+			w.createExplosion(owner, burn(owner), BLAST_ONLY, at.x, at.y, at.z, power, false, World.ExplosionSourceType.MOB,
+				ParticleTypes.LAVA, ParticleTypes.LAVA, SoundEvents.ENTITY_GENERIC_EXPLODE);
+		}
+	}
+
+	/**
+	 * ¿Se lo lleva el fuego por delante? Las hojas, la lana, la hierba y las flores, siempre; con fuerza (heavy), todo lo
+	 * que arde: la madera también. Nunca lo que guarda cosas (cofres, camas…).
+	 */
+	private static boolean burnsAway(BlockState bs, boolean heavy) {
+		if (bs.isAir() || bs.hasBlockEntity() || bs.isIn(BlockTags.FIRE)) return false;
+		if (bs.isIn(BlockTags.FLOWERS)) return true;
+		if (!bs.isBurnable()) return false;
+		return heavy || bs.isIn(BlockTags.LEAVES) || bs.isIn(BlockTags.WOOL) || bs.isReplaceable();
+	}
+
+	private static void burnAway(ServerWorld w, BlockPos bp, boolean flames) {
+		// (si estaba bajo el agua, queda el agua)
+		w.setBlockState(bp, w.getFluidState(bp).getBlockState(), 3);
+		if (flames) w.spawnParticles(ParticleTypes.FLAME, bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5, 4, 0.3, 0.3, 0.3, 0.02);
+	}
+
+	/** El disparo se come lo que arde a su paso, a todo su ancho (con tope por tick y por disparo). */
+	private static void burnSphere(ServerWorld w, Shot s, Vec3d c, boolean heavy) {
+		double r = Math.min(s.radius * 0.85, 3.4);
+		int ir = (int) Math.ceil(r);
+		BlockPos base = BlockPos.ofFloored(c);
+		int done = 0;
+		for (BlockPos bp : BlockPos.iterate(base.add(-ir, -ir, -ir), base.add(ir, ir, ir))) {
+			if (s.burnBudget <= 0 || done >= 32) break;
+			if (bp.getSquaredDistance(c) > r * r || !burnsAway(w.getBlockState(bp), heavy)) continue;
+			burnAway(w, bp, done % 5 == 0);
+			s.burnBudget--;
+			done++;
+		}
+	}
+
+	/**
+	 * El calor deja marca (solo con mobGriefing): arden las hojas, la hierba y las flores, se derriten la nieve y el hielo,
+	 * el césped queda en tierra quemada y, cerca del centro, parte de la arena se vuelve vidrio.
+	 */
+	private static void scorchAround(ServerWorld w, Vec3d c, double r) {
+		if (!griefing(w)) return;
+		r = Math.min(r, 10);
+		int ir = (int) Math.ceil(r);
+		BlockPos base = BlockPos.ofFloored(c);
+		for (BlockPos bp : BlockPos.iterate(base.add(-ir, -ir, -ir), base.add(ir, ir, ir))) {
+			double d2 = bp.getSquaredDistance(c);
+			if (d2 > r * r) continue;
+			BlockState bs = w.getBlockState(bp);
+			if (bs.isAir()) continue;
+			float f = (float) (1.0 - Math.sqrt(d2) / r);   // 1 en el centro … 0 en el borde
+			if (bs.isOf(Blocks.SNOW) || bs.isOf(Blocks.POWDER_SNOW) || bs.isOf(Blocks.SNOW_BLOCK)) {
+				w.setBlockState(bp, Blocks.AIR.getDefaultState(), 3);
+			} else if (bs.isOf(Blocks.ICE) || bs.isOf(Blocks.FROSTED_ICE)) {
+				w.setBlockState(bp, w.getDimension().ultrawarm() ? Blocks.AIR.getDefaultState() : Blocks.WATER.getDefaultState(), 3);
+			} else if (burnsAway(bs, false)) {
+				burnAway(w, bp, false);
+			} else if (bs.isOf(Blocks.GRASS_BLOCK) || bs.isOf(Blocks.PODZOL) || bs.isOf(Blocks.MYCELIUM)) {
+				if (w.random.nextFloat() < 0.35f + 0.65f * f) w.setBlockState(bp, (f > 0.5f ? Blocks.COARSE_DIRT : Blocks.DIRT).getDefaultState(), 3);
+			} else if (f > 0.65f && bs.isOf(Blocks.SAND) && w.random.nextFloat() < 0.4f) {
+				w.setBlockState(bp, Blocks.GLASS.getDefaultState(), 3);
+			}
 		}
 	}
 

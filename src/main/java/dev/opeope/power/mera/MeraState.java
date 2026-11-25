@@ -22,9 +22,11 @@ public final class MeraState {
 	/** El cuerpo hecho un chorro de llamas (Alt): ticks que quedan, hacia dónde y por dónde va. */
 	public int dashTicks;
 	public Vec3d dashDir = Vec3d.ZERO;
+	/** A quién ha quemado ya este impulso (una vez cada uno). */
+	public final java.util.Set<Integer> dashHit = new java.util.HashSet<>();
 
 	/** Hikyaku: impulsos de fuego en los pies que quedan antes de tocar suelo. */
-	public int hikyakuCharges = 2;
+	public int hikyakuCharges = MeraPowers.HIKYAKU_AIR;
 	/** Ticks sin daño por caída (tras el chorro de llamas o Hikyaku). */
 	public int fallSafeTicks;
 

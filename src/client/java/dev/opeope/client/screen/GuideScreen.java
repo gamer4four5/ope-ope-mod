@@ -283,7 +283,8 @@ public class GuideScreen extends Screen {
 		KeyLabels.Glyph may = KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.sneakKey));
 
 		title("Eres fuego");
-		note("La Mera Mera no Mi de Portgas D. Ace. La fruta funciona con cualquier cosa en la mano y los clics siguen siendo los de Minecraft. Con la mano vacía, tu puñetazo prende a quien golpeas.");
+		note("La Mera Mera no Mi de Portgas D. Ace. La fruta funciona con cualquier cosa en la mano y los clics siguen siendo los de Minecraft. Con la mano vacía, tu puñetazo quema y empuja a quien golpeas.");
+		note("Tu fuego no lo para la armadura. Crece con tu recompensa: cada rango lo aviva un 15 % y acorta las esperas.");
 		note("Las teclas se cambian en «Teclas» (arriba) o en Opciones → Controles → Ope Ope no Mi.");
 
 		title("Logia");
@@ -293,14 +294,15 @@ public class GuideScreen extends Screen {
 
 		title("Puño y llamas");
 		row("mantener: Hiken, el puño de fuego. Cuanto más lo cargas, más grande sale; al soltar vuela recto y atraviesa todo lo que encuentra", g(Keys.ROOM));
+		note("Un toque ya tumba a un zombi. Cargado más de medio segundo se lleva la madera por delante y revienta el terreno donde pega.");
 		row("mantener: Kagerō, un chorro de llamas desde la palma. Quema lo que tiene delante, prende donde termina y deshace las flechas que vienen hacia ti", g(Keys.TAKT));
-		row("Higan: una ráfaga de doce balas de fuego con los dedos", g(Keys.INJECTION));
-		row("Jūjika: una cruz de fuego que sale recta y atraviesa", g(Keys.GAMMA));
+		row("Higan: una ráfaga de catorce balas de fuego con los dedos", g(Keys.INJECTION));
+		row("Jūjika: una cruz de fuego que sale recta, atraviesa y estalla donde pega", g(Keys.GAMMA));
 		row("Shinka: Shiranui: dos lanzas de fuego, una a cada lado, hacia donde apuntas", tab, "+", g(Keys.T_SOULS));
 
 		title("El sol");
 		row("mantener: Dai Enkai: Entei. Un sol crece sobre ti mientras lo cargas, y te frena; al soltar va hacia donde apuntas y estalla", g(Keys.RADIO_KNIFE));
-		note("Es la técnica más fuerte y la que más tarda en volver: 30 s. Si lo sueltas nada más empezar, se apaga sin salir.");
+		note("Es la técnica más fuerte y la que más tarda en volver: 16 s. Arrasa lo que pilla y deja un cráter. Si lo sueltas nada más empezar, se apaga sin salir.");
 
 		title("Luciérnagas");
 		row("Hotarubi: suelta luciérnagas de fuego alrededor de quien miras, o donde apuntas. Se quedan 15 s", luciernagas);
@@ -312,15 +314,17 @@ public class GuideScreen extends Screen {
 		row("Enjōmō: un cerco de fuego alrededor de quien miras, o de ti si no miras a nadie. Nadie entra ni sale", tab, "+", g(Keys.T_STERBEN));
 		row("Enkai: Hibashira: una columna de fuego que sube desde tus pies y lanza por los aires a quien pilla. En el aire y mirando abajo, baja hasta el suelo", tab, "+", g(Keys.T_RAIN));
 		note("Las técnicas dejan fuego donde golpean: prende a quien lo pisa, quema la madera, las hojas y la hierba de alrededor y se apaga solo, sin arrasar un bosque entero. El hielo y la nieve se derriten.");
+		note("El Hiken cargado, la Jūjika y el sol rompen el terreno, pero no los cofres ni lo que guarda cosas. Con /gamerule mobGriefing false no rompen ni prenden nada. Tu fuego no quema a tus mascotas ni a lo que montas.");
 
 		title("Moverte como el fuego");
 		row("impulso: el cuerpo se vuelve un chorro de llamas y sale disparado hacia donde miras. Mientras dura nada te golpea, y quemas a quien atraviesas", g(Keys.SHAMBLES));
-		row("Hikyaku: un estallido en los pies te lanza hacia arriba y adelante. En el aire puedes repetirlo dos veces antes de tocar el suelo", g(Keys.MARKER));
+		row("Hikyaku: un estallido en los pies te lanza hacia arriba y adelante. En el aire puedes repetirlo tres veces antes de tocar el suelo", g(Keys.MARKER));
 		note("Caigas desde donde caigas, no te haces daño: eres fuego.");
 
 		title("Cuerpo de llamas");
-		row("lo enciende y lo apaga. Corres más, ves en la oscuridad, prendes a quien te toca y derrites el hielo y la nieve a tu paso", g(Keys.AWAKEN));
-		note("Con el cuerpo en llamas, quien te pega con la mano se quema más y además recibe daño. El agua lo apaga.");
+		row("lo enciende y lo apaga. Corres mucho más, ves en la oscuridad, quemas a quien se te acerca y derrites el hielo y la nieve a tu paso", g(Keys.AWAKEN));
+		note("Quien te pega con la mano se quema y recibe daño; con el cuerpo en llamas, más del doble. Tus puñetazos también pegan más. El agua lo apaga.");
+		note("Entre llamas o en la lava te curas poco a poco.");
 
 		title("Segunda fila");
 		switch (s.modoTab) {

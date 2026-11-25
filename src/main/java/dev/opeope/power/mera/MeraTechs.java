@@ -22,9 +22,27 @@ public final class MeraTechs {
 	public static final Tech SHIRANUI = Tech.SOULS;
 	public static final Tech HIBASHIRA = Tech.RAIN;
 
-	public static final int HIKEN_CD = 50, ENTEI_CD = 600, HIGAN_CD = 70, JUJIKA_CD = 160, HOTARUBI_CD = 220,
-		KYOKAEN_CD = 240, HIKYAKU_CD = 10, DASH_CD = 28, KAGERO_CD = 80, ENJOMO_CD = 400, SHIRANUI_CD = 140,
-		HIBASHIRA_CD = 260;
+	/** Esperas en ticks (20 = 1 s). La maestría las acorta, como en las demás frutas. */
+	public static final int HIKEN_CD = 30, ENTEI_CD = 320, HIGAN_CD = 40, JUJIKA_CD = 90, HOTARUBI_CD = 140,
+		KYOKAEN_CD = 160, HIKYAKU_CD = 8, DASH_CD = 16, KAGERO_CD = 40, ENJOMO_CD = 240, SHIRANUI_CD = 80,
+		HIBASHIRA_CD = 160;
+
+	// --- medidas que comparten el servidor (lo que quema) y el cliente (lo que se ve)
+
+	/** Ticks de mantener la tecla para la carga completa del Hiken y del sol de Entei. */
+	public static final int HIKEN_FULL = 24, ENTEI_FULL = 60;
+	/** Kagerō: hasta dónde llega el chorro de la palma (bloques). */
+	public static final double KAGERO_REACH = 14.0;
+
+	/** El radio del sol de Entei según la carga (0..1). */
+	public static float sunRadius(float charge) {
+		return 1.4f + 5.6f * Math.max(0f, Math.min(1f, charge));
+	}
+
+	/** A qué altura sobre los pies flota el sol mientras se carga: bien alto, para que no le tape la vista a Ace. */
+	public static double sunHeight(double userHeight, float radius) {
+		return userHeight + 1.6 + radius * 1.15;
+	}
 
 	/** Ticks de recarga completos de una casilla para la Mera Mera (para el anillo del HUD). */
 	public static int total(Tech t) {
