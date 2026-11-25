@@ -597,9 +597,13 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             vec3 hueC = mix(mf_ramp(temp), bbc / max(bbc.r, 1e-3), 0.25);
             vec3 emit = hueC * (0.6 + 2.0 * t2 + 1.4 * t2 * t2 * t2);
             emit *= 1.0 + 1.5 * flash;
-            // el humo no brilla: solo se ve con la luz que haya (de noche es casi negro, de día gris)
+            // el humo no brilla: se ve con la luz que haya (de día gris, de noche casi negro) y le entra más
+            // luz por arriba que por abajo. Antes era casi negro siempre: de día salían manchones oscuros.
             float amb = 0.10 + 0.90 * clamp(VolSky, 0.0, 1.0);
-            vec3 smokeCol = mix(vec3(0.11, 0.10, 0.095), vec3(0.06, 0.05, 0.045), smokeX) * amb;
+            float Sv = max(max(prm.x, 0.05), 0.18 * (VolMax.y - VolMin.y));
+            float upW = p.x * VolX.y + p.y * VolY.y + p.z * VolZ.y;   // la altura dentro de la forma, en el mundo
+            float hgtG = smoothstep(-1.2 * Sv, 1.4 * Sv, upW);
+            vec3 smokeCol = mix(vec3(0.085, 0.080, 0.078), vec3(0.46, 0.45, 0.44), hgtG * (0.55 + 0.45 * smokeX)) * amb;
             if (isBall > 0.5) {
                 // el humo de la explosión: gris, con la luz del cielo arriba y oscuro abajo; junto al fuego, naranja
                 float Rb = max(prm.x, 0.05);

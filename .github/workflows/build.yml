@@ -143,9 +143,10 @@ jobs:
           mkdir -p run/shaderpacks run/config capturas/mera-iris
           API=https://api.modrinth.com/v2
           Q='game_versions=%5B%221.21.1%22%5D&loaders=%5B%22fabric%22%5D'
-          # las últimas versiones estables para 1.21.1: Gradle las baja y las traduce al entorno de desarrollo
-          SODIUM=$(curl -fsSL "$API/project/sodium/version?$Q" | jq -r '[.[] | select(.version_type == "release")][0].version_number')
-          IRIS=$(curl -fsSL "$API/project/iris/version?$Q" | jq -r '[.[] | select(.version_type == "release")][0].version_number')
+          # las primeras versiones estables para 1.21.1, no las últimas: Gradle rechaza un mod compilado con un
+          # Loom más nuevo que el del proyecto ("Mod was built with a newer version of Loom"), y las de 2024 van
+          SODIUM=$(curl -fsSL "$API/project/sodium/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
+          IRIS=$(curl -fsSL "$API/project/iris/version?$Q" | jq -r '[.[] | select(.version_type == "release")][-1].version_number')
           echo "sodium=$SODIUM iris=$IRIS"
           URL=$(curl -fsSL "$API/project/photon-shader/version?game_versions=%5B%221.21.1%22%5D" | jq -r '.[0].files | (map(select(.primary)) + .)[0].url')
           PACK="${URL##*/}"

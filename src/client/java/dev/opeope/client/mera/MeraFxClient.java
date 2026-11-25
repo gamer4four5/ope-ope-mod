@@ -52,6 +52,17 @@ public final class MeraFxClient {
 
 	public static final Identifier ATLAS = OpeOpeMod.id("textures/fx/mera_flame.png");
 
+	/** El color del humo y del vapor según la luz que haya: de día gris claro, de noche casi negro. */
+	private static int smokeRGB = 0x9A938B, steamRGB = 0xE8ECF0;
+
+	private static int mixRGB(int dark, int lit, float k) {
+		float u = MathHelper.clamp(k, 0f, 1f);
+		int r = (int) MathHelper.lerp(u, (dark >> 16) & 255, (lit >> 16) & 255);
+		int g = (int) MathHelper.lerp(u, (dark >> 8) & 255, (lit >> 8) & 255);
+		int b = (int) MathHelper.lerp(u, dark & 255, lit & 255);
+		return (r << 16) | (g << 8) | b;
+	}
+
 	// ------------------------------------------------------------------ las llamas (estructura de arrays)
 
 	private static final int MAX = 6500;
@@ -440,6 +451,10 @@ public final class MeraFxClient {
 			BASE.identity();
 			plain = true;
 		}
+
+		float amb = MeraVolumes.skyAt(camX, camY + 1, camZ);
+		smokeRGB = mixRGB(0x2B2724, 0x9A938B, amb);
+		steamRGB = mixRGB(0x454B52, 0xE8ECF0, amb);
 
 		AbstractTexture tex = mc.getTextureManager().getTexture(ATLAS);
 		tex.setFilter(true, false);
@@ -858,12 +873,12 @@ public final class MeraFxClient {
 			case SMOKE -> {
 				s = SIZE[i] * (0.6f + 1.4f * t);
 				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.38f;
-				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], 0x463E3A, alpha);
+				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], smokeRGB, alpha);
 			}
 			case STEAM -> {
 				s = SIZE[i] * (0.6f + 1.6f * t);
 				alpha = (t < 0.1f ? t / 0.1f : 1f) * (1f - t) * 0.42f;
-				quad(b, x, y, z, s * 1.2f, ROT[i], CELL[i], 0xE8ECF0, alpha);
+				quad(b, x, y, z, s * 1.2f, ROT[i], CELL[i], steamRGB, alpha);
 			}
 			case SPARK -> {
 				s = SIZE[i];
@@ -1292,7 +1307,15 @@ public final class MeraFxClient {
 						else tongue(p.x + rs() * r, p.y + rs() * r, p.z + rs() * r, -dir.x * 6, -dir.y * 6, -dir.z * 6, 0.3f, 0.3f);
 					}
 					core(pos.x, pos.y, pos.z, 0, 0, 0, 0.55f, 0.06f);
-					if (vol() && !selfView(mc, user)) vol(MeraVolumes.FIST, pos, dir, 0.55f, 2.8f, 0, f, 1f);
+					if (vol() && !selfView(mc, user)) {
+						vol(MeraVolumes.FIST, pos, dir, 0.55f, 2.8f, 0, f, 1f);
+						// la estela: el tramo recorrido desde el fotograma anterior, para que se vea el rastro de fuego
+						Vec3d trail = from.subtract(pos);
+						float bl = (float) trail.length();
+						if (bl > 0.35f) {
+							MeraVolumes.add(MeraVolumes.JET, pos, trail.normalize(), Math.min(bl, 7f), 0.40f, 0, 0, f.id * 31 + 5, 0.6f);
+						}
+					}
 					f.last = pos;
 				} else if (f.acc2 == 0) {
 					// vuelve a tomar forma: las llamas se juntan en el cuerpo
@@ -1887,18 +1910,24 @@ public final class MeraFxClient {
 		double rX = -Math.cos(yr), rZ = -Math.sin(yr);
 		double fX = -Math.sin(yr), fZ = Math.cos(yr);
 		if (vol() && !self) {
-			// el cuerpo entero envuelto en llamas (en 3D), como Ace cuando arde: hombros, espalda, cabeza y brazos
-			double y0 = base.y + (pl.isInSneakingPose() ? 0.8 : 1.02);
+			// Ace ardiendo: el cuerpo entero envuelto, no unas velas encima. Una llama grande cubre el tronco y
+			// otra el pecho; encima, hombros, brazos, espalda y cabeza, que se juntan con ellas en una sola llama
+			// con el cuerpo visible por dentro. Las alturas van desde los pies (agachado, todo baja un poco).
+			int id = pl.getId() * 13;
+			double sc = pl.isInSneakingPose() ? 0.82 : 1.0;
+			double x = base.x, z = base.z;
+			MeraVolumes.add(MeraVolumes.FLAME, new Vec3d(x, base.y + 0.86 * sc, z), FWD, 0.46f, (float) (2.10 * sc), 0, 0, id + 1, 0.8f);
+			MeraVolumes.add(MeraVolumes.FLAME, new Vec3d(x, base.y + 1.30 * sc, z), FWD, 0.34f, (float) (1.30 * sc), 0, 0, id + 2, 0.7f);
 			for (int sd = -1; sd <= 1; sd += 2) {
-				Vec3d sh = new Vec3d(base.x + rX * 0.40 * sd, y0, base.z + rZ * 0.40 * sd);
-				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.30f, 1.55f, 0, 0, pl.getId() * 13 + sd, 0.95f);
-				Vec3d arm = new Vec3d(base.x + rX * 0.44 * sd, y0 - 0.40, base.z + rZ * 0.44 * sd);
-				MeraVolumes.add(MeraVolumes.FLAME, arm, FWD, 0.20f, 0.95f, 0, 0, pl.getId() * 13 + 3 * sd, 0.7f);
+				Vec3d sh = new Vec3d(x + rX * 0.32 * sd, base.y + 1.00 * sc, z + rZ * 0.32 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, sh, FWD, 0.26f, (float) (1.45 * sc), 0, 0, id + 3 + sd, 0.95f);
+				Vec3d arm = new Vec3d(x + rX * 0.40 * sd, base.y + 0.60 * sc, z + rZ * 0.40 * sd);
+				MeraVolumes.add(MeraVolumes.FLAME, arm, FWD, 0.19f, (float) (0.95 * sc), 0, 0, id + 6 + sd, 0.8f);
 			}
-			Vec3d back = new Vec3d(base.x - fX * 0.22, y0 + 0.16, base.z - fZ * 0.22);
-			MeraVolumes.add(MeraVolumes.FLAME, back, FWD, 0.34f, 1.65f, 0, 0, pl.getId() * 13 + 5, 0.85f);
-			Vec3d head = new Vec3d(base.x, y0 + 0.60, base.z);
-			MeraVolumes.add(MeraVolumes.FLAME, head, FWD, 0.20f, 0.95f, 0, 0, pl.getId() * 13 + 7, 0.8f);
+			Vec3d back = new Vec3d(x - fX * 0.20, base.y + 1.10 * sc, z - fZ * 0.20);
+			MeraVolumes.add(MeraVolumes.FLAME, back, FWD, 0.30f, (float) (1.60 * sc), 0, 0, id + 8, 0.85f);
+			Vec3d head = new Vec3d(x, base.y + 1.66 * sc, z);
+			MeraVolumes.add(MeraVolumes.FLAME, head, FWD, 0.20f, (float) (0.90 * sc), 0, 0, id + 9, 0.85f);
 			thin = 0.3f;
 		}
 		float rate = (self ? 50 : 260) * density;

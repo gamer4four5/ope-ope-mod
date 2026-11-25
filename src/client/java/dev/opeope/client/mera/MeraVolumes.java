@@ -354,6 +354,11 @@ public final class MeraVolumes {
 		return nl;
 	}
 
+	/** La luz que hay en un punto (0 a oscuras, 1 a pleno sol): el humo se ve con ella, no brilla solo. */
+	public static float skyAt(double x, double y, double z) {
+		return light(MinecraftClient.getInstance().world, x, y, z);
+	}
+
 	/** Las luces van al shader como arrays, directamente con OpenGL (Minecraft no maneja arrays de uniforms). */
 	private static final java.nio.FloatBuffer LBUF = org.lwjgl.BufferUtils.createFloatBuffer(MAXL * 4);
 	private static int lightRef = -1, locCount, locA, locB, locX, locSeed;

@@ -294,49 +294,53 @@ public final class AutoTest {
 	private static boolean framesHooked;
 	/** La entidad que hace de cámara lejana en una captura, y dónde estaba. */
 	private static net.minecraft.entity.Entity farCam;
-	private static Vec3d farCamPos;
-	private static float farCamYaw, farCamPitch;
+	private static net.minecraft.entity.decoration.ArmorStandEntity farStand;
+	private static double farBack, farUp;
 
 	/**
-	 * Pone la cámara lejos del jugador (en el cliente, solo para la captura): así se ven enteras las técnicas grandes,
-	 * que desde los 4 bloques de la tercera persona llenan toda la pantalla. Usa el zombi de la galería como cámara;
-	 * en primera persona el juego no dibuja la entidad que hace de cámara, así que no se ve.
+	 * Pone la cámara lejos del jugador (solo en el cliente, para la captura): así se ven enteras las técnicas grandes,
+	 * que desde los 4 bloques de la tercera persona llenan toda la pantalla. La cámara es un soporte de armadura
+	 * invisible que no está en el mundo: nadie lo mueve, no cae y el servidor no lo toca. La captura va en tercera
+	 * persona porque en primera el juego dibuja la mano del jugador delante.
 	 */
 	private static void farCamera(MinecraftClient mc, double back, double up) {
 		try {
-			farCameraMove(mc, back, up);
+			farBack = back;
+			farUp = up;
+			farCameraMove(mc);
 		} catch (RuntimeException e) {
 			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude poner la cámara lejos", e);
 			farCam = null;
 		}
 	}
 
-	private static void farCameraMove(MinecraftClient mc, double back, double up) {
-		farCam = null;
-		if (mc.player == null || mc.world == null || galleryZombie == null) return;
-		net.minecraft.entity.Entity e = mc.world.getEntityById(galleryZombie.getId());
-		if (e == null || e == mc.player) return;
-		farCam = e;
-		farCamPos = e.getPos();
-		farCamYaw = e.getYaw();
-		farCamPitch = e.getPitch();
+	private static void farCameraMove(MinecraftClient mc) {
+		if (mc.player == null || mc.world == null) return;
 		Vec3d p = mc.player.getPos();
 		double yaw = Math.toRadians(mc.player.getYaw());
-		// detrás del jugador y un poco en alto, mirándolo
-		Vec3d c = p.add(Math.sin(yaw) * back, up, -Math.cos(yaw) * back);
+		// detrás del jugador y un poco en alto, mirándolo (la tercera persona añade sus 4 bloques)
+		Vec3d c = p.add(Math.sin(yaw) * farBack, farUp, -Math.cos(yaw) * farBack);
 		Vec3d to = p.add(0, 1.2, 0).subtract(c);
 		float yawTo = (float) Math.toDegrees(Math.atan2(-to.x, to.z));
 		float pitchTo = (float) -Math.toDegrees(Math.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)));
-		e.refreshPositionAndAngles(c.x, c.y, c.z, yawTo, pitchTo);
-		e.prevYaw = yawTo;
-		e.prevPitch = pitchTo;
-		mc.setCameraEntity(e);
+		if (farStand == null || farStand.getWorld() != mc.world) {
+			farStand = new net.minecraft.entity.decoration.ArmorStandEntity(mc.world, c.x, c.y, c.z);
+			farStand.setInvisible(true);
+			farStand.setNoGravity(true);
+			farStand.noClip = true;
+		}
+		farStand.refreshPositionAndAngles(c.x, c.y, c.z, yawTo, pitchTo);
+		farStand.prevYaw = yawTo;
+		farStand.prevPitch = pitchTo;
+		farStand.setHeadYaw(yawTo);
+		farStand.setBodyYaw(yawTo);
+		farCam = farStand;
+		mc.setCameraEntity(farStand);
 	}
 
 	private static void farCameraBack(MinecraftClient mc) {
 		try {
 			mc.setCameraEntity(mc.player);
-			if (farCam != null && farCamPos != null) farCam.refreshPositionAndAngles(farCamPos.x, farCamPos.y, farCamPos.z, farCamYaw, farCamPitch);
 		} catch (RuntimeException e) {
 			OpeOpeMod.LOG.warn("AUTOTEST galería: no pude devolver la cámara", e);
 		}
@@ -391,9 +395,11 @@ public final class AutoTest {
 			p.frame = frames;
 			return;
 		}
+		if (farCam != null) farCamera(mc, farBack, farUp);
 		// el fotograma de la captura guarda qué vio el fuego 3D (estado de GL y algunos píxeles)
 		if (MERA) dev.opeope.client.mera.MeraVolumes.diagArm = true;
-		if (frames <= p.frame) return;
+		// dos fotogramas, no uno: con uno solo, alguna captura salía en blanco (la cámara acababa de moverse)
+		if (frames <= p.frame + 1) return;
 		PENDING.poll();
 		shot(mc, p.name);
 		if (p.after != null) p.after.run();
@@ -539,8 +545,8 @@ public final class AutoTest {
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = true,
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = false);
 				// Mera: una vista de lejos, para ver entera la técnica (de cerca, las grandes llenan la pantalla)
-				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.FIRST_PERSON,
-					() -> farCamera(mc, 17, 4.5),
+				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
+					() -> farCamera(mc, 14, 4.0),
 					() -> farCameraBack(mc));
 			}
 		}
