@@ -59,6 +59,9 @@ public final class MeraVolumes {
 	private static boolean grabBroken;
 	/** La textura de profundidad que lee el shader este fotograma y su tamaño. */
 	private static int depthTex = -1, viewW, viewH;
+	/** Copia del color de la imagen ya dibujada: con ella la luz del fuego se calcula de una vez, sin quemar. */
+	private static int litTex = -1, litFbo = -1, litW, litH;
+	private static boolean litBroken;
 	/** Con un shaderpack (Iris) el fuego se dibuja cuando el shaderpack ya terminó la imagen. */
 	private static boolean pending;
 	private static double camX0, camY0, camZ0;
@@ -264,8 +267,8 @@ public final class MeraVolumes {
 				ay = by = cool * cool * r * 0.55f;
 				bz = -0.6f * r * mv;
 				range = r * 3f + 5f;
-				// una bola pequeña (una bala del Higan) da poca luz; el sol del Entei, mucha
-				power = MathHelper.clamp(0.25f + 0.5f * r, 0.25f, 1.3f) * (1f - 0.75f * cool);
+				// una bola pequeña (una bala del Higan) da poca luz; el sol del Entei, mucha. Ya hecha humo, ninguna
+				power = MathHelper.clamp(0.25f + 0.5f * r, 0.25f, 1.3f) * (1f - 0.75f * cool) * Math.min(1f, (1f - cool) * 10f);
 			}
 			case FIST -> {
 				float sz = Math.max(p0, 0.2f);
@@ -446,17 +449,37 @@ public final class MeraVolumes {
 
 		RenderSystem.setShader(() -> lp);
 		RenderSystem.setShaderTexture(0, depthTex);
-		// color = mundo × 2·salida (la salida va de 0,5 a 1): la luz aclara lo que ya está dibujado con su color
-		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.SRC_COLOR,
-			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 		mat(lp, "ViewProj", VP);
 		mat(lp, "InvViewProj", INV);
 		vec(lp, "ViewSize", viewW, viewH);
 		vec(lp, "VolTime", time0);
 		// con un shaderpack (Photon…) la imagen sale más oscura y con más contraste: la misma luz casi no se notaba
+		// (leyendo la imagen hace falta menos: lo claro ya no se quema)
 		boolean pack = shaderPackInUse();
-		float gain = pack ? 1.5f : 1f;
+		boolean full = copyColor();
+		float gain = pack ? (full ? 1.25f : 1.5f) : 1f;
 		vec(lp, "LightColor", gain, 0.42f * gain, 0.12f * gain);
+
+		// lo normal: con una copia de la imagen, la luz se calcula entera en un dibujo y cada color se acerca al blanco
+		// sin pasarse nunca (multiplicando, lo que ya era claro se recortaba: la gente junto al fuego salía blanca y
+		// en el suelo quedaba un círculo quemado con el borde marcado)
+		if (full) {
+			int prev1 = RenderSystem.getShaderTexture(1);
+			RenderSystem.setShaderTexture(1, litTex);
+			RenderSystem.disableBlend();
+			try {
+				vec(lp, "LightPass", 4);
+				lightBox(x0, y0, z0, x1, y1, z1);
+			} finally {
+				RenderSystem.enableBlend();
+				RenderSystem.setShaderTexture(1, prev1);
+			}
+			return;
+		}
+
+		// si no se puede copiar la imagen: color = mundo × 2·salida (la salida va de 0,5 a 1), en tramos de ×2
+		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.SRC_COLOR,
+			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 		double e = Math.sqrt(e2) * gain;
 		double most = 1 + e / (1 + 0.12 * e);
 		int passes = most <= 2.02 ? 1 : most <= 4.04 ? 2 : 3;
@@ -468,18 +491,88 @@ public final class MeraVolumes {
 					GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 			}
 			vec(lp, "LightPass", p == passes ? 3 : p);
-			BufferBuilder bb = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
-			// solo las caras «de detrás» de la caja (la cámara está en el origen): cada píxel, una sola vez
-			if (0 < x1) quad(bb, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1);
-			if (0 > x0) quad(bb, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0);
-			if (0 < y1) quad(bb, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0);
-			if (0 > y0) quad(bb, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1);
-			if (0 < z1) quad(bb, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1);
-			if (0 > z0) quad(bb, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0);
-			var built = bb.endNullable();
-			if (built != null) BufferRenderer.drawWithGlobalProgram(built);
+			lightBox(x0, y0, z0, x1, y1, z1);
 		}
 	}
+
+	/** Solo las caras «de detrás» de la caja (la cámara está en el origen): cada píxel, una sola vez. */
+	private static void lightBox(float x0, float y0, float z0, float x1, float y1, float z1) {
+		BufferBuilder bb = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
+		if (0 < x1) quad(bb, x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1);
+		if (0 > x0) quad(bb, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0);
+		if (0 < y1) quad(bb, x0, y1, z0, x0, y1, z1, x1, y1, z1, x1, y1, z0);
+		if (0 > y0) quad(bb, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1);
+		if (0 < z1) quad(bb, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1);
+		if (0 > z0) quad(bb, x0, y0, z0, x0, y1, z0, x1, y1, z0, x1, y0, z0);
+		var built = bb.endNullable();
+		if (built != null) BufferRenderer.drawWithGlobalProgram(built);
+	}
+
+	/**
+	 * Copia el color del framebuffer que se está dibujando (la imagen del mundo ya terminada) a una textura propia, para
+	 * que la luz lea lo que hay debajo. Si falla una vez, la luz vuelve a multiplicar con la mezcla de OpenGL.
+	 */
+	private static boolean copyColor() {
+		if (litBroken || viewW <= 0 || viewH <= 0) return false;
+		int w = viewW, h = viewH;
+		int src = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+		if (src == 0) return false;
+		// con un shaderpack se dibuja en el principal: tiene que ser del tamaño de la profundidad copiada
+		Framebuffer main = MinecraftClient.getInstance().getFramebuffer();
+		if (src == main.fbo && (main.textureWidth != w || main.textureHeight != h)) return false;
+		int prevRead = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
+		try {
+			if (litTex < 0 || litW != w || litH != h) {
+				int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+				if (litTex < 0) litTex = GlStateManager._genTexture();
+				GlStateManager._bindTexture(litTex);
+				GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+				GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+				GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+				GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+				GlStateManager._texImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, w, h, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, null);
+				GlStateManager._bindTexture(prevTex);
+				if (litFbo < 0) litFbo = GlStateManager.glGenFramebuffers();
+				GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, litFbo);
+				GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, litTex, 0);
+				int status = GlStateManager.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
+				GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, src);
+				if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+					OpeOpeMod.LOG.warn("Mera: el framebuffer para copiar la imagen no quedó completo ({}); la luz multiplica", status);
+					litBroken = true;
+					return false;
+				}
+				litW = w;
+				litH = h;
+			}
+			for (int k = 0; k < 8 && GL11.glGetError() != GL11.GL_NO_ERROR; k++) {
+				// errores viejos de otros: que no se confundan con el de la copia
+			}
+			GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, src);
+			GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, litFbo);
+			GL30.glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
+			int err = GL11.glGetError();
+			if (err != GL11.GL_NO_ERROR) {
+				OpeOpeMod.LOG.warn("Mera: no pude copiar la imagen para la luz del fuego (error GL {}); la luz multiplica", err);
+				litBroken = true;
+				return false;
+			}
+			if (DIAG && !litLogged) {
+				litLogged = true;
+				OpeOpeMod.LOG.info("Mera: la luz del fuego lee la imagen (fbo {} {}x{})", src, w, h);
+			}
+			return true;
+		} catch (RuntimeException e) {
+			OpeOpeMod.LOG.warn("Mera: no pude copiar la imagen para la luz del fuego; la luz multiplica", e);
+			litBroken = true;
+			return false;
+		} finally {
+			GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevRead);
+			GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, src);
+		}
+	}
+
+	private static boolean litLogged;
 
 	private static void quad(BufferBuilder bb, float ax, float ay, float az, float bx, float by, float bz,
 							 float cx, float cy, float cz, float dx, float dy, float dz) {

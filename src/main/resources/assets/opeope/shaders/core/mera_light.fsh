@@ -8,14 +8,18 @@
 // multiplicarse entre ellos, que pintaba el suelo de amarillo). Un dibujo aclara como mucho ×2; con mucha luz
 // (de noche, en una cueva) se repite con LightPass 1 y 2, y cada vez pone el ×2 siguiente (hasta ×8). Al final
 // (LightPass 3, mezcla ONE, ONE) se suma un resplandor naranja que de noche tiñe lo oscuro junto al fuego.
+// Lo normal es LightPass 4: con una copia de la imagen (Sampler1) todo se calcula en un dibujo y cada color sube hacia
+// el blanco sin pasarse nunca; multiplicando, lo que ya era claro se recortaba (la gente junto al fuego salía blanca y
+// quedaba un círculo quemado con el borde marcado). Los pases 0 a 3 quedan por si no se puede copiar la imagen.
 // Cada luz es un segmento (de A a B) o un aro (centro A, eje, radio, alto).
 
 uniform sampler2D Sampler0;   // la profundidad del mundo
+uniform sampler2D Sampler1;   // (LightPass 4) la imagen ya dibujada, copiada
 uniform mat4 InvViewProj;     // pantalla → mundo (relativo a la cámara)
 uniform vec2 ViewSize;
 uniform float VolTime;
 uniform vec3 LightColor;
-uniform float LightPass;      // 0, 1, 2: qué tramo de ×2 pone este dibujo; 3: el resplandor que se suma
+uniform float LightPass;      // 0, 1, 2: qué tramo de ×2 pone este dibujo; 3: el resplandor que se suma; 4: todo
 
 // las luces: MeraVolumes las pasa directamente con OpenGL (los arrays no van en el .json)
 uniform int LightCount;
@@ -91,6 +95,24 @@ void main() {
     // (así un montón de fuegos juntos no pintan el suelo de amarillo chillón)
     float E = sqrt(E2);
     E = E / (1.0 + 0.12 * E);
+    if (LightPass > 3.5) {
+        // todo en un dibujo, con lo que ya hay debajo: en lo oscuro es como multiplicar por 1 + luz, y lo claro se
+        // acerca al blanco poco a poco (1 − (1 − c)^(1 + luz)): sin recortes ni manchas quemadas con borde
+        vec4 base = texture(Sampler1, uv);
+        vec3 c = clamp(base.rgb, 0.0, 1.0);
+        // el tono se queda naranja aunque haya mucha luz (si se acerca al blanco, la gente junto al fuego sale blanca)
+        vec3 tint4 = mix(LightColor, vec3(1.0), clamp(0.07 * E, 0.0, 0.30));
+        // lo que ya está claro (al sol, o alumbrado por el shaderpack) gana menos: ahí la luz del fuego pesa poco
+        float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        float adapt = 1.0 - 0.75 * smoothstep(0.05, 0.70, lum);
+        vec3 lit = 1.0 - pow(max(1.0 - c, vec3(1.0e-6)), 1.0 + tint4 * (1.3 * E * adapt));
+        // y de noche el resplandor naranja que tiñe lo oscuro junto al fuego, sumado sin pasarse
+        float g4 = 0.40 * (1.0 - exp(-0.12 * E));
+        lit += (1.0 - lit) * clamp(LightColor * g4, 0.0, 1.0);
+        if (max(lit.r - c.r, max(lit.g - c.g, lit.b - c.b)) < 0.002) discard;
+        fragColor = vec4(lit, base.a);
+        return;
+    }
     if (LightPass > 2.5) {
         // el último dibujo suma (ONE, ONE) un resplandor naranja: de noche lo oscuro junto al fuego se ve naranja,
         // no solo más claro (de día casi no se nota)

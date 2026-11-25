@@ -47,7 +47,7 @@ out vec4 fragColor;
 //  Parámetros de cada forma (prm):
 //    0 FIREBALL  x radio, y enfriado de explosión 0..1, z velocidad 0..1
 //    1 FIST      x tamaño, y largo de la estela
-//    2 PILLAR    x radio, y alto
+//    2 PILLAR    x radio, y alto, z 1 = visto desde el hueco de dentro
 //    3 RING      x radio, y alto, z grosor
 //    4 WALL      x medio ancho, y alto, z grosor
 //    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
@@ -282,7 +282,9 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // (pegado al eje no: ahí dentro está Ace, y allí las bandas cambiarían demasiado deprisa)
         float g = smoothstep(0.22 * R, 0.55 * R, r);
         float sy = smoothstep(0.4, 1.4, p.y) * g;
-        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45) * sy;
+        // visto desde el hueco (prm.z = 1, la primera persona de Ace) los huecos entre las bandas son más anchos: se
+        // ven las cintas de fuego subiendo alrededor y el mundo entre ellas, no una pantalla llena de fuego
+        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45 + 0.9 * clamp(prm.z, 0.0, 1.0)) * sy;
         float yCut = max(p.y - H, -p.y - 0.3 * R);
         d = max(d, yCut);
         // las bandas acercan la pared como mucho 1.45 th, y cambian hasta (1.35*5 + 0.55*9)·th/r por bloque
@@ -576,7 +578,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         if (dens > 0.001) {
             // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
-            dens *= gf * smoothstep(0.35 * nearFade, nearFade + 0.15, t);
+            float nfk = smoothstep(0.35 * nearFade, nearFade + 0.15, t);
+            dens *= gf * nfk;
             vec4 look = mf_look(shape, p, prm);
             // solo el borde se rompe en jirones; la masa es continua
             float uu = clamp(u, 0.0, 1.0);
@@ -584,9 +587,14 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             dens *= mix(1.0, mix(brk, 1.0, look.z), w);
 
             float depth = clamp(-dd / (L * look.x), 0.0, 1.0);
+            // donde se aclara junto a la cámara, el corte se ve como la piel del fuego (más fría), no como el
+            // corazón amarillo de dentro: si no, la pared aclarada era una bruma crema que lavaba la pantalla
+            if (nearFade > 0.0) depth = min(depth, max(t - 0.35 * nearFade, 0.0) / (L * look.x));
             float hotLong = (isFist > 0.5 || (shape > 4.5 && shape < 5.5)) ? 1.0 : 0.0;
             float coolU = 1.0 - 0.85 * smoothstep(mix(0.45, 0.55, hotLong), 1.1, u);
             float temp = (look.y + (1.0 - look.y) * depth * (2.0 - depth)) * coolU;
+            // y lo que se aclara junto a la cámara, más frío: queda un velo rojizo, no una bruma amarilla
+            temp *= mix(0.5, 1.0, nfk);
             // bolsas más calientes; los pliegues entre ellas, más oscuros (hollín)
             float crease = (1.0 - smoothstep(0.03, 0.24, tb)) * (1.0 - w) * massy;
             temp += 0.45 * (tb - 0.35) * (1.0 - w);
@@ -659,7 +667,9 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 
     // halo alrededor del fuego (como bloom), según lo cerca que pasó el rayo
     float look_w = mf_look(shape, vec3(0.0), prm).w;
-    float glow = exp(-max(minD, 0.0) / (Lref * 0.9)) * edgeFade * intensity * look_w * (1.0 - 0.7 * cool);
+    // (la nube de humo que queda después ya no brilla)
+    float glow = exp(-max(minD, 0.0) / (Lref * 0.9)) * edgeFade * intensity * look_w * (1.0 - 0.7 * cool)
+               * (1.0 - smoothstep(0.85, 1.0, cool));
     vec3 glowCol = vec3(1.0, 0.42, 0.10);
     col += T * glowCol * glow * 0.13;
 

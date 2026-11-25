@@ -141,6 +141,11 @@ public final class MeraFxClient {
 
 	private static double lastFrame = -1;
 	private static double flashAt = -10, flashStrength;
+	/**
+	 * Lo más fuerte que piden los golpes de Ace a las líneas del manga (LawHudFx.impact): desde 0,6 sale además un
+	 * fotograma en negativo, que con el fuego lo vuelve azul y morado.
+	 */
+	private static final float MERA_IMPACT_MAX = 0.55f;
 	private static int flashRgb = 0xFFB040;
 
 	public static void clear() {
@@ -203,8 +208,11 @@ public final class MeraFxClient {
 						if (p.kind() == MeraFx.ENTEI_BLAST) {
 							CameraFx.kick(4.2f * prox, 0f, 2.6f * prox);
 							CameraFx.fov(-8f * prox, 0.04f, 0.9f);
-							flash(0.75f * prox, 0xFFD27A);
-							LawHudFx.impact(Math.min(1f, prox), 0.5f, 0.5f);
+							// un fogonazo cálido y breve (la bola ya llena la vista: si el destello es fuerte la pantalla
+							// queda lavada) y las líneas del golpe, sin el negativo del manga, que es cosa de Law y
+							// volvía azul el fuego
+							flash(0.4f * prox, 0xFFB45A);
+							LawHudFx.impact(Math.min(MERA_IMPACT_MAX, prox), 0.5f, 0.5f);
 						} else if (r > 3f) {
 							flash(0.22f * prox, 0xFF9A3A);
 						}
@@ -268,7 +276,7 @@ public final class MeraFxClient {
 					CameraFx.kick(2.2f * k + 0.8f, 0f, 1.2f);
 					CameraFx.fov(3.5f + 4f * k, 0.03f, 0.45f);
 					LawHudFx.bannerText(MeraTechs.NAMES[0][0], MeraTechs.NAMES[0][1]);
-					LawHudFx.impact(0.35f + 0.4f * k, 0.5f, 0.5f);
+					LawHudFx.impact(Math.min(MERA_IMPACT_MAX, 0.35f + 0.4f * k), 0.5f, 0.5f);
 				}
 			}
 			case MeraFx.HIGAN_POSE -> {
@@ -515,8 +523,8 @@ public final class MeraFxClient {
 			plain = true;
 		}
 
-		// con el fuego 3D el humo de las llamas sueltas es más suave, pero que se vea: el fuego acaba en humo
-		smokeMul = embers ? 0.7f : 1f;
+		// con el fuego 3D el humo de las llamas sueltas es algo más suave, pero que se vea: el fuego acaba en humo
+		smokeMul = embers ? 0.9f : 1f;
 		float amb = MeraVolumes.skyAt(camX, camY + 1, camZ);
 		smokeRGB = mixRGB(0x2B2724, 0x9A938B, amb);
 		steamRGB = mixRGB(0x454B52, 0xE8ECF0, amb);
@@ -1207,11 +1215,23 @@ public final class MeraFxClient {
 				// si no, muchos seguidos en el mismo sitio se juntaban en una bola marrón quieta
 				boolean small = r < 1.2f;
 				double T = (small ? 0.55 : 0.95) + 0.1 * r;
-				if (age > T) return false;
+				// los grandes dejan después una nube de humo que sube, se abre y se deshace despacio (el fuego de verdad
+				// acaba casi todo en humo); los pequeños, solo la bocanada
+				double S = small ? 0 : 1.6 + 0.35 * r;
+				if (age > T + S) return false;
+				if (age > T) {
+					float w = (float) ((age - T) / S);
+					float R1 = r * 0.83f;
+					float Rs = R1 * (1f + 0.35f * easeOut(w));
+					Vec3d c0 = outOfWall(f, d, R1);
+					Vec3d cs = c0.add(0, R1 * (0.25f + 0.9f * w) * w, 0);
+					vol(MeraVolumes.FIREBALL, cs, FWD, Rs, 1f, 0, f, 1f - smooth((w - 0.2f) / 0.8f));
+					return true;
+				}
 				float u = (float) (age / T), e = easeOut(u * 1.6);
 				float cool = smooth((u - 0.12f) / 0.88f);
-				float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.1f)) * (1f - smooth((u - 0.72f) / 0.28f));
-				if (small) inten *= 1f - 0.5f * smooth((u - 0.35f) / 0.65f);
+				float inten = 1f + 0.6f * Math.max(0f, 1f - u / 0.1f);
+				if (small) inten *= (1f - smooth((u - 0.72f) / 0.28f)) * (1f - 0.5f * smooth((u - 0.35f) / 0.65f));
 				float R = r * (0.28f + 0.55f * e);
 				vol(MeraVolumes.FIREBALL, outOfWall(f, d, R), FWD, R, cool, 0, f, inten);
 			}
@@ -1321,7 +1341,7 @@ public final class MeraFxClient {
 			}
 			case SMOKE -> {
 				s = SIZE[i] * (0.6f + 1.4f * t);
-				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.38f;
+				alpha = (t < 0.15f ? t / 0.15f : 1f) * (1f - t) * 0.46f;
 				quad(b, x, y, z, s * 1.25f, ROT[i], CELL[i], smokeRGB, alpha * smokeMul);
 			}
 			case STEAM -> {
@@ -1714,7 +1734,7 @@ public final class MeraFxClient {
 				return true;
 			}
 			case MeraFx.HIBASHIRA -> {
-				return emitPillar(f, age, dt, density);
+				return emitPillar(f, age, dt, density, selfView(mc, user));
 			}
 			case MeraFx.KAGERO -> {
 				if (f.ended || age > f.dur + 0.1 || user == null) return false;
@@ -2101,18 +2121,30 @@ public final class MeraFxClient {
 	private static boolean emitEnteiBlast(Fx f, double age, double dt, float density) {
 		Vec3d c = f.a;
 		float area = f.radius;
-		if (vol() && age < 2.4) {
-			// la bola de fuego que se abre de golpe, hierve y sube como un hongo enfriándose en humo,
-			// y el anillo que corre por el suelo
-			float u = (float) (age / 2.4), e = easeOut(u * 1.7);
-			float cool = smooth((u - 0.1f) / 0.9f);
-			float inten = (1f + 0.6f * Math.max(0f, 1f - u / 0.06f)) * (1f - smooth((u - 0.75f) / 0.25f));
-			float rb = area * (0.22f + 0.5f * e);
-			vol(MeraVolumes.FIREBALL, c, FWD, rb, cool, 0, f, inten);
+		if (vol() && age < 2.4 + ENTEI_SMOKE) {
+			// la bola de fuego que se abre de golpe, hierve y sube como un hongo enfriándose en humo, y el anillo que
+			// corre por el suelo. Luego queda la nube de humo, que sigue subiendo y abriéndose unos segundos
+			Vec3d cb = c;
+			float rb, cool, inten;
+			if (age < 2.4) {
+				float u = (float) (age / 2.4), e = easeOut(u * 1.7);
+				cool = smooth((u - 0.1f) / 0.9f);
+				inten = 1f + 0.6f * Math.max(0f, 1f - u / 0.06f);
+				rb = area * (0.22f + 0.5f * e);
+			} else {
+				float w = (float) ((age - 2.4) / ENTEI_SMOKE);
+				float r1 = area * 0.72f;
+				cool = 1f;
+				inten = 1f - smooth((w - 0.25f) / 0.75f);
+				rb = r1 * (1f + 0.3f * easeOut(w));
+				cb = c.add(0, r1 * (0.2f + 0.8f * w) * w, 0);
+			}
+			vol(MeraVolumes.FIREBALL, cb, FWD, rb, cool, 0, f, inten);
 			// si la cámara queda dentro del estallido (el sol cayó cerca), el fuego pegado a ella se aclara: se ve la bola
 			// alrededor, no la pantalla entera lavada de naranja
-			double cdx = camX - c.x, cdy = camY - c.y, cdz = camZ - c.z;
-			double cd = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
+			double cdx = camX - c.x, cdz = camZ - c.z;
+			double bx = camX - cb.x, by = camY - cb.y, bz = camZ - cb.z;
+			double cd = Math.sqrt(bx * bx + by * by + bz * bz);
 			if (cd < rb * 1.6) MeraVolumes.nearFade(MathHelper.clamp(rb * 0.45f, 2.2f, 5f));
 			float uw = (float) (age / 1.6);
 			if (uw < 0.75f) {
@@ -2145,21 +2177,26 @@ public final class MeraFxClient {
 			}
 			for (int i = 0; i < 80; i++) spark(c.x, c.y, c.z, rs() * 25, R.nextDouble() * 22, rs() * 25, 1.4f);
 		}
-		// el hongo de humo y fuego que sube
-		if (age < 2.2) {
-			float k = (float) (1 - age / 2.2);
+		// el hongo de humo y fuego que sube; luego solo humo, cada vez menos
+		double smokeEnd = 2.4 + ENTEI_SMOKE * 0.8;
+		if (age < smokeEnd) {
+			boolean fireToo = age < 2.2;
+			float k = fireToo ? (float) (1 - age / 2.2) * 0.8f + 0.2f : 0.2f * (float) (1 - (age - 2.2) / (smokeEnd - 2.2));
 			int n = many(f, 260 * k * density, dt);
+			double y = Math.min(age, 2.2) * area * 1.2;
 			for (int i = 0; i < n; i++) {
 				double ang = R.nextDouble() * Math.PI * 2;
 				double rad = R.nextDouble() * area * 0.5;
-				double y = age * area * 1.2;
-				if (R.nextFloat() < 0.5f) smoke(c.x + Math.cos(ang) * rad, c.y + y, c.z + Math.sin(ang) * rad, Math.cos(ang) * 2, 3 + area * 0.3, Math.sin(ang) * 2, area * 0.35f, 3.2f);
+				if (!fireToo || R.nextFloat() < 0.5f) smoke(c.x + Math.cos(ang) * rad, c.y + y, c.z + Math.sin(ang) * rad, Math.cos(ang) * 2, 3 + area * 0.3, Math.sin(ang) * 2, area * 0.35f, 3.2f);
 				else fire(c.x + Math.cos(ang) * rad, c.y + y * 0.6, c.z + Math.sin(ang) * rad, Math.cos(ang), 4 + area * 0.2, Math.sin(ang), area * 0.18f + 0.3f, 0.7f);
 			}
 			return true;
 		}
-		return false;
+		return age < 2.4 + ENTEI_SMOKE;
 	}
+
+	/** Lo que dura la nube de humo que deja el estallido de Entei. */
+	private static final double ENTEI_SMOKE = 5.0;
 
 	// --- Hotarubi
 
@@ -2254,7 +2291,8 @@ public final class MeraFxClient {
 		return true;
 	}
 
-	private static boolean emitPillar(Fx f, double age, double dt, float density) {
+	/** El remolino de Hibashira. selfView: Ace lo ve desde el hueco de dentro (primera persona). */
+	private static boolean emitPillar(Fx f, double age, double dt, float density, boolean selfView) {
 		if (age > f.dur + 0.6) return false;
 		boolean down = f.style == 1;
 		Vec3d base = f.a, top = f.b;
@@ -2275,15 +2313,20 @@ public final class MeraFxClient {
 			// la columna crece desde el suelo (o baja del cielo) en un instante
 			float grow = easeOut(age / 0.3);
 			Vec3d foot = down ? new Vec3d(base.x, top.y - h * grow, base.z) : base;
-			// un poco más estrecho que la zona que quema: así en tercera persona la cámara queda fuera del remolino
-			vol(MeraVolumes.PILLAR, foot, FWD, f.radius * 0.8f, (float) (h * grow), 0, f, k);
+			// un poco más estrecho que la zona que quema: así en tercera persona la cámara queda fuera del remolino.
+			// Desde dentro (primera persona) las bandas dejan huecos más anchos: se ven las cintas de fuego subiendo
+			// alrededor y el mundo entre ellas, no una pantalla llena de fuego
+			vol(MeraVolumes.PILLAR, foot, FWD, f.radius * 0.8f, (float) (h * grow), selfView ? 1f : 0f, f, k);
 		}
 		double sp = down ? -h * 2.4 : h * 2.4;
 		float life = (float) (h / Math.abs(sp));
 		int n = many(f, (float) (700 * density * k), dt);
+		// las llamas suben por la pared del remolino, no por el hueco de dentro (ahí está Ace: en primera persona le
+		// pasaban por delante de los ojos y la pantalla se llenaba de amarillo)
+		if (selfView) n = n * 2 / 3;
 		for (int i = 0; i < n; i++) {
 			double ang = R.nextDouble() * Math.PI * 2;
-			double rad = Math.sqrt(R.nextDouble()) * f.radius;
+			double rad = (0.42 + 0.52 * Math.sqrt(R.nextDouble())) * f.radius;
 			Vec3d start = down ? top : base;
 			double x = start.x + Math.cos(ang) * rad, z = start.z + Math.sin(ang) * rad;
 			// gira mientras sube, como el remolino de Enkai
