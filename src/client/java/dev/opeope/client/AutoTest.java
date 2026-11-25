@@ -145,7 +145,60 @@ public final class AutoTest {
 				net.minecraft.world.World.ExplosionSourceType.NONE);
 			sp.getAbilities().invulnerable = inv;
 		}, 0, new int[]{4}, new int[]{3, 12, 30}));
+		// la fuerza: un Hiken de un toque tumba a un zombi con armadura de hierro, y el fuego de Ace no quema a su lobo
+		l.add(new Shot("fuerza", AutoTest::fuerzaSetup, 4, new int[]{12}, new int[]{}));
 		return l;
+	}
+
+	private static ZombieEntity fuerzaZombie;
+	private static net.minecraft.entity.passive.WolfEntity fuerzaWolf;
+
+	/** Detrás del muñeco, un zombi normal (20 de vida) con armadura de hierro y, a su lado, un lobo de Ace; y empieza un Hiken. */
+	private static void fuerzaSetup(ServerPlayerEntity sp, PlayerPower pw) {
+		net.minecraft.server.world.ServerWorld w = sp.getServerWorld();
+		double yaw = Math.toRadians(sp.getYaw());
+		net.minecraft.util.math.Vec3d fwd = new net.minecraft.util.math.Vec3d(-Math.sin(yaw), 0, Math.cos(yaw));
+		net.minecraft.util.math.Vec3d side = new net.minecraft.util.math.Vec3d(fwd.z, 0, -fwd.x);
+		net.minecraft.util.math.Vec3d at = sp.getPos().add(fwd.multiply(6.5));
+		ZombieEntity z = EntityType.ZOMBIE.create(w);
+		if (z != null) {
+			z.refreshPositionAndAngles(at.x, at.y, at.z, 0f, 0f);
+			z.setAiDisabled(true);
+			z.setPersistent();
+			z.equipStack(net.minecraft.entity.EquipmentSlot.HEAD, new ItemStack(Items.IRON_HELMET));
+			z.equipStack(net.minecraft.entity.EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
+			z.equipStack(net.minecraft.entity.EquipmentSlot.LEGS, new ItemStack(Items.IRON_LEGGINGS));
+			z.equipStack(net.minecraft.entity.EquipmentSlot.FEET, new ItemStack(Items.IRON_BOOTS));
+			w.spawnEntity(z);
+		}
+		fuerzaZombie = z;
+		net.minecraft.entity.passive.WolfEntity wolf = EntityType.WOLF.create(w);
+		if (wolf != null) {
+			net.minecraft.util.math.Vec3d wp = at.add(side.multiply(1.0));
+			wolf.refreshPositionAndAngles(wp.x, wp.y, wp.z, 0f, 0f);
+			wolf.setAiDisabled(true);
+			wolf.setPersistent();
+			wolf.setOwner(sp);
+			wolf.setHealth(wolf.getMaxHealth());
+			w.spawnEntity(wolf);
+		}
+		fuerzaWolf = wolf;
+		dev.opeope.power.mera.MeraPowers.handle(sp, pw, dev.opeope.power.mera.MeraActions.HIKEN_START, 0);
+	}
+
+	/** Tras el Hiken de un toque: el zombi acorazado ha caído y el lobo de Ace sigue entero y sin arder. */
+	private static void fuerzaCheck(ServerPlayerEntity sp) {
+		check(dev.opeope.power.mera.MeraPowers.burn(sp).isIn(net.minecraft.registry.tag.DamageTypeTags.BYPASSES_ARMOR),
+			"fuerza: el fuego de Ace salta la armadura", "opeope:mera no está en bypasses_armor");
+		ZombieEntity z = fuerzaZombie;
+		net.minecraft.entity.passive.WolfEntity wolf = fuerzaWolf;
+		check(z != null && !z.isAlive(), "fuerza: un Hiken de un toque tumba a un zombi con armadura de hierro",
+			z == null ? "no hay zombi" : "le queda vida " + z.getHealth());
+		check(wolf != null && wolf.isAlive() && wolf.getHealth() >= wolf.getMaxHealth() - 0.01f && wolf.getFireTicks() <= 0,
+			"fuerza: el fuego de Ace no quema a su lobo",
+			wolf == null ? "no hay lobo" : "vida " + wolf.getHealth() + " de " + wolf.getMaxHealth() + ", fuego " + wolf.getFireTicks());
+		fuerzaZombie = null;
+		fuerzaWolf = null;
 	}
 
 	/** Una flecha que atraviesa el pecho de lado a lado, de izquierda a derecha de Ace. */
@@ -200,6 +253,9 @@ public final class AutoTest {
 		if (name.startsWith("logia-")) logiaCheck(name, r);
 		int action = -1;
 		if (name.equals("hiken") && r == 8 + 15) action = dev.opeope.power.mera.MeraActions.HIKEN_RELEASE;
+		// un toque: se suelta a los dos ticks
+		if (name.equals("fuerza") && r == 8 + 2) action = dev.opeope.power.mera.MeraActions.HIKEN_RELEASE;
+		if (name.equals("fuerza") && r == 8 + 16) server(srv, id, (sp, pw) -> fuerzaCheck(sp));
 		if (name.equals("kagero") && r == 8 + 30) action = dev.opeope.power.mera.MeraActions.KAGERO_END;
 		if (name.equals("entei") && r == 8 + 42) action = dev.opeope.power.mera.MeraActions.ENTEI_RELEASE;
 		if (name.equals("hotarubi") && r == 8 + 35) action = dev.opeope.power.mera.MeraActions.HIDARUMA;
