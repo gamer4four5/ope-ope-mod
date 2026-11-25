@@ -54,7 +54,7 @@ out vec4 fragColor;
 //    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
 //    6 CROSS     x brazo, y grosor
 //    7 LANCE     x largo, y radio (la punta en +x/2, centrada)
-//    8 FLAME     x radio, y alto
+//    8 FLAME     x radio, y alto, z 1 = sale del suelo (la base, metida en él)
 // =====================================================================
 
 // ---------------------------------------------------------------------
@@ -408,18 +408,28 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
     }
     else {
         // ---------------- 8: LLAMA (pequeña, natural) ----------------
-        float R = max(prm.x, 0.03) * 0.8;
+        // una lágrima más fina y alta que se abre arriba en dos o tres puntas (antes, de cerca, bolas redondas). La
+        // que sale del suelo (z = 1) tiene la base metida en él: nace ancha del suelo, no es una bola apoyada encima
+        float R = max(prm.x, 0.03) * 0.72;
         float H = max(prm.y, 0.1);
+        float sink = mix(1.0, 0.35, clamp(prm.z, 0.0, 1.0));
         vec3 q = p;
         float v = clamp(q.y / H, 0.0, 1.0);
         q.x -= (sin(time * 2.1) * 0.6 + sin(time * 5.3) * 0.25) * v * v * R * 0.5;
         q.z -= cos(time * 1.7) * 0.5 * v * v * R * 0.5;
-        d = mf_sdRoundCone(q - vec3(0.0, R, 0.0), R, R * 0.05, max(H * 0.85 - R, R * 0.2));
+        d = mf_sdRoundCone(q - vec3(0.0, R * sink, 0.0), R, R * 0.05, max(H * mix(0.92, 0.95, clamp(prm.z, 0.0, 1.0)) - R * sink, R * 0.2));
+        // las puntas: arriba, alrededor del eje, se abren huecos que giran y suben (en el eje no: queda la del centro)
+        float ang = atan(q.z, q.x);
+        d += 0.9 * R * smoothstep(0.25, 0.9, v) * smoothstep(0.05 * R, 0.45 * R, length(q.xz))
+           * (0.5 + 0.5 * sin(3.0 * ang + q.y / H * 2.0 - time * 3.0));
+        // (con eso la distancia ya no es exacta)
+        mf_lip = 1.6;
         L = R * 0.9;
         u = q.y / H;
-        nq = vec3(q.x / (L * 1.5), q.y / (L * 3.2) - time * 3.4, q.z / (L * 1.5));
-        nb = vec3(q.x / (L * 2.2), q.y / (L * 2.4) - time * 1.8, q.z / (L * 2.2));
-        amp = L * (0.30 + 0.9 * v);
+        // el ruido estirado hacia arriba: vetas que suben, no grumos
+        nq = vec3(q.x / (L * 1.2), q.y / (L * 3.6) - time * 3.8, q.z / (L * 1.2));
+        nb = vec3(q.x / (L * 1.6), q.y / (L * 3.6) - time * 2.2, q.z / (L * 1.6));
+        amp = L * (0.25 + 1.1 * v);
     }
 }
 
