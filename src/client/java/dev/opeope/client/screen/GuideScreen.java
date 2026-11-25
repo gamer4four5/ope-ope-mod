@@ -26,7 +26,7 @@ import java.util.List;
  * Ajustes. Se baja con la rueda, las flechas, Re Pág / Av Pág e Inicio / Fin. Arriba, «Ajustes» y «Teclas».
  */
 public class GuideScreen extends Screen {
-	private static final int TEXT = 0xFFEEF7FA, TEXT2 = 0xFFA9C2CC, TEXT3 = 0xFF6F8792, ROOM = 0xFF8FE3FF;
+	private static final int TEXT = 0xFFEEF7FA, TEXT2 = 0xFFA9C2CC, TEXT3 = 0xFF6F8792, ROOM = 0xFF8FE3FF, MERA = 0xFFFF8A2A;
 	private static final int TITLE = 0, KEYS = 1, NOTE = 2;
 	private static final int TOP = 30, BOTTOM_MARGIN = 8;
 
@@ -39,6 +39,9 @@ public class GuideScreen extends Screen {
 	private final List<Laid> laid = new ArrayList<>();
 	private double scroll;
 	private int contentH, keyCol, x0, cw;
+	/** El color de los títulos: el azul del ROOM, o el naranja del fuego con la Mera Mera. */
+	private int accent = ROOM;
+	private String heading = "Ope Ope no Mi · libro";
 
 	public GuideScreen() {
 		super(Text.literal("Ope Ope no Mi"));
@@ -89,6 +92,14 @@ public class GuideScreen extends Screen {
 
 	private void build() {
 		rows.clear();
+		accent = ROOM;
+		heading = "Ope Ope no Mi · libro";
+		if (ClientState.meraFruit()) {
+			accent = MERA;
+			heading = "Mera Mera no Mi · libro";
+			buildMera();
+			return;
+		}
 		OpeSettings s = OpeSettings.get();
 		GameOptions o = this.client.options;
 		KeyLabels.Glyph q = g(Keys.ROOM), alt = g(Keys.SHAMBLES), r = g(Keys.TAKT), tab = g(Keys.ROW2);
@@ -264,6 +275,78 @@ public class GuideScreen extends Screen {
 		}
 	}
 
+	/** El libro con la Mera Mera no Mi (Ace) comida: cada técnica con su tecla de verdad. */
+	private void buildMera() {
+		OpeSettings s = OpeSettings.get();
+		GameOptions o = this.client.options;
+		KeyLabels.Glyph tab = g(Keys.ROW2), luciernagas = g(Keys.SCAN);
+		KeyLabels.Glyph may = KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.sneakKey));
+
+		title("Eres fuego");
+		note("La Mera Mera no Mi de Portgas D. Ace. La fruta funciona con cualquier cosa en la mano y los clics siguen siendo los de Minecraft. Con la mano vacía, tu puñetazo prende a quien golpeas.");
+		note("Las teclas se cambian en «Teclas» (arriba) o en Opciones → Controles → Ope Ope no Mi.");
+
+		title("Logia");
+		note("Los golpes, las flechas y las explosiones te atraviesan: el cuerpo se abre en llamas donde pegan y se vuelve a cerrar. Quien te pega con la mano se quema.");
+		note("El fuego, la lava, el magma y el hielo no te hacen daño.");
+		note("El agua te apaga: mientras estés mojado no hay Logia ni técnicas. Y el Haki sí te toca: el Warden, el Wither, el Dragón del End y el Guardián Anciano, y los jugadores que tienen una fruta o empuñan la Kikoku o la Yakuza Kasen.");
+
+		title("Puño y llamas");
+		row("mantener: Hiken, el puño de fuego. Cuanto más lo cargas, más grande sale; al soltar vuela recto y atraviesa todo lo que encuentra", g(Keys.ROOM));
+		row("mantener: Kagerō, un chorro de llamas desde la palma. Quema lo que tiene delante, prende donde termina y deshace las flechas que vienen hacia ti", g(Keys.TAKT));
+		row("Higan: una ráfaga de doce balas de fuego con los dedos", g(Keys.INJECTION));
+		row("Jūjika: una cruz de fuego que sale recta y atraviesa", g(Keys.GAMMA));
+		row("Shinka: Shiranui: dos lanzas de fuego, una a cada lado, hacia donde apuntas", tab, "+", g(Keys.T_SOULS));
+
+		title("El sol");
+		row("mantener: Dai Enkai: Entei. Un sol crece sobre ti mientras lo cargas, y te frena; al soltar va hacia donde apuntas y estalla", g(Keys.RADIO_KNIFE));
+		note("Es la técnica más fuerte y la que más tarda en volver: 30 s. Si lo sueltas nada más empezar, se apaga sin salir.");
+
+		title("Luciérnagas");
+		row("Hotarubi: suelta luciérnagas de fuego alrededor de quien miras, o donde apuntas. Se quedan 15 s", luciernagas);
+		row("con las luciérnagas fuera, otra vez: Hidaruma. Vuelan hacia los que están cerca y cada uno arde en una bola de fuego", luciernagas);
+		row("también lanzan Hidaruma", may, "+", luciernagas, "·", tab, "+", g(Keys.T_UNION));
+
+		title("Fuego en el terreno");
+		row("Kyōkaen: un muro de fuego delante de ti. No deja cruzar, quema a quien lo intenta y se come las flechas", g(Keys.CURTAIN));
+		row("Enjōmō: un cerco de fuego alrededor de quien miras, o de ti si no miras a nadie. Nadie entra ni sale", tab, "+", g(Keys.T_STERBEN));
+		row("Enkai: Hibashira: una columna de fuego que sube desde tus pies y lanza por los aires a quien pilla. En el aire y mirando abajo, baja hasta el suelo", tab, "+", g(Keys.T_RAIN));
+		note("Las técnicas dejan fuego donde golpean: prende a quien lo pisa, quema la madera, las hojas y la hierba de alrededor y se apaga solo, sin arrasar un bosque entero. El hielo y la nieve se derriten.");
+
+		title("Moverte como el fuego");
+		row("impulso: el cuerpo se vuelve un chorro de llamas y sale disparado hacia donde miras. Mientras dura nada te golpea, y quemas a quien atraviesas", g(Keys.SHAMBLES));
+		row("Hikyaku: un estallido en los pies te lanza hacia arriba y adelante. En el aire puedes repetirlo dos veces antes de tocar el suelo", g(Keys.MARKER));
+		note("Después de un impulso o de un Hikyaku, la caída no te hace daño durante unos segundos.");
+
+		title("Cuerpo de llamas");
+		row("lo enciende y lo apaga. Corres más, ves en la oscuridad, prendes a quien te toca y derrites el hielo y la nieve a tu paso", g(Keys.AWAKEN));
+		note("Con el cuerpo en llamas, quien te pega con la mano se quema más y además recibe daño. El agua lo apaga.");
+
+		title("Segunda fila");
+		switch (s.modoTab) {
+			case ALTERNAR -> row("toque: la segunda fila se queda abierta hasta otro toque (o Esc); arriba ves qué hace cada tecla", tab);
+			case UNA_TECLA -> row("toque: la próxima tecla es de la segunda fila; arriba ves qué hace cada tecla", tab);
+			default -> row("mantener: la segunda fila; arriba ves qué hace cada tecla", tab);
+		}
+		if (!InputUtil.UNKNOWN_KEY.equals(Keys.ROW2_MOUSE_A.key) || !InputUtil.UNKNOWN_KEY.equals(Keys.ROW2_MOUSE_B.key)) {
+			row("también abren la segunda fila", g(Keys.ROW2_MOUSE_A), g(Keys.ROW2_MOUSE_B));
+		}
+		note("Si pulsas una técnica que aún se enfría, su casilla tiembla y suena un «no» corto.");
+
+		title("Minecraft y la fruta");
+		row("tirar lo que llevas y cambiar de mano, como siempre", KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.dropKey)), KeyLabels.of(KeyBindingHelper.getBoundKeyOf(o.swapHandsKey)));
+		if (s.listaJugadoresTab && Keys.ROW2.key.equals(KeyBindingHelper.getBoundKeyOf(o.playerListKey))) {
+			row("en multijugador, mantenla sin pulsar nada más: la lista de jugadores", tab);
+		}
+		row("este libro (se cambia en Controles)", KeyLabels.of(KeyBindingHelper.getBoundKeyOf(OpeKeyBindings.LIBRO)));
+		row("el panel de la isla: desde ahí pasas de una fruta a otra", KeyLabels.of(KeyBindingHelper.getBoundKeyOf(OpeKeyBindings.ISLA)));
+		InputUtil.Key ajustes = KeyBindingHelper.getBoundKeyOf(OpeKeyBindings.AJUSTES);
+		if (!InputUtil.UNKNOWN_KEY.equals(ajustes)) row("los ajustes de la fruta", KeyLabels.of(ajustes));
+
+		title("Conseguir la fruta");
+		note("En creativo, en la pestaña Ope Ope no Mi. Con trucos: /opeope mera.");
+	}
+
 	/** Alguna tecla de la fila de arriba de la fruta es esta (entonces, agachado, sigue siendo de Minecraft). */
 	private static boolean fruitUses(InputUtil.Key key) {
 		for (Keys k : Keys.values()) if (k.group() == Keys.Group.MAIN && key.equals(k.key)) return true;
@@ -385,7 +468,7 @@ public class GuideScreen extends Screen {
 	public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
 		super.render(ctx, mouseX, mouseY, delta);
 		TextRenderer tr = this.textRenderer;
-		ctx.drawTextWithShadow(tr, "Ope Ope no Mi · libro", x0, 11, ROOM);
+		ctx.drawTextWithShadow(tr, heading, x0, 11, accent);
 		clampScroll();
 		int top = TOP, bottom = this.height - BOTTOM_MARGIN;
 		ctx.enableScissor(0, top, this.width, bottom);
@@ -396,9 +479,9 @@ public class GuideScreen extends Screen {
 			Row r = l.row();
 			switch (r.kind()) {
 				case TITLE -> {
-					ctx.drawTextWithShadow(tr, r.text(), x0, y + 2, ROOM);
+					ctx.drawTextWithShadow(tr, r.text(), x0, y + 2, accent);
 					int tw = tr.getWidth(r.text());
-					if (x0 + tw + 8 < x0 + cw) ctx.fill(x0 + tw + 6, y + 6, x0 + cw, y + 7, 0x408FE3FF);
+					if (x0 + tw + 8 < x0 + cw) ctx.fill(x0 + tw + 6, y + 6, x0 + cw, y + 7, (accent & 0x00FFFFFF) | 0x40000000);
 				}
 				case NOTE -> {
 					int ly = y;
@@ -425,7 +508,7 @@ public class GuideScreen extends Screen {
 			ctx.fill(sx, top, sx + 3, bottom, 0x30FFFFFF);
 			int th = Math.max(16, viewH * viewH / contentH);
 			int ty = top + (int) ((viewH - th) * (scroll / maxScroll()));
-			ctx.fill(sx, ty, sx + 3, ty + th, 0xC08FE3FF);
+			ctx.fill(sx, ty, sx + 3, ty + th, (accent & 0x00FFFFFF) | 0xC0000000);
 		}
 	}
 

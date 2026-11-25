@@ -441,6 +441,7 @@ public final class AutoTest {
 	private static List<Shot> gallery;
 
 	private static boolean galleryEnded;
+	private static boolean bookQueued;
 	private static int galleryFrames0;
 
 	private static void gallery(MinecraftClient mc, IntegratedServer srv, UUID id, int g) {
@@ -464,8 +465,26 @@ public final class AutoTest {
 		int idx = (g - 20) / GALLERY_STEP;
 		int r = (g - 20) % GALLERY_STEP;
 		if (idx >= gallery.size()) {
+			// con la Mera Mera, antes de cerrar: el libro de la fruta (H) de arriba abajo, para ver que cuenta sus técnicas
+			if (MERA && !bookQueued && r >= 4 && PENDING.isEmpty()) {
+				bookQueued = true;
+				net.minecraft.client.option.Perspective fp = net.minecraft.client.option.Perspective.FIRST_PERSON;
+				Runnable bajar = () -> {
+					if (mc.currentScreen != null) mc.currentScreen.mouseScrolled(0, 0, 0, -8);
+				};
+				queueShot("mera-13-libro-a", fp, () -> mc.setScreen(new dev.opeope.client.screen.GuideScreen()), null);
+				queueShot("mera-13-libro-b", fp, bajar, null);
+				queueShot("mera-13-libro-c", fp, bajar, null);
+				queueShot("mera-13-libro-d", fp, bajar, null);
+				queueShot("mera-13-libro-e", fp, bajar, () -> {
+					boolean libro = mc.currentScreen instanceof dev.opeope.client.screen.GuideScreen;
+					if (!libro) OpeOpeMod.LOG.warn("AUTOTEST FALLO mera: el libro de la fruta no estaba abierto al final");
+					mc.setScreen(null);
+				});
+				return;
+			}
 			// que salgan las capturas que aún esperan un fotograma antes de cerrar
-			if (!galleryEnded && r >= 10 && PENDING.isEmpty()) {
+			if (!galleryEnded && r >= 10 && PENDING.isEmpty() && (!MERA || bookQueued)) {
 				galleryEnded = true;
 				OpeOpeMod.LOG.info("AUTOTEST galería terminada");
 				mc.scheduleStop();
