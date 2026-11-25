@@ -539,14 +539,15 @@ public final class AutoTest {
 					}
 				});
 				queueShot(base + "-3p" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK, null);
+				// Mera: una vista de lejos, para ver entera la técnica (de cerca, las grandes llenan la pantalla).
+				// Va antes que las demás: la cola va una captura por fotograma y la técnica dura poco.
+				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
+					() -> farCamera(mc, 7, 2.6),
+					() -> farCameraBack(mc));
 				// Mera: la misma vista solo con el fuego 3D (sin chispas ni llamas sueltas), para ver los volúmenes solos
 				if (MERA) queueShot(base + "-solo" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = true,
 					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = false);
-				// Mera: una vista de lejos, para ver entera la técnica (de cerca, las grandes llenan la pantalla)
-				if (MERA) queueShot(base + "-lejos" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
-					() -> farCamera(mc, 14, 4.0),
-					() -> farCameraBack(mc));
 			}
 		}
 	}
