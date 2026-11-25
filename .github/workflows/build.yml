@@ -35,20 +35,14 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb imagemagick x11-apps libgl1-mesa-dri jq > /dev/null
           mkdir -p run/saves capturas && cp -r run/world run/saves/Prueba && rm -f run/saves/Prueba/session.lock
           printf 'onboardAccessibility:false\nnarrator:0\nlang:es_es\ntutorialStep:none\n' > run/options.txt
-      - name: Galería como el juego real, con Complementary, de día
+      - name: Galería con el jar ya hecho y los mods en una carpeta (prodJarExterno), sin shaderpack, de noche
         continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-compl complementary dia
-      - name: Galería como el juego real, con Complementary, de noche
-        continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-compl-noche complementary noche
-      - name: Galería como el juego real, sin shaderpack, de noche
-        continue-on-error: true
-        run: bash .github/scripts/galeria-prod.sh iris18-sin-noche sin noche
+        run: bash .github/scripts/galeria-prod.sh iris18-externo sin noche externo
       - name: Guardar registros y capturas en la rama "ci-logs-iris18"
         if: always()
         run: |
           mkdir -p /tmp/ci-logs
-          for f in compilar.log servidor.log galeria-*.log; do
+          for f in compilar.log servidor.log galeria-*.log copiar-*.log; do
             [ -f "$f" ] || continue
             tail -c 20000000 "$f" > "/tmp/ci-logs/$f"
           done

@@ -121,6 +121,32 @@ tasks.register("prodMeraGallery", net.fabricmc.loom.task.prod.ClientProductionRu
 	useXVFB = false
 }
 
+// PRUEBA: lanza como el launcher un jar YA HECHO (el que se va a instalar, o el que hay instalado) junto a los mods de
+// una carpeta, sin compilar este proyecto. Así se prueba el jar exacto con copias de los mods del juego real, en una
+// carpeta de juego aparte.
+//   ./gradlew prodJarExterno -Pjar=<jar del mod> -PmodsDir=<carpeta con los demás mods>
+//       [-PgameDir=<carpeta de juego>] [-Pflags="-Dopeope.autotest=true -Dopeope.gallery=true ..."] [-Pmundo=Prueba]
+tasks.register("prodJarExterno", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	mods.setFrom(
+		project.hasProperty("jar") ? files(project.property("jar")) : files(),
+		project.hasProperty("modsDir") ? fileTree(dir: project.property("modsDir"), include: "*.jar") : files())
+	jvmArgs.add("-Xmx3G")
+	if (project.hasProperty("flags")) jvmArgs.addAll(project.property("flags").toString().trim().split(/\s+/) as List)
+	programArgs.addAll("--quickPlaySingleplayer", (project.findProperty("mundo") ?: "Prueba").toString())
+	if (project.hasProperty("gameDir")) runDir = file(project.property("gameDir"))
+	useXVFB = false
+	doFirst {
+		if (!project.hasProperty("jar") || !file(project.property("jar")).isFile()) throw new GradleException("prodJarExterno: falta -Pjar=<jar del mod> o no existe")
+		println "prodJarExterno: mods = " + mods.files.collect { it.name }
+	}
+}
+// Copia a run/mods-prod los mods con los que se prueba (Fabric API, Sodium e Iris de -PprodSodium / -PprodIris),
+// para dárselos a prodJarExterno con -PmodsDir=run/mods-prod
+tasks.register("copiarModsProd", Sync) {
+	from configurations.productionRuntimeMods
+	into layout.projectDirectory.dir("run/mods-prod")
+}
+
 processResources {
 	inputs.property "version", project.version
 	filesMatching("fabric.mod.json") {
