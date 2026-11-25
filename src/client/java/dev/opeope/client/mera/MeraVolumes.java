@@ -338,13 +338,14 @@ public final class MeraVolumes {
 		return nl;
 	}
 
-	/** La luz de cada fuego sobre lo que ya está dibujado: multiplica el mundo por (1 + luz). */
+	/** La luz de cada fuego sobre lo que ya está dibujado: multiplica el mundo por un factor que lo aclara y lo calienta. */
 	private static void drawLights(double camX, double camY, double camZ) {
 		ShaderProgram lp = lightProgram;
 		if (lp == null || nl == 0 || !lights) return;
 		RenderSystem.setShader(() -> lp);
 		RenderSystem.setShaderTexture(0, depthTex);
-		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.ONE,
+		// color = mundo × 2·salida (la salida va de 0 a 1): la luz aclara y calienta lo que ya está dibujado
+		RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.DST_COLOR, GlStateManager.DstFactor.SRC_COLOR,
 			GlStateManager.SrcFactor.ZERO, GlStateManager.DstFactor.ONE);
 		mat(lp, "ViewProj", VP);
 		mat(lp, "InvViewProj", INV);

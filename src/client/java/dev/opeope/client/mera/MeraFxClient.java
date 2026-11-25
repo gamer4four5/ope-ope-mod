@@ -1251,11 +1251,16 @@ public final class MeraFxClient {
 				if (vol()) {
 					float grow = easeOut(age / 0.18);
 					if (selfView(mc, user)) {
-						// en primera persona el chorro nace un poco por delante y se aclara junto a la cámara
-						vol(MeraVolumes.JET, h.add(dir.multiply(0.6)), dir, 8.9f * grow, 1.5f, 0, f, 1f);
-						MeraVolumes.nearFade(1.4f);
+						// en primera persona el chorro sale de abajo a la derecha y va hacia donde apuntas: cruza la
+						// pantalla en diagonal como un lanzallamas (si fuese recto delante de los ojos se vería como una bola)
+						Vec3d start = new Vec3d(camX + fx * 0.85 + rx * 0.42 - ux * 0.40, camY + fy * 0.85 + ry * 0.42 - uy * 0.40,
+							camZ + fz * 0.85 + rz * 0.42 - uz * 0.40);
+						Vec3d aim = new Vec3d(camX, camY, camZ).add(dir.multiply(0.6 + 8.8 * grow));
+						Vec3d jd = aim.subtract(start);
+						vol(MeraVolumes.JET, start, jd, (float) jd.length(), 1.9f, 0, f, 1f);
+						MeraVolumes.nearFade(0.9f);
 					} else {
-						vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.5f, 0, f, 1f);
+						vol(MeraVolumes.JET, h, dir, 9.5f * grow, 1.9f, 0, f, 1f);
 					}
 				}
 				int n = many(f, 620 * density, dt);
@@ -1520,7 +1525,8 @@ public final class MeraFxClient {
 		float fade = (float) MathHelper.clamp(1.0 - age / 0.45, 0.2, 1.0);
 		if (vol()) {
 			float gone = f.endAt > 0 ? (float) MathHelper.clamp(1 - (RoomFxClient.time() - f.endAt) / 0.25, 0, 1) : 1f;
-			vol(MeraVolumes.JET, h, head.subtract(h), (float) len, r * 0.42f, 0, f, 0.85f * fade * gone);
+			// la columna del Hiken es casi igual de gruesa en todo el largo (no un chorro que se abre)
+			vol(MeraVolumes.JET, h, head.subtract(h), (float) len, r * 0.42f, 0.6f, f, 0.85f * fade * gone);
 		}
 		int n = many2(f, (float) (len * 60 * density * fade), dt);
 		for (int i = 0; i < n; i++) {
@@ -1766,7 +1772,8 @@ public final class MeraFxClient {
 			// la columna crece desde el suelo (o baja del cielo) en un instante
 			float grow = easeOut(age / 0.3);
 			Vec3d foot = down ? new Vec3d(base.x, top.y - h * grow, base.z) : base;
-			vol(MeraVolumes.PILLAR, foot, FWD, f.radius, (float) (h * grow), 0, f, k);
+			// un poco más estrecho que la zona que quema: así en tercera persona la cámara queda fuera del remolino
+			vol(MeraVolumes.PILLAR, foot, FWD, f.radius * 0.8f, (float) (h * grow), 0, f, k);
 		}
 		double sp = down ? -h * 2.4 : h * 2.4;
 		float life = (float) (h / Math.abs(sp));

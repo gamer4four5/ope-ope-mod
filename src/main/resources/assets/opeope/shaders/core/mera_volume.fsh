@@ -49,7 +49,7 @@ out vec4 fragColor;
 //    2 PILLAR    x radio, y alto
 //    3 RING      x radio, y alto, z grosor
 //    4 WALL      x medio ancho, y alto, z grosor
-//    5 JET       x largo, y radio final
+//    5 JET       x largo, y radio final, z grosor al salir (en partes del final; 0 = fino, 0.1)
 //    6 CROSS     x brazo, y grosor
 //    7 LANCE     x largo, y radio (la punta en +x/2, centrada)
 //    8 FLAME     x radio, y alto
@@ -251,22 +251,30 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         amp = L * mix(0.16, 0.50 + 0.60 * v, body);
     }
     else if (shape < 2.5) {
-        // ---------------- 2: COLUMNA (Hibashira) ----------------
+        // ---------------- 2: COLUMNA (Hibashira): un remolino de fuego hueco ----------------
+        // una pared gruesa de fuego que gira y sube alrededor de Ace; dentro queda el hueco donde está él
         float R = max(prm.x, 0.1);
         float H = max(prm.y, 0.5);
         float v = clamp(p.y / H, 0.0, 1.0);
-        float prof = R * (1.0 + 0.45 * pow(1.0 - v, 6.0) - 0.30 * v * v);
-        vec2 c = p.xz;
-        c += vec2(sin(p.y * 0.35 + time * 0.9), cos(p.y * 0.28 + time * 0.7)) * R * 0.10 * v;
-        d = length(c) - prof;
+        vec2 c = p.xz + vec2(sin(p.y * 0.35 + time * 0.9), cos(p.y * 0.28 + time * 0.7)) * R * 0.08 * v;
+        float r = length(c);
+        float Ro = R * (1.0 + 0.40 * pow(1.0 - v, 8.0) - 0.22 * v * v);   // se abre pegado al suelo
+        float Ri = R * (0.44 - 0.10 * v);                                   // el hueco de dentro
+        float th = 0.5 * (Ro - Ri);
+        d = abs(r - 0.5 * (Ro + Ri)) - th;
+        // bandas de fuego en hélice que suben girando, con huecos entre ellas (se ve a través)
+        float ang = atan(c.y, c.x);
+        float band = sin(5.0 * ang + p.y / R * 1.6 - time * 4.0);
+        d += th * (1.1 * band + 0.25) * smoothstep(0.4, 1.4, p.y);
         d = max(d, p.y - H);
         d = max(d, -p.y - 0.3 * R);
-        L = R * 0.85;
+        L = clamp(th * 0.45, 0.3, 0.6);
         u = p.y / H;
-        vec2 sw = mf_rot(p.xz, p.y / R * 0.45 - time * 0.8);
-        nq = vec3(sw.x / (L * 0.9), p.y / (L * 2.2) - time * 2.4, sw.y / (L * 0.9));
-        nb = vec3(sw.x / (L * 1.5), p.y / (L * 1.7) - time * 1.3, sw.y / (L * 1.5));
-        amp = L * (0.50 + 0.55 * v);
+        // el remolino: el ruido gira alrededor del eje, se tuerce en hélice y se estira hacia arriba (vetas)
+        vec2 sw = mf_rot(p.xz, p.y / R * 0.55 - time * 2.2);
+        nq = vec3(sw.x / (L * 0.8), p.y / (L * 3.0) - time * 3.0, sw.y / (L * 0.8));
+        nb = vec3(sw.x / (L * 1.2), p.y / (L * 3.5) - time * 1.6, sw.y / (L * 1.2));
+        amp = L * (0.55 + 0.60 * v);
     }
     else if (shape < 3.5) {
         // ---------------- 3: CERCO (Enjomo) ----------------
@@ -305,13 +313,15 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         vec3 q = p;
         float v = clamp(q.z / Lj, 0.0, 1.0);
         q.y -= v * v * Lj * 0.06;                       // el calor lo levanta
-        float rr = mix(0.18 * Re, Re, pow(v, 0.65));
+        // fino al salir de la mano (z = grosor al salir, en partes del final), se abre y al final se hincha en una nube
+        float s0 = (prm.z > 0.01) ? prm.z : 0.10;
+        float rr = Re * (s0 + (0.80 - s0) * v + 0.20 * smoothstep(0.6, 1.0, v));
         d = length(q.xy) - rr;
         d = max(d, -q.z - 0.15 * Re);
         d = max(d, q.z - Lj);
-        L = max(rr, 0.25) * 0.9;
+        L = max(rr, 0.22) * 0.9;
         u = clamp(q.z / Lj, 0.0, 1.3);
-        float ns = mix(0.35 * Re, 0.6 * Re, v);
+        float ns = max(rr * 0.75, 0.16);
         nq = vec3(q.x / ns, q.y / ns - time * 1.2, q.z / (ns * 2.4) - time * 4.0);
         nb = vec3(q.x / (ns * 1.7), q.y / (ns * 1.7) - time * 0.5, q.z / (ns * 2.2) - time * 2.4);
         amp = L * (0.40 + 0.65 * v);
@@ -376,6 +386,7 @@ vec4 mf_look(float shape, vec3 p, vec4 prm)
     if (shape < 1.5) { float S = max(prm.x, 0.2);
                        return vec4(mix(1.2, 0.55, smoothstep(-0.7 * S, -0.25 * S, p.z)), 0.26,
                                    0.6 * smoothstep(-0.30 * S, 0.0, p.z), 1.0); }
+    if (shape > 1.5 && shape < 2.5) return vec4(1.6, 0.22, 0.0, 1.0);
     if (shape > 5.5 && shape < 6.5) return vec4(0.8, 0.28, 0.35, 1.0);
     if (shape > 6.5 && shape < 7.5) return vec4(0.6, 0.28, 0.30, 1.0);
     return vec4(1.1, 0.25, 0.0, 1.0);
@@ -476,7 +487,6 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         float d; float L; float u; vec3 nb; vec3 nq; float amp;
         mf_shape(p, shape, prm, tm, d, L, u, nb, nq, amp);
         d += (1.0 - intensity) * L * 0.9;          // se encoge al apagarse
-        if (t > 1.2 && d < minD) { minD = d; Lref = L; }   // el halo, no pegado a la cámara
 
         // las formas grandes son masa; las finas (puño, cruz, lanza, llama) guardan su forma
         float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
@@ -484,7 +494,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         float dEnv = d - max(amp * 1.05, ampB * 1.05) - isFist * L * 0.9;
         float stepIn = L * mix(0.12, 0.10, isFist);
         if (dEnv > 0.0) {
-            // espacio vacío: saltar hasta la envoltura
+            // espacio vacío: saltar hasta la envoltura (el halo, según lo cerca que pasa; no pegado a la cámara)
+            if (t > 1.2 && d < minD) { minD = d; Lref = L; }
             t += max(dEnv * 0.85, stepIn * 0.5);
             continue;
         }
@@ -502,6 +513,12 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
         // borde: lenguas de llama
         float nTong = lo + ((shape < 0.5) ? 0.22 : 0.45) * hi;
         float dd = d + mix(ampB * nBody, amp * nTong, w);
+        // dentro de la envoltura el halo mira el fuego de verdad, con sus huecos (y lo que ya es humo no brilla):
+        // si no, por donde la forma está vacía se vería un disco de resplandor con el borde duro
+        if (t > 1.2) {
+            float de = max(dd, 0.0) + L * 1.5 * smoothstep(0.70, 1.15, u);
+            if (de < minD) { minD = de; Lref = L; }
+        }
 
         // puño: piel suelta de llamas que se van hacia atrás
         float skin = 0.0;
@@ -515,7 +532,8 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             skin = 0.5 * smoothstep(0.0, L * 0.4, -lick) * m;
         }
 
-        float dens = max(smoothstep(0.0, L * mix(0.30, 0.17, isFist), -dd), skin);
+        // el borde: nítido en el cuerpo, muy suave donde el fuego ya se deshace en humo (sin bordes duros)
+        float dens = max(smoothstep(0.0, L * mix(0.30, 0.17, isFist) * (1.0 + 2.5 * smoothstep(0.70, 1.15, u)), -dd), skin);
         if (dens > 0.001) {
             // toca el suelo suave, sin cortes; y pegado a la cámara se aclara (no tapa la vista)
             float gf = mix(1.0, smoothstep(0.0, max(0.12, L * 0.35), tFar - t), onGround);
@@ -564,12 +582,12 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
             float sigma = dens * intensity * 2.8 / L;
             float aE = 1.0 - exp(-sigma * stepIn);
             // la masa caliente tapa lo de detrás; la llama fina y fría sobre todo brilla (transparente)
-            float aA = aE * mix(0.30, 1.0, smoothstep(0.12, 0.50, temp));
+            float aA = aE * mix(mix(0.30, 0.70, massy * (1.0 - w)), 1.0, smoothstep(0.12, 0.50, temp));
             // color: el tono vivo del fuego con un poco de cuerpo negro; brillo según el calor
             float t2 = temp * temp;
             vec3 bbc = mf_blackbody(temp);
             vec3 hueC = mix(mf_ramp(temp), bbc / max(bbc.r, 1e-3), 0.25);
-            vec3 emit = hueC * (0.6 + 2.2 * t2 + 3.0 * t2 * t2 * t2);
+            vec3 emit = hueC * (0.6 + 2.0 * t2 + 1.4 * t2 * t2 * t2);
             emit *= 1.0 + 1.5 * flash;
             vec3 smokeCol = mix(vec3(0.11, 0.10, 0.095), vec3(0.06, 0.05, 0.045), smokeX);
             emit = mix(emit, smokeCol, smoke);
@@ -593,7 +611,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     float mx = max(col.r, max(col.g, col.b));
     float vv = 1.0 - exp(-mx * 1.8);
     vec3 rgb = col / max(mx, 1e-4) * vv;
-    rgb = mix(rgb, vec3(vv), smoothstep(2.2, 6.0, mx) * 0.6);
+    rgb = mix(rgb, vec3(vv), smoothstep(4.0, 10.0, mx) * 0.35);
     float a = 1.0 - T;
 
     // técnica de anime: el color de lo que se ve, por bandas, mezclado con
@@ -652,9 +670,11 @@ void main() {
     float dc; float Lc; float uc; vec3 nbc; vec3 nqc; float ampc;
     mf_shape(lro, VolInfo.x, VolPrm, VolTime, dc, Lc, uc, nbc, nqc, ampc);
     float inside = 1.0 - smoothstep(-0.25 * Lc, Lc * 0.8 + ampc, dc);
-    float inten = VolInfo.z * mix(1.0, 0.35, inside);
+    float inten = VolInfo.z * mix(1.0, 0.6, inside);
+    // dentro del fuego, lo que está pegado a la cámara se aclara: se ve el fuego alrededor, no una pared naranja
+    float nearF = max(VolInfo.w, inside * 2.6);
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, inten, VolInfo.w);
+    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, inten, nearF);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }

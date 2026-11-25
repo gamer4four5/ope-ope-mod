@@ -2,8 +2,9 @@
 
 // La luz del fuego de Ace sobre el mundo: el suelo, las paredes y la gente que están cerca del fuego se ven
 // iluminados de naranja (mucho de noche y en cuevas, poco a pleno sol), y la luz tiembla como la de una hoguera.
-// No toca el mundo: se calcula en pantalla con la profundidad, y la mezcla (DST_COLOR, ONE) multiplica lo que ya
-// hay: color = mundo × (1 + luz), así cada cosa conserva su color y solo se enciende.
+// No toca el mundo: se calcula en pantalla con la profundidad, y la mezcla (DST_COLOR, SRC_COLOR) multiplica lo que
+// ya hay: color = mundo × 2·salida. Así cada cosa conserva su color y se enciende, y además la luz puede calentarlo
+// (quitarle azul): lo muy claro (nieve, arena) se tiñe de naranja en vez de quemarse a blanco.
 // La luz es un segmento (de A a B) o un aro (centro A, eje LightAxis, radio LightInfo.w, alto LightB.x).
 
 uniform sampler2D Sampler0;   // la profundidad del mundo
@@ -70,5 +71,8 @@ void main() {
     float fall = (1.0 - x * x) * (1.0 - x * x) / (1.0 + 4.0 * x * x);
     float s = LightInfo.z;
     float flick = 0.84 + 0.09 * sin(VolTime * 17.0 + s) + 0.05 * sin(VolTime * 29.0 + s * 1.7) + 0.02 * sin(VolTime * 53.0 + s * 3.1);
-    fragColor = vec4(LightColor * (LightInfo.y * fall * lam * flick), 0.0);
+    float k = LightInfo.y * fall * lam * flick;
+    float warm = k / (1.0 + k);
+    vec3 factor = (1.0 + LightColor * k) * (1.0 - 0.6 * warm * vec3(0.0, 0.4, 1.0));
+    fragColor = vec4(min(0.5 * factor, vec3(1.0)), 0.0);
 }
