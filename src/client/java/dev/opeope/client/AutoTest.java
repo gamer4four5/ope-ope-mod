@@ -299,12 +299,15 @@ public final class AutoTest {
 	private static final class PendingShot {
 		final String name;
 		final net.minecraft.client.option.Perspective view;
+		final Runnable before;
 		final Runnable after;
+		boolean started;
 		int frame;
 
-		PendingShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
+		PendingShot(String name, net.minecraft.client.option.Perspective view, Runnable before, Runnable after) {
 			this.name = name;
 			this.view = view;
+			this.before = before;
 			this.after = after;
 			this.frame = frames;
 		}
@@ -313,18 +316,32 @@ public final class AutoTest {
 	private static final java.util.ArrayDeque<PendingShot> PENDING = new java.util.ArrayDeque<>();
 
 	private static void queueShot(String name, net.minecraft.client.option.Perspective view, Runnable after) {
-		PENDING.add(new PendingShot(name, view, after));
+		PENDING.add(new PendingShot(name, view, null, after));
+	}
+
+	/** Una captura que antes de su fotograma cambia algo (y lo deja como estaba en {@code after}). */
+	private static void queueShot(String name, net.minecraft.client.option.Perspective view, Runnable before, Runnable after) {
+		PENDING.add(new PendingShot(name, view, before, after));
 	}
 
 	/** Cada tick de la galería: saca la primera captura en espera si ya hay un fotograma dibujado después de pedirla. */
 	private static void pendingShots(MinecraftClient mc) {
 		PendingShot p = PENDING.peek();
 		if (p == null) return;
+		if (!p.started) {
+			p.started = true;
+			if (p.before != null) {
+				p.before.run();
+				p.frame = frames;
+			}
+		}
 		if (mc.options.getPerspective() != p.view) {
 			mc.options.setPerspective(p.view);
 			p.frame = frames;
 			return;
 		}
+		// el fotograma de la captura guarda qué vio el fuego 3D (estado de GL y algunos píxeles)
+		if (MERA) dev.opeope.client.mera.MeraVolumes.diagArm = true;
 		if (frames <= p.frame) return;
 		PENDING.poll();
 		shot(mc, p.name);
@@ -466,6 +483,10 @@ public final class AutoTest {
 					}
 				});
 				queueShot(base + "-3p" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK, null);
+				// Mera: la misma vista solo con el fuego 3D (sin chispas ni llamas sueltas), para ver los volúmenes solos
+				if (MERA) queueShot(base + "-solo" + suf, net.minecraft.client.option.Perspective.THIRD_PERSON_BACK,
+					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = true,
+					() -> dev.opeope.client.mera.MeraFxClient.hideFlames = false);
 			}
 		}
 	}
@@ -542,6 +563,10 @@ public final class AutoTest {
 	private static void shot(MinecraftClient mc, String name) {
 		ScreenshotRecorder.saveScreenshot(mc.runDirectory, "autotest-" + name + ".png", mc.getFramebuffer(), msg -> {});
 		OpeOpeMod.LOG.info("AUTOTEST captura {}", name);
+		if (MERA) {
+			OpeOpeMod.LOG.info("MERA DIAG {}: {}", name, dev.opeope.client.mera.MeraVolumes.diag());
+			dev.opeope.client.mera.MeraVolumes.diagArm = false;
+		}
 	}
 
 	private static void look(IntegratedServer srv, UUID id, float yaw, float pitch) {

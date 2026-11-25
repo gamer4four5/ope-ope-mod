@@ -636,6 +636,12 @@ void main() {
     float b = dot(lro, lrd);
     float c = dot(lro, lro) - B * B;
     float h = b * b - c;
+    if (VolInfo.w < -0.5) {
+        // diagnóstico de las pruebas (VolInfo.w < 0): lo que lee y calcula el shader en este píxel
+        float hs = sqrt(max(h, 0.0));
+        fragColor = vec4(depth, min(tScene, 1.0e6), max(-b - hs, 0.2), (h <= 0.0) ? -1.0 : min(-b + hs, tScene));
+        return;
+    }
     if (h <= 0.0) discard;
     h = sqrt(h);
     float tn = max(-b - h, 0.2);

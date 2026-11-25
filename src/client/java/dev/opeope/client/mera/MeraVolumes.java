@@ -21,10 +21,15 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LightType;
 import org.joml.Matrix4f;
+import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
+
+import java.util.Locale;
 
 /**
  * El fuego de Ace en 3D de verdad: cada técnica es un volumen de fuego que la tarjeta gráfica recorre rayo a rayo
@@ -98,6 +103,7 @@ public final class MeraVolumes {
 	public static void begin() {
 		n = 0;
 		nl = 0;
+		if (diagArm) lastDiag = "sin volúmenes";
 	}
 
 	public static int count() {
@@ -457,6 +463,7 @@ public final class MeraVolumes {
 		depthTex = grabTex;
 		viewW = w;
 		viewH = h;
+		if (DIAG) diagPath = "copia fbo=" + src + (type == GL11.GL_TEXTURE ? " tex=" : " rb=") + name + " fmt=0x" + Integer.toHexString(fmt) + " " + w + "x" + h;
 		return true;
 	}
 
@@ -518,6 +525,7 @@ public final class MeraVolumes {
 		depthTex = depthCopy.getDepthAttachment();
 		viewW = w;
 		viewH = h;
+		if (DIAG) diagPath = "principal fbo=" + main.fbo + " copia=" + depthCopy.fbo + " " + w + "x" + h;
 		return true;
 	}
 
@@ -607,9 +615,12 @@ public final class MeraVolumes {
 		RenderSystem.disableDepthTest();
 		RenderSystem.depthMask(false);
 		RenderSystem.disableCull();
+		boolean diag = DIAG && diagArm;
 		try {
+			if (diag) diagBefore(camX, camY, camZ);
 			// primero la luz sobre el mundo, luego el fuego encima
 			drawLights(camX, camY, camZ);
+			if (diag) diagColors(DC1);
 			RenderSystem.setShader(() -> sp);
 			RenderSystem.setShaderTexture(0, depthTex);
 			RenderSystem.blendFuncSeparate(GlStateManager.SrcFactor.ONE, GlStateManager.DstFactor.ONE_MINUS_SRC_ALPHA,
@@ -619,6 +630,10 @@ public final class MeraVolumes {
 			vec(sp, "ViewSize", w, h);
 			vec(sp, "VolTime", time0);
 			for (int o = 0; o < n; o++) drawOne(sp, ORDER[o], camX, camY, camZ);
+			if (diag) diagAfter(sp, camX, camY, camZ);
+		} catch (RuntimeException e) {
+			if (!diag) throw e;
+			lastDiag = "error en el diagnóstico: " + e;
 		} finally {
 			RenderSystem.enableDepthTest();
 			RenderSystem.depthMask(true);
@@ -628,7 +643,7 @@ public final class MeraVolumes {
 		}
 	}
 
-	private static void drawOne(ShaderProgram sp, int i, double camX, double camY, double camZ) {
+	private static void volumeUniforms(ShaderProgram sp, int i, double camX, double camY, double camZ) {
 		float cx = (float) (CX[i] - camX), cy = (float) (CY[i] - camY), cz = (float) (CZ[i] - camZ);
 		float[] a = AX[i], b = BOX[i], p = PRM[i], in = INFO[i];
 		vec(sp, "VolCenter", cx, cy, cz);
@@ -639,6 +654,12 @@ public final class MeraVolumes {
 		vec(sp, "VolMax", b[3], b[4], b[5]);
 		vec4(sp, "VolPrm", p[0], p[1], p[2], p[3]);
 		vec4(sp, "VolInfo", in[0], in[1], in[2], in[3]);
+	}
+
+	private static void drawOne(ShaderProgram sp, int i, double camX, double camY, double camZ) {
+		float cx = (float) (CX[i] - camX), cy = (float) (CY[i] - camY), cz = (float) (CZ[i] - camZ);
+		float[] a = AX[i], b = BOX[i];
+		volumeUniforms(sp, i, camX, camY, camZ);
 
 		// la cámara en coordenadas locales: decide qué caras de la caja son «de detrás»
 		float lx = -(cx * a[0] + cy * a[1] + cz * a[2]);
@@ -704,5 +725,177 @@ public final class MeraVolumes {
 	public static void clear() {
 		n = 0;
 		nl = 0;
+	}
+
+	// ------------------------------------------------------------------ diagnóstico (galería de la CI)
+
+	/** En la galería de pruebas: qué pasó en el fotograma con fuego antes de cada captura (estado de GL y píxeles). */
+	static final boolean DIAG = Boolean.getBoolean("opeope.gallery.mera") || Boolean.getBoolean("opeope.mera.diag");
+	/** La galería lo pide mientras espera el fotograma de una captura. */
+	public static boolean diagArm;
+	private static String lastDiag = "sin fuego 3D";
+	private static String diagPath = "";
+	private static int diagSrc, diagFrame;
+	private static int probeFbo = -1, probeTex = -1, probeW, probeH;
+	private static final int MAXPX = 6;
+	private static final int[] PXX = new int[MAXPX], PXY = new int[MAXPX];
+	private static int npx;
+	private static final float[][] DC0 = new float[MAXPX][4], DC1 = new float[MAXPX][4], DC2 = new float[MAXPX][4], DPR = new float[MAXPX][4];
+	private static final float[] DDC = new float[MAXPX], DDM = new float[MAXPX];
+	private static String glName;
+
+	/** Lo que vio el último fotograma con fuego (para el registro de la galería). */
+	public static String diag() {
+		return lastDiag;
+	}
+
+	/** Los píxeles que se miran (el centro de la pantalla y el centro de los primeros volúmenes) y su color de antes. */
+	private static void diagBefore(double camX, double camY, double camZ) {
+		diagSrc = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+		npx = 0;
+		addPx(viewW / 2, viewH / 2);
+		for (int i = 0; i < n && npx < MAXPX; i++) {
+			Vector4f v = new Vector4f((float) (CX[i] - camX), (float) (CY[i] - camY), (float) (CZ[i] - camZ), 1f).mul(VP);
+			if (v.w <= 1e-3f) continue;
+			addPx((int) ((v.x / v.w * 0.5f + 0.5f) * viewW), (int) ((v.y / v.w * 0.5f + 0.5f) * viewH));
+		}
+		diagColors(DC0);
+	}
+
+	private static void addPx(int x, int y) {
+		PXX[npx] = MathHelper.clamp(x, 0, Math.max(0, viewW - 1));
+		PXY[npx] = MathHelper.clamp(y, 0, Math.max(0, viewH - 1));
+		npx++;
+	}
+
+	private static void diagColors(float[][] out) {
+		int prevRead = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
+		int pbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, diagSrc);
+		for (int k = 0; k < npx; k++) GL11.glReadPixels(PXX[k], PXY[k], 1, 1, GL11.GL_RGBA, GL11.GL_FLOAT, out[k]);
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevRead);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+	}
+
+	private static void diagDepths(int fbo, float[] out) {
+		int prevRead = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
+		int pbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, fbo);
+		float[] d = new float[1];
+		for (int k = 0; k < npx; k++) {
+			d[0] = -9f;
+			GL11.glReadPixels(PXX[k], PXY[k], 1, 1, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, d);
+			out[k] = d[0];
+		}
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevRead);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+	}
+
+	/** Después de dibujar: el estado de GL, los colores, la profundidad copiada y lo que calcula el shader en cada píxel. */
+	private static void diagAfter(ShaderProgram sp, double camX, double camY, double camZ) {
+		int err = GL11.glGetError();
+		boolean blend = GL11.glIsEnabled(GL11.GL_BLEND), depthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+		boolean cull = GL11.glIsEnabled(GL11.GL_CULL_FACE), scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+		int bs = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB), bd = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+		int[] vp = new int[4];
+		GL11.glGetIntegerv(GL11.GL_VIEWPORT, vp);
+		diagColors(DC2);
+		MinecraftClient mc = MinecraftClient.getInstance();
+		Framebuffer main = mc.getFramebuffer();
+		int copyFbo = depthTex == grabTex ? grabFbo : depthCopy != null ? depthCopy.fbo : -1;
+		if (copyFbo >= 0) diagDepths(copyFbo, DDC);
+		diagDepths(diagSrc, DDM);
+		// la sonda: el mismo shader en modo diagnóstico, a pantalla completa, en un framebuffer aparte
+		int probed = -1;
+		for (int i = 0; i < n; i++) {
+			if (INFO[i][2] > 0.05f) {
+				probed = i;
+				break;
+			}
+		}
+		if (probed >= 0) diagProbe(sp, probed, camX, camY, camZ);
+		if (glName == null) glName = GL11.glGetString(GL11.GL_RENDERER) + " | " + GL11.glGetString(GL11.GL_VERSION);
+
+		StringBuilder s = new StringBuilder(1024);
+		s.append("fotograma=").append(++diagFrame).append(" volumenes=").append(n).append(" luces=").append(nl)
+			.append(" dibujo=").append(diagSrc).append(" principal=").append(main.fbo).append(' ').append(main.textureWidth).append('x').append(main.textureHeight)
+			.append(" | ").append(diagPath).append(" | depthTex=").append(depthTex)
+			.append(" vista=").append(viewW).append('x').append(viewH).append(" viewport=").append(vp[0]).append(',').append(vp[1]).append(',').append(vp[2]).append(',').append(vp[3])
+			.append(" blend=").append(blend).append(" (").append(bs).append(',').append(bd).append(") depthTest=").append(depthTest)
+			.append(" cull=").append(cull).append(" scissor=").append(scissor).append(" glError=").append(err)
+			.append(" gl=").append(glName);
+		s.append("\n  VP=").append(mrow(VP, 0)).append(' ').append(mrow(VP, 1)).append(' ').append(mrow(VP, 2)).append(' ').append(mrow(VP, 3));
+		for (int k = 0; k < npx; k++) {
+			s.append("\n  px").append(k).append('=').append(PXX[k]).append(',').append(PXY[k])
+				.append(" antes=").append(rgb(DC0[k])).append(" luz=").append(rgb(DC1[k])).append(" fuego=").append(rgb(DC2[k]))
+				.append(String.format(Locale.ROOT, " prof(copia)=%.6f prof(mundo)=%.6f", DDC[k], DDM[k]));
+			if (probed >= 0) s.append(String.format(Locale.ROOT, " sonda[v%d]: prof=%.6f tMundo=%.3f tn=%.3f tf=%.3f", probed, DPR[k][0], DPR[k][1], DPR[k][2], DPR[k][3]));
+		}
+		for (int i = 0; i < Math.min(n, 8); i++) {
+			float cx = (float) (CX[i] - camX), cy = (float) (CY[i] - camY), cz = (float) (CZ[i] - camZ);
+			float[] a = AX[i];
+			float lx = -(cx * a[0] + cy * a[1] + cz * a[2]), ly = -(cx * a[3] + cy * a[4] + cz * a[5]), lz = -(cx * a[6] + cy * a[7] + cz * a[8]);
+			s.append(String.format(Locale.ROOT, "\n  v%d forma=%d centro=(%.2f,%.2f,%.2f) Z=(%.2f,%.2f,%.2f) prm=(%.3f,%.3f,%.3f,%.3f) info=(%.0f,%.2f,%.3f,%.2f) radio=%.2f camLocal=(%.2f,%.2f,%.2f) dentro=%b",
+				i, (int) INFO[i][0], cx, cy, cz, a[6], a[7], a[8], PRM[i][0], PRM[i][1], PRM[i][2], PRM[i][3],
+				INFO[i][0], INFO[i][1], INFO[i][2], INFO[i][3], BOX[i][3], lx, ly, lz, lx * lx + ly * ly + lz * lz < BOX[i][3] * BOX[i][3]));
+		}
+		lastDiag = s.toString();
+		diagArm = false;
+	}
+
+	private static void diagProbe(ShaderProgram sp, int i, double camX, double camY, double camZ) {
+		int w = viewW, h = viewH;
+		int prevDraw = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING), prevRead = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
+		if (probeTex < 0) probeTex = GlStateManager._genTexture();
+		if (probeFbo < 0) probeFbo = GlStateManager.glGenFramebuffers();
+		if (probeW != w || probeH != h) {
+			int prevTex = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+			GlStateManager._bindTexture(probeTex);
+			GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+			GlStateManager._texParameter(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+			GlStateManager._texImage2D(GL11.GL_TEXTURE_2D, 0, GL30.GL_RGBA32F, w, h, 0, GL11.GL_RGBA, GL11.GL_FLOAT, null);
+			GlStateManager._bindTexture(prevTex);
+			GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, probeFbo);
+			GlStateManager._glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, probeTex, 0);
+			probeW = w;
+			probeH = h;
+		}
+		GlStateManager._glBindFramebuffer(GL30.GL_FRAMEBUFFER, probeFbo);
+		float[] cc = new float[4];
+		GL11.glGetFloatv(GL11.GL_COLOR_CLEAR_VALUE, cc);
+		GL11.glClearColor(-2f, -2f, -2f, -2f);
+		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+		GL11.glClearColor(cc[0], cc[1], cc[2], cc[3]);
+		RenderSystem.disableBlend();
+		RenderSystem.setShader(() -> sp);
+		RenderSystem.setShaderTexture(0, depthTex);
+		mat(sp, "ViewProj", new Matrix4f());
+		volumeUniforms(sp, i, camX, camY, camZ);
+		vec4(sp, "VolInfo", INFO[i][0], INFO[i][1], INFO[i][2], -1f);
+		BufferBuilder bb = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION);
+		bb.vertex(-1f, -1f, 0f);
+		bb.vertex(1f, -1f, 0f);
+		bb.vertex(1f, 1f, 0f);
+		bb.vertex(-1f, 1f, 0f);
+		BufferRenderer.drawWithGlobalProgram(bb.end());
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, probeFbo);
+		int pbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+		for (int k = 0; k < npx; k++) GL11.glReadPixels(PXX[k], PXY[k], 1, 1, GL11.GL_RGBA, GL11.GL_FLOAT, DPR[k]);
+		if (pbo != 0) GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pbo);
+		GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, prevRead);
+		GlStateManager._glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, prevDraw);
+		mat(sp, "ViewProj", VP);
+		RenderSystem.enableBlend();
+	}
+
+	private static String rgb(float[] c) {
+		return String.format(Locale.ROOT, "(%.3f,%.3f,%.3f)", c[0], c[1], c[2]);
+	}
+
+	private static String mrow(Matrix4f m, int r) {
+		return String.format(Locale.ROOT, "[%.4f %.4f %.4f %.4f]", m.get(0, r), m.get(1, r), m.get(2, r), m.get(3, r));
 	}
 }

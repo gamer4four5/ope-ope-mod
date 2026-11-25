@@ -106,6 +106,9 @@ public final class MeraFxClient {
 	/** Grupos de luciérnagas (Hotarubi) por id, también un rato después de lanzarse (para Hidaruma). */
 	private static final Map<Integer, Fx> FIREFLIES = new HashMap<>();
 
+	/** Para las capturas de prueba: solo el fuego 3D, sin dibujar las llamas sueltas ni las chispas. */
+	public static boolean hideFlames;
+
 	private static double lastFrame = -1;
 	private static double flashAt = -10, flashStrength;
 	private static int flashRgb = 0xFFB040;
@@ -118,6 +121,7 @@ public final class MeraFxClient {
 		originSet = false;
 		MeraAnim.clear();
 		MeraVolumes.clear();
+		hideFlames = false;
 	}
 
 	/** Para las pruebas: cuántas llamas vivas y cuántos efectos. */
@@ -425,7 +429,7 @@ public final class MeraFxClient {
 		if (count == 0 && !vols) return;
 		// el fuego 3D primero: las chispas y el humo van encima
 		if (vols) MeraVolumes.render(ctx, camX, camY, camZ, (float) (now % 3600.0));
-		if (count == 0) return;
+		if (count == 0 || hideFlames) return;
 		boolean embers = MeraVolumes.ready();
 
 		Matrix4f mv = RenderSystem.getModelViewMatrix();
