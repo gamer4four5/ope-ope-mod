@@ -88,7 +88,7 @@ En estilo anime:
 
 | Técnica | Paleta | Cómo es en el vídeo |
 | --- | --- | --- |
-| Hiken | 1 | Un puño enorme: masa roja, borde amarillo grueso, líneas amarillas entre los dedos, alguna mancha negra. Detrás, un brazo de fuego tan ancho como el puño. Cintas amarillas finas que se rizan a los lados. |
+| Hiken | 1 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con vetas amarillas y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). |
 | Kagerō | 4 | Chorro amarillo vivo con el borde naranja y un resplandor rojizo. |
 | Higan | 3 | Rayas amarillo pálido muy largas y finas, con brillo. |
 | Hibashira | 10, 9 y 2 | Primero el remolino: una media luna roja que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2). Después el haz recto amarillo pálido (columna) y, alrededor de su pie y de su punta, una nube de bolas rojas y amarillas (paleta 2). |

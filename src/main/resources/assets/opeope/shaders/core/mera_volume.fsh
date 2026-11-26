@@ -203,23 +203,25 @@ float mf_sdFist(vec3 q)
 // (por ahí van las líneas amarillas), el pulgar cruzado por debajo y la muñeca ancha.
 float mf_sdFistToon(vec3 q)
 {
-    float d = mf_sdRoundBox(q - vec3(0.0, 0.02, -0.14), vec3(0.42, 0.27, 0.30), 0.20);
+    // (0:32) casi una bola, con los cuatro dedos como bultos gordos por delante y por abajo
+    float d = mf_sdRoundBox(q - vec3(0.0, 0.03, -0.06), vec3(0.30, 0.28, 0.26), 0.26);
     float fing = 1e5;
     for (int i = 0; i < 4; i++) {
         float fi = float(i);
-        float x  = -0.315 + 0.21 * fi;
+        float x  = -0.33 + 0.22 * fi;
         float sc = (i == 3) ? 0.88 : ((i == 0) ? 0.95 : 1.0);
-        vec3 k0 = vec3(x, 0.20, 0.16);
-        vec3 k1 = vec3(x, 0.06, 0.40);
-        vec3 k2 = vec3(x, -0.22, 0.34);
-        fing = min(fing, min(mf_sdCapsule(q, k0, k1, 0.118 * sc), mf_sdCapsule(q, k1, k2, 0.110 * sc)));
+        vec3 k0 = vec3(x, 0.30, 0.20);
+        vec3 k1 = vec3(x, 0.10, 0.50);
+        vec3 k2 = vec3(x, -0.24, 0.40);
+        fing = min(fing, min(mf_sdCapsule(q, k0, k1, 0.130 * sc), mf_sdCapsule(q, k1, k2, 0.125 * sc)));
     }
-    d = mf_smin(d, fing, 0.035);
-    float th = mf_sdCapsule(q, vec3(-0.46, -0.04, -0.16), vec3(-0.40, -0.24, 0.20), 0.125);
-    th = min(th, mf_sdCapsule(q, vec3(-0.40, -0.24, 0.20), vec3(-0.06, -0.33, 0.33), 0.105));
-    d = mf_smin(d, th, 0.03);
-    float w = mf_sdCapsule(q, vec3(0.0, 0.0, -0.32), vec3(0.0, 0.0, -0.80), 0.30);
-    d = mf_smin(d, w, 0.14);
+    d = mf_smin(d, length(q - vec3(0.0, 0.02, 0.02)) - 0.50, 0.10);
+    d = mf_smin(d, fing, 0.05);
+    float th = mf_sdCapsule(q, vec3(-0.50, -0.02, -0.10), vec3(-0.44, -0.28, 0.26), 0.135);
+    th = min(th, mf_sdCapsule(q, vec3(-0.44, -0.28, 0.26), vec3(-0.08, -0.38, 0.38), 0.115));
+    d = mf_smin(d, th, 0.04);
+    float w = mf_sdCapsule(q, vec3(0.0, 0.0, -0.30), vec3(0.0, 0.0, -0.80), 0.36);
+    d = mf_smin(d, w, 0.16);
     return d;
 }
 
@@ -245,6 +247,8 @@ float mf_dFar;
 // cada punto en su banda de fuego, en grosores de pared (mf_core): el centro de cada lengua, más caliente
 // (estilo anime) las cintas finas que acompañan a algunas formas: distancia a la más cercana (1e5 = no hay)
 float mf_rib;
+// (estilo anime) la parte que se dibuja como una capa encima del resto (el puño, sobre su cuerpo de fuego): su distancia (1e5 = no hay)
+float mf_part;
 float mf_str;
 float mf_core;
 
@@ -256,6 +260,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
     mf_str = 0.0;
     mf_core = 0.0;
     mf_rib = 1.0e5;
+    mf_part = 1.0e5;
     if (shape < 0.5) {
         // ---------------- 0: BOLA / SOL / EXPLOSIÓN ----------------
         float R  = max(prm.x, 0.05);
@@ -302,10 +307,13 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float S = max(prm.x, 0.2);
         float tail = max(prm.y, 0.0);
         float df = ((mf_toon > 0.5) ? mf_sdFistToon(p / S) : mf_sdFist(p / S)) * S;
+        mf_part = df;
         float z0 = -0.45 * S;
         float v = clamp((z0 - p.z) / max(tail, 0.01), 0.0, 1.0);
         // (en anime, detrás va un brazo de fuego casi tan ancho como el puño, no una cola fina)
-        float rr = mix(mix(0.34, 0.47, mf_toon) * S, mix(0.06, 0.17, mf_toon) * S, pow(v, mix(0.7, 1.3, mf_toon)));
+        float rr = mix(0.34 * S, 0.06 * S, pow(v, 0.7));
+        // (en anime, detrás va un cuerpo de fuego que se ensancha, más ancho que el puño: un cometa, como en el 0:34)
+        if (mf_toon > 0.5) { rr = S * (0.60 + 0.58 * smoothstep(0.0, 1.8 * S, z0 - p.z)) * (1.0 - 0.80 * smoothstep(0.65, 1.0, v)); mf_lip = 1.9; }
         float dt = max(length(p.xy - vec2(0.0, -0.02 * S)) - rr, p.z - z0 - 0.1 * S);
         dt = max(dt, z0 - tail - p.z);
         d = mf_smin(df, dt, 0.25 * S);
@@ -324,7 +332,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
                 for (int i = 0; i < 4; i++) {
                     float fi = float(i);
                     float a = 1.571 * fi + 0.7 + 0.9 * sin(time * 1.3 + fi * 2.1) + zr * (1.6 + 0.5 * fi);
-                    float R = S * (0.50 + 0.55 * sqrt(zr) + 0.10 * sin(zr * 9.0 + fi * 1.9 + time * 5.0));
+                    float R = S * (0.72 + 0.80 * sqrt(zr) + 0.10 * sin(zr * 9.0 + fi * 1.9 + time * 5.0));
                     float th = S * 0.040 * smoothstep(0.0, 0.10, zr) * (1.0 - zr) * (0.6 + 0.4 * sin(fi * 3.7 + 1.0));
                     mf_rib = min(mf_rib, length(p.xy - R * vec2(cos(a), sin(a))) - th);
                 }
@@ -1145,6 +1153,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float Lr = 1.0;
     bool startIn = false;                     // el rayo empezó ya dentro del fuego (no hay superficie que mirar)
     float ribMin = 1.0e5; float tRib = t;     // las cintas: lo más cerca que pasa el rayo de una, y dónde
+    float penF = -1.0e5;                      // lo que se mete el rayo en la capa de encima (el puño)
 
     for (int i = 0; i < 72; i++) {
         if (t >= tFar) break;
@@ -1164,6 +1173,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
             continue;
         }
         float pp = -dd / L;
+        if (mf_part < 1.0e4) penF = max(penF, -(mf_part + shrink * L) / L);
         if (pp < 0.0) minOut = min(minOut, -pp);
         // la primera vez que entra: el punto justo, entre esta muestra y la anterior
         if (t0 < 0.0 && pp > 0.0) {
@@ -1209,7 +1219,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         cGlow *= 1.0 - s1; k = mix(k, sk, s2);
     }
     // el puño: el borde más fino (si no, los dedos enteros serían borde)
-    if (shape > 0.5 && shape < 1.5) { k.x = 0.36; k.w = 0.0; k.y = 1.0e3; }
+    if (shape > 0.5 && shape < 1.5) { k.x = 0.30; k.z = 1.20; k.w = 0.0; k.y = 1.0e3; }
     // las llamas sueltas y las lanzas son finas: con el borde de las masas serían casi todo borde
     if (shape > 6.5 && shape < 8.5) { k.x *= 0.40; k.y = min(k.y, 0.80); }
     // las cortinas (el cerco de Enjōmō, el muro): de frente son una lámina; el borde, solo en las puntas, y lo gordo
@@ -1257,6 +1267,14 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     if (shape > 1.5 && shape < 2.5 && prm.z < 0.5) calm = 1.0;          // y el haz de Hibashira
     float vp = pen + mix(0.32, 0.10, calm) * wob * min(pen, 1.5);
 
+    // el puño va dibujado encima de su cuerpo de fuego: donde el rayo toca primero el puño, el borde es el del puño
+    // solo (así su contorno se ve también contra el fuego de detrás, como en el 0:32)
+    if (isFist > 0.5) {
+        float Lq; float uq; float sq;
+        mf_toonField(p0, shape, prm, tm, so, shrink, Lq, uq, sq);
+        float onF = 1.0 - smoothstep(0.10, 0.30, (mf_part + shrink * Lq) / Lq);
+        vp = mix(vp, min(vp, penF * 1.15), onF);
+    }
     float sil = mf_aastep(0.0, pen);
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
