@@ -61,6 +61,10 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
     vuelta entera, gruesa en el medio y en punta en los extremos), con llamas amarillas que suben por la cabeza.
     `prm`: x = radio (2), y = alto de la banda (0,5), z = medio ancho de la banda (0,95). Origen a la altura de la
     cintura menos medio alto.
+  - 3: un tajo de fuego (los arcos de Shiranui, 2:00). Un arco corto (algo menos de media vuelta) que barre deprisa:
+    el canto de fuera rojo y con flecos, el medio naranja y el de dentro amarillo. `prm`: x = radio (2), y = grosor
+    (0,35), z = medio ancho del arco (0,45). El arco vive en el plano XZ de la forma: para ponerlo de pie, `dir` casi
+    vertical. Dura lo que dure el gesto (0,3 a 0,4 s).
 - **Sol (bola con `prm.w` = 2)**: una esfera lisa con unas pocas llamaradas finas pegadas a la superficie. Con la
   paleta 13 es la cúpula roja del final de Entei: el centro en el suelo, para que se vea media esfera.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al

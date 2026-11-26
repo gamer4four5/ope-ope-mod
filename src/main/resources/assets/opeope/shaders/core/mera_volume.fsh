@@ -437,25 +437,31 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         if (mf_toon > 0.5 && prm.w > 1.5) {
             // (anime) el remolino de Hibashira (1:12): una media luna plana que gira alrededor de Ace, gruesa en el
             // medio y en punta en los extremos, con la cola más abierta
-            float lag = fract((time * 4.5 - atan(p.z, p.x)) / 6.2832) / 0.86;      // 0 la cabeza · 1 la cola
+            // (w = 3: un arco corto que barre deprisa, los tajos de fuego de Shiranui, 2:00)
+            float arc = step(2.5, prm.w);
+            float span = mix(0.86, 0.40, arc);
+            float spd = mix(4.5, 7.0, arc);
+            float lag = fract((time * spd - atan(p.z, p.x)) / 6.2832) / span;      // 0 la cabeza · 1 la cola
             float prof = (lag < 1.0) ? pow(max(sin(3.1416 * lag), 0.0), 0.55) * (1.0 - 0.25 * lag) : 0.0;
             float Rc = R * (0.85 + 0.40 * min(lag, 1.0));
             // hacia la cabeza (el brazo de Ace) el fuego sube en llamas
-            float rise = (1.0 - smoothstep(0.02, 0.50, lag)) * prof;
+            float rise = (1.0 - smoothstep(0.02, 0.50, lag)) * prof * (1.0 - arc);
             float top = H0 * (0.35 + 0.65 * prof) + H0 * 3.2 * rise;
             vec2 e = vec2(abs(length(p.xz) - Rc) - th * prof, abs(p.y - 0.5 * top) - 0.5 * top);
             d = min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
-            if (lag >= 1.0) d += R * min(lag - 1.0, 1.163 - lag) * 3.0;
+            if (lag >= 1.0) d += R * min(lag - 1.0, 1.0 / span - lag) * 3.0 * span / 0.86;
             mf_lip = 2.2;
             L = min(th * 0.5, 0.40);
             u = min(lag, 1.0);
-            vec2 sr = mf_rot(p.xz, -time * 4.5);
+            vec2 sr = mf_rot(p.xz, -time * spd);
             nq = vec3(sr.x / (L * 1.6), p.y / L, sr.y / (L * 1.6));
             nb = vec3(sr.x / (L * 1.8), p.y / (L * 1.2), sr.y / (L * 1.8));
             float hi = clamp(p.y / H0 - 0.8, 0.0, 2.5) * rise;
             u = max(u, 0.45 + 0.4 * hi);
             nq.y -= time * 2.4;
             amp = L * (0.25 + 0.45 * min(lag, 1.0) + 1.3 * hi);
+            // (el arco: flecos de llama por el canto de fuera)
+            if (arc > 0.5) amp = L * (0.20 + 1.1 * smoothstep(-0.2, 1.0, (length(p.xz) - Rc) / max(th, 0.01)));
         }
     }
     else if (shape < 4.5) {
@@ -1404,7 +1410,21 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         c = mix(c, cCore, smoothstep(0.9, 2.7, pen));
         bCore = 0.0;
     }
-    if (shape > 2.5 && shape < 3.5 && prm.w > 1.5) {
+    if (shape > 2.5 && shape < 3.5 && prm.w > 2.5) {
+        // los tajos de Shiranui (2:00): un arco con el canto de fuera rojo, el medio naranja y el de dentro amarillo
+        float th = (prm.z > 0.01) ? prm.z : 0.5;
+        float R0 = max(prm.x, 0.5);
+        float lag = min(fract((tm * 7.0 - atan(p0.z, p0.x)) / 6.2832) / 0.40, 1.0);
+        float rin = (length(p0.xz) - R0 * (0.85 + 0.40 * lag)) / th;
+        vec2 pr = mf_rot(p0.xz, -tm * 7.0);
+        float wv = mf_gnoise(vec3(pr * 1.1, tm * 0.7) + so) + 0.5 * mf_gnoise(vec3(pr * 2.6, 3.0) + so.zxy);
+        float rv = rin + 0.45 * wv;
+        c = vec3(0.992, 0.925, 0.500);
+        c = mix(c, vec3(0.992, 0.800, 0.180), mf_aastep(-0.62, rv));
+        c = mix(c, vec3(0.957, 0.520, 0.120), mf_aastep(-0.15, rv));
+        c = mix(c, vec3(0.910, 0.250, 0.160), mf_aastep(0.30, rv));
+        bCore = 0.0;
+    } else if (shape > 2.5 && shape < 3.5 && prm.w > 1.5) {
         // el remolino de Hibashira: rojo plano, y montadas en él (por dentro y hacia la cabeza) llamas amarillas con
         // el centro pálido y el filo naranja; sueltas por el resto, algunas lenguas amarillas pequeñas
         float th = (prm.z > 0.01) ? prm.z : 0.5;
