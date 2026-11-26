@@ -199,6 +199,30 @@ float mf_sdFist(vec3 q)
     return d;
 }
 
+// El puño dibujado (estilo anime): un puño de dibujos, con cuatro dedos gordos doblados y surcos claros entre ellos
+// (por ahí van las líneas amarillas), el pulgar cruzado por debajo y la muñeca ancha.
+float mf_sdFistToon(vec3 q)
+{
+    float d = mf_sdRoundBox(q - vec3(0.0, 0.02, -0.14), vec3(0.42, 0.27, 0.30), 0.20);
+    float fing = 1e5;
+    for (int i = 0; i < 4; i++) {
+        float fi = float(i);
+        float x  = -0.315 + 0.21 * fi;
+        float sc = (i == 3) ? 0.88 : ((i == 0) ? 0.95 : 1.0);
+        vec3 k0 = vec3(x, 0.20, 0.16);
+        vec3 k1 = vec3(x, 0.06, 0.40);
+        vec3 k2 = vec3(x, -0.22, 0.34);
+        fing = min(fing, min(mf_sdCapsule(q, k0, k1, 0.118 * sc), mf_sdCapsule(q, k1, k2, 0.110 * sc)));
+    }
+    d = mf_smin(d, fing, 0.035);
+    float th = mf_sdCapsule(q, vec3(-0.46, -0.04, -0.16), vec3(-0.40, -0.24, 0.20), 0.125);
+    th = min(th, mf_sdCapsule(q, vec3(-0.40, -0.24, 0.20), vec3(-0.06, -0.33, 0.33), 0.105));
+    d = mf_smin(d, th, 0.03);
+    float w = mf_sdCapsule(q, vec3(0.0, 0.0, -0.32), vec3(0.0, 0.0, -0.80), 0.30);
+    d = mf_smin(d, w, 0.14);
+    return d;
+}
+
 // ---------------------------------------------------------------------
 //  Campos de cada forma.
 //   d   : distancia a la envoltura (bloques), antes de la turbulencia
@@ -219,6 +243,8 @@ float mf_lip;
 float mf_dFar;
 // la columna de Hibashira vista desde el hueco (primera persona): el ruido de sus rendijas (mf_str) y cuánto se mete
 // cada punto en su banda de fuego, en grosores de pared (mf_core): el centro de cada lengua, más caliente
+// (estilo anime) las cintas finas que acompañan a algunas formas: distancia a la más cercana (1e5 = no hay)
+float mf_rib;
 float mf_str;
 float mf_core;
 
@@ -229,6 +255,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
     mf_dFar = -1e9;
     mf_str = 0.0;
     mf_core = 0.0;
+    mf_rib = 1.0e5;
     if (shape < 0.5) {
         // ---------------- 0: BOLA / SOL / EXPLOSIÓN ----------------
         float R  = max(prm.x, 0.05);
@@ -260,10 +287,11 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // ---------------- 1: PUÑO (Hiken) ----------------
         float S = max(prm.x, 0.2);
         float tail = max(prm.y, 0.0);
-        float df = mf_sdFist(p / S) * S;
+        float df = ((mf_toon > 0.5) ? mf_sdFistToon(p / S) : mf_sdFist(p / S)) * S;
         float z0 = -0.45 * S;
         float v = clamp((z0 - p.z) / max(tail, 0.01), 0.0, 1.0);
-        float rr = mix(0.34 * S, 0.06 * S, pow(v, 0.7));
+        // (en anime, detrás va un brazo de fuego casi tan ancho como el puño, no una cola fina)
+        float rr = mix(mix(0.34, 0.47, mf_toon) * S, mix(0.06, 0.17, mf_toon) * S, pow(v, mix(0.7, 1.3, mf_toon)));
         float dt = max(length(p.xy - vec2(0.0, -0.02 * S)) - rr, p.z - z0 - 0.1 * S);
         dt = max(dt, z0 - tail - p.z);
         d = mf_smin(df, dt, 0.25 * S);
@@ -273,6 +301,21 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nb = vec3(p.x / (L * 2.1), p.y / (L * 2.1) - time * 0.3, p.z / (L * 2.4) + time * 1.6);
         float body = smoothstep(-0.1 * S, -0.6 * S, p.z);
         amp = L * mix(0.16, 0.50 + 0.60 * v, body);
+        if (mf_toon > 0.5) {
+            // el puño, limpio (se leen los dedos); el brazo, con lenguas grandes
+            amp = L * mix(0.04, 0.50 + 0.85 * v, body);
+            // cintas amarillas finas que salen de los lados del puño y se quedan atrás, ondulando
+            float zr = (-0.15 * S - p.z) / max(tail + 0.3 * S, 0.01);
+            if (zr > 0.0 && zr < 1.0) {
+                for (int i = 0; i < 4; i++) {
+                    float fi = float(i);
+                    float a = 1.571 * fi + 0.7 + 0.9 * sin(time * 1.3 + fi * 2.1) + zr * (1.6 + 0.5 * fi);
+                    float R = S * (0.50 + 0.55 * sqrt(zr) + 0.10 * sin(zr * 9.0 + fi * 1.9 + time * 5.0));
+                    float th = S * 0.040 * smoothstep(0.0, 0.10, zr) * (1.0 - zr) * (0.6 + 0.4 * sin(fi * 3.7 + 1.0));
+                    mf_rib = min(mf_rib, length(p.xy - R * vec2(cos(a), sin(a))) - th);
+                }
+            }
+        }
     }
     else if (shape < 2.5) {
         // ---------------- 2: COLUMNA (Hibashira): un remolino de fuego hueco ----------------
@@ -990,18 +1033,22 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float pA = -1.0e5; float pB = -1.0e5; float tB = t;   // las dos muestras anteriores (para afinar el máximo)
     float dPrev = 1.0; float tPrev = t; bool hasPrev = false;
     float Lr = 1.0;
+    float ribMin = 1.0e5; float tRib = t;     // las cintas: lo más cerca que pasa el rayo de una, y dónde
 
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 72; i++) {
         if (t >= tFar) break;
         vec3 p = ro + rd * t;
         float L; float u; float skip;
         float dd = mf_toonField(p, shape, prm, tm, so, shrink, L, u, skip);
+        float rib = (mf_rib < 1.0e4) ? (mf_rib + shrink * L) / L : 1.0e5;
+        if (rib < ribMin) { ribMin = rib; tRib = t; }
         float stepIn = L * 0.13;
         if (shape > 4.5 && shape < 5.5) stepIn *= 1.0 + 1.4 * rd.z * rd.z;
         if (skip > 0.0) {
             minOut = min(minOut, dd / L);
             Lr = L;
-            t += max(skip * 0.85, stepIn * 0.5);
+            // (cerca de una cinta, pasos cortos para no saltársela, pero nunca más cortos que dentro del fuego)
+            t += max(min(skip, rib * L) * 0.85, stepIn);
             hasPrev = false; pA = -1.0e5; pB = -1.0e5;
             continue;
         }
@@ -1036,13 +1083,19 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         cRim = mix(cRim, sR, s1); cVein = mix(cVein, sV, s1); cFill = mix(cFill, sF, s2); cCore = mix(cCore, sC, s2);
         cGlow *= 1.0 - s1; k = mix(k, sk, s2);
     }
+    // el puño: el borde más fino (si no, los dedos enteros serían borde)
+    if (shape > 0.5 && shape < 1.5) k.x = 0.36;
     if (VolStyle.z > 0.0) k.x = VolStyle.z;
 
     // el resplandor corto de fuera
-    float gl = exp(-max(minOut, 0.0) / 0.30) * 0.60 * intensity;
+    float gl = exp(-max(min(minOut, ribMin), 0.0) / 0.30) * 0.60 * intensity;
+    // las cintas: trazos finos del color del borde, por delante o por detrás del cuerpo según dónde pasan
+    float ribA = (ribMin < 1.0e4) ? (1.0 - mf_aastep(0.0, ribMin)) * intensity : 0.0;
     if (pen <= 0.0 || t0 < 0.0) {
-        if (gl < 0.004) return vec4(0.0);
-        return vec4(cGlow * gl, gl * 0.75);
+        float a0 = ribA;
+        float g0 = gl * (1.0 - a0);
+        if (a0 + g0 < 0.004) return vec4(0.0);
+        return vec4(cRim * a0 + cGlow * g0, a0 + g0 * 0.75);
     }
 
     // dónde toca primero el rayo: la normal y los surcos (un punto un poco hacia fuera está cerca de otra pared)
@@ -1063,8 +1116,9 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float open = clamp(fo / (h * max(gmag, 0.35)), 0.0, 1.0);   // 1 = superficie abierta, menos = surco
 
     // el borde de dentro no es paralelo al de fuera: sube y baja como las llamas
-    float wob = mf_gnoise((ro + rd * tPen) / (Lr * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
-    float vp = pen + 0.32 * wob * min(pen, 1.5);
+    float wob = mf_gnoise(p0 / (L0 * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
+    float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
+    float vp = pen + mix(0.32, 0.10, isFist) * wob * min(pen, 1.5);
 
     float sil = mf_aastep(0.0, pen);
     float bFill = mf_aastep(k.x, vp);
@@ -1072,7 +1126,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     vec3 c = mix(cRim, cFill, bFill);
     if (k.w > 0.5) {
         // las manchas negras del Hiken: solo en lo más hondo y a trozos, con su filo rojo oscuro
-        float bn = mf_gnoise((ro + rd * tPen) / (Lr * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0));
+        float bn = mf_gnoise(p0 / (L0 * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0));
         float bv = vp - k.y - 1.6 * (0.35 - bn);
         c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.10, bv));
         c = mix(c, cCore, mf_aastep(0.0, bv));
@@ -1089,7 +1143,12 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     // lo que cruza el hueco de la cámara se desvanece
     float nfk = (nearFade > 0.0) ? smoothstep(0.35 * nearFade, nearFade + 0.15, t0) : 1.0;
     float a = sil * nfk * smoothstep(0.0, 0.12, intensity);
-    return vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
+    vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
+    // la cinta que pasa por delante del cuerpo se pinta encima; la que pasa por detrás asoma por el borde
+    float front = step(tRib, t0);
+    float ra = ribA * mix(1.0 - a, 1.0, front);
+    outc = outc * (1.0 - ra) + vec4(cRim * ra, ra);
+    return outc;
 }
 
 vec3 mfUnproject(vec2 ndc, float z) {
