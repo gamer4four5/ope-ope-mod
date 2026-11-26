@@ -35,7 +35,7 @@ resplandor). Sale premultiplicado, igual que el realista.
 | 2 | natural | rojo anaranjado `#f14a21` | amarillo `#fdcc2e` | amarillo pálido `#fff6b0` | 1:12-1:17, 1:42, 3:00-3:06 |
 | 3 | Marineford | amarillo pálido `#fde9a0` (fino; no hay borde oscuro) | dorado `#fbcb5a`, venas pálidas `#feeca8` | `#fcd369` | 0:08, 1:22-1:32, 1:55, 2:29-2:54 |
 | 4 | Kagerō | naranja `#ec7821` | amarillo vivo `#f5e024` | pálido `#fff58f` | 0:15-0:17 |
-| 5 | Hotarubi | verde `#a3f08f` | verde pálido `#ccfc99` | casi blanco `#f2ffd9` | 1:34-1:53 |
+| 5 | Hotarubi | verde `#73f594` en la orilla | se aclara poco a poco, sin bandas | verde muy pálido `#ccfccf`, halo verde `#57d175` | 1:34-1:53 |
 | 6 | sol de Entei | filo amarillo muy fino `#f9db66` | `#fbf8bd` | casi blanco `#feffdb` (casi todo el sol), resplandor ancho | 3:04-3:13 |
 | 7 | Jūjika | filo dorado `#fdcc63` | amarillo limón `#fef580` | pálido `#fffda6` | 2:14 |
 | 8 | humo | gris `#8f8a8f` | gris claro `#dbd9db` | `#f5f4f5` | lo que queda de una explosión |
@@ -93,7 +93,7 @@ En estilo anime:
 | Higan | 3 | Rayas amarillo pálido muy largas y finas, con brillo. |
 | Hibashira | 10, 9 y 2 | Primero el remolino: una media luna roja que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2). Después el haz recto amarillo pálido (columna) y, alrededor de su pie y de su punta, una nube de bolas rojas y amarillas (paleta 2). |
 | Enkai | 3 | Un abanico amarillo anaranjado plano que sale de la mano, con rayas más pálidas. |
-| Hotarubi | 5 | Bolitas verde pálido con el centro casi blanco y un halo verde. |
+| Hotarubi | 5 | Bolas lisas y redondas (no llamas), de 0,2 a 0,45 de radio: verdes en la orilla, casi blancas en el centro y con un halo verde suave. Una bola (forma 0) con paleta 5 sale ya así. |
 | Hidaruma | 2 | Lenguas amarillas con el borde naranja sobre el que arde. |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
 | St. Elmo / Shiranui | 2 y 3 | Arcos naranja rojizo con el centro amarillo; las lanzas, rayas amarillas. |

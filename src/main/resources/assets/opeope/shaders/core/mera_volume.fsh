@@ -1012,7 +1012,7 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 //    2 natural      borde rojo anaranjado, masa amarilla, corazón amarillo pálido
 //    3 Marineford   masa dorada, y el borde y las venas amarillo pálido (el fuego de Marineford no tiene borde oscuro)
 //    4 Kagerō       borde naranja, chorro amarillo vivo, corazón pálido
-//    5 Hotarubi     verde pálido con el corazón casi blanco
+//    5 Hotarubi     bolas lisas: verde en la orilla que se aclara hacia el centro, con un halo verde
 //    6 sol de Entei casi todo blanco amarillento, con un filo amarillo muy fino y un resplandor ancho
 //    7 Jūjika       cruz amarillo limón con el centro pálido y el filo dorado
 //    8 humo         gris claro plano con los surcos más oscuros (lo que queda de una explosión)
@@ -1036,8 +1036,8 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
         cRim = vec3(0.925, 0.470, 0.130); cVein = vec3(0.945, 0.650, 0.140); cFill = vec3(0.960, 0.880, 0.140); cCore = vec3(1.0, 0.960, 0.560);
         cGlow = vec3(0.90, 0.30, 0.10); k = vec4(0.40, 1.5, 0.0, 0.0);
     } else if (id > 4.5 && id < 5.5) {
-        cRim = vec3(0.640, 0.940, 0.560); cVein = cRim; cFill = vec3(0.800, 0.990, 0.600); cCore = vec3(0.950, 1.0, 0.850);
-        cGlow = vec3(0.55, 0.95, 0.50); k = vec4(0.35, 1.0, 0.0, 0.0); gk = vec2(0.70, 0.80);
+        cRim = vec3(0.450, 0.960, 0.580); cVein = cRim; cFill = vec3(0.660, 0.995, 0.710); cCore = vec3(0.800, 0.990, 0.810);
+        cGlow = vec3(0.34, 0.82, 0.46); k = vec4(0.35, 1.0, 0.0, 0.0); gk = vec2(0.75, 0.80);
     } else if (id > 5.5 && id < 6.5) {
         cRim = vec3(0.976, 0.860, 0.400); cVein = cRim; cFill = vec3(0.984, 0.972, 0.740); cCore = vec3(0.996, 1.0, 0.860);
         cGlow = vec3(1.0, 0.66, 0.22); k = vec4(0.05, 0.16, 0.0, 0.0); gk = vec2(0.80, 0.85);
@@ -1088,7 +1088,10 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float aura = (shape > 8.5) ? 1.0 : 0.0;
     // el sol de Entei es una bola lisa con unas pocas llamas; y el humo de una explosión, bolsas redondas, no jirones
     float sunM = (shape < 0.5) ? step(1.5, prm.w) : 0.0;
-    amp *= mix(1.0, 0.15, sunM);
+    // las luciérnagas de Hotarubi (paleta 5) también son bolas lisas
+    float orb = (shape < 0.5 && VolStyle.y > 4.5 && VolStyle.y < 5.5) ? 1.0 : 0.0;
+    sunM = max(sunM, orb);
+    amp *= mix(1.0, 0.15, sunM) * (1.0 - 0.8 * orb);
     // la cruz de Jūjika son dos trazos casi rectos
     if (shape > 5.5 && shape < 6.5) amp *= 0.40;
     // las lanzas y las balas, trazos limpios
@@ -1304,6 +1307,12 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         vec3 cBase = mix(cRim, cFill, 0.45);
         c = mix(cBase, cFill, ring);
         c = mix(c, mix(cRim, cBase, 0.25), rimK);
+        bCore = 0.0;
+    }
+    if (pal > 4.5 && pal < 5.5) {
+        // las luciérnagas: sin bandas, el verde de la orilla se aclara poco a poco hacia el centro
+        c = mix(cRim, cFill, smoothstep(0.0, 1.3, pen));
+        c = mix(c, cCore, smoothstep(0.9, 2.7, pen));
         bCore = 0.0;
     }
     if (shape > 2.5 && shape < 3.5 && prm.w > 1.5) {
