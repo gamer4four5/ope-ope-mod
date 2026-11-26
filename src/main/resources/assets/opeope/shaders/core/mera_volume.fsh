@@ -480,6 +480,31 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nb = vec3(q.x / (L * 1.6), q.y / (L * 1.6) - time * 0.4, q.z / (L * 3.0) + time * 2.5);
         amp = L * (0.25 + 0.55 * vt);
     }
+    else if (shape > 8.5) {
+        // ---------------- 9: AURA: el cuerpo en llamas ----------------
+        // el fuego que envuelve a Ace: una funda alrededor del cuerpo (origen en los pies, +Y arriba) de la que salen
+        // lenguas grandes que suben y se rizan, más largas en los hombros y la cabeza. En estilo anime solo se dibuja
+        // la mitad de detrás (ver mfRenderToon): el cuerpo se ve entero y el fuego asoma por su contorno, como en la serie
+        float R = max(prm.x, 0.2);
+        float H = max(prm.y, 0.5);
+        float kf = clamp(prm.z, 0.0, 1.0);
+        float tt = time + prm.w * 17.0;
+        vec3 q = p;
+        q.z *= 1.30;                                   // el cuerpo es más ancho que hondo
+        float v = clamp(q.y / H, 0.0, 1.4);
+        float rb = R * (0.80 + 0.30 * smoothstep(0.50, 0.80, v) - 0.25 * smoothstep(0.85, 1.05, v));
+        float d0 = mf_sdCapsule(q, vec3(0.0, R * 0.8, 0.0), vec3(0.0, max(H - R * 0.6, R), 0.0), rb);
+        d = d0 - R * (0.12 + 0.42 * kf);
+        L = R * 0.60;
+        u = clamp(d0 / (R * (1.2 + 1.2 * kf)) + 0.25 * v, 0.0, 1.2);
+        // las lenguas suben, se abren hacia fuera y se rizan (más arriba, más)
+        float sway = sin(tt * 1.7 + q.y * 2.1) * 0.30 + sin(tt * 2.9 - q.y * 3.7 + q.x * 2.0) * 0.14;
+        vec3 qs = q + vec3(sway * R * (0.3 + v), 0.0, 0.5 * sway * R * v);
+        nq = vec3(qs.x / (L * 0.80), qs.y / (L * 2.3) - time * 2.6, qs.z / (L * 0.80));
+        nb = vec3(q.x / (L * 1.2), q.y / (L * 2.0) - time * 1.4, q.z / (L * 1.2));
+        amp = L * (0.75 + 1.75 * v) * (0.35 + 0.65 * kf);
+        mf_lip = 1.3;
+    }
     else {
         // ---------------- 8: LLAMA (pequeña, natural) ----------------
         // una lágrima más fina y alta que se abre arriba en dos o tres puntas (antes, de cerca, bolas redondas). La
@@ -947,10 +972,10 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
         cGlow = vec3(0.55, 0.95, 0.50); k = vec4(0.35, 1.0, 0.0, 0.0);
     } else if (id > 5.5 && id < 6.5) {
         cRim = vec3(0.957, 0.490, 0.080); cVein = vec3(0.996, 0.800, 0.200); cFill = vec3(0.996, 0.890, 0.230); cCore = vec3(1.0, 0.985, 0.800);
-        cGlow = vec3(1.0, 0.60, 0.15); k = vec4(0.20, 0.70, 0.0, 0.0);
+        cGlow = vec3(1.0, 0.62, 0.16); k = vec4(0.11, 0.34, 0.0, 0.0);
     } else if (id > 6.5 && id < 7.5) {
         cRim = vec3(0.965, 0.520, 0.150); cVein = cRim; cFill = vec3(0.992, 0.800, 0.330); cCore = vec3(0.996, 0.930, 0.640);
-        cGlow = vec3(1.0, 0.55, 0.15); k = vec4(0.30, 0.9, 0.0, 0.0);
+        cGlow = vec3(1.0, 0.50, 0.14); k = vec4(0.20, 0.50, 0.0, 0.0);
     } else if (id > 7.5) {
         cRim = vec3(0.560, 0.540, 0.560); cVein = vec3(0.620, 0.600, 0.620); cFill = vec3(0.860, 0.850, 0.860); cCore = vec3(0.960, 0.955, 0.960);
         cGlow = vec3(0.0); k = vec4(0.45, 2.2, 1.0, 0.0);
@@ -968,7 +993,7 @@ float mf_toonDefault(float shape, vec4 prm)
     if (shape < 5.5) return 4.0;                            // Kagerō
     if (shape < 6.5) return 7.0;                            // Jūjika
     if (shape < 7.5) return 3.0;                            // las lanzas y las balas
-    return 3.0;                                             // las llamas sueltas y las del cuerpo
+    return 3.0;                                             // las llamas sueltas y las del cuerpo (y su aura)
 }
 
 // El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
@@ -983,12 +1008,15 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
-    float flo = (shape > 7.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    float flo = (shape > 7.5 && shape < 8.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    float aura = (shape > 8.5) ? 1.0 : 0.0;
     // el sol de Entei es una bola lisa con unas pocas llamas; y el humo de una explosión, bolsas redondas, no jirones
     float sunM = (shape < 0.5) ? step(1.5, prm.w) : 0.0;
-    amp *= mix(1.0, 0.40, sunM);
+    amp *= mix(1.0, 0.22, sunM);
+    // la cruz de Jūjika son dos trazos casi rectos
+    if (shape > 5.5 && shape < 6.5) amp *= 0.40;
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
-    float ampB = mix(amp * 1.1, max(amp, L * 0.55), massy) * mix(1.0, 0.55, sunM);
+    float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.22, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
     skip = 0.0;
     if (d - envW > 0.0) {
@@ -998,6 +1026,10 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float w = smoothstep(0.55, 0.95, u) * (1.0 - cool);
     w = max(w, selfPil);
     w = mix(w, smoothstep(0.30, 0.75, u), flo);
+    // las bolas y explosiones: lenguas que salen ya desde el borde de la masa (llamas en punta, no solo bolsas)
+    if (shape < 0.5) w = max(w, smoothstep(0.25, 0.80, u) * (1.0 - cool) * (1.0 - sunM));
+    // el aura del cuerpo: casi todo lenguas
+    w = mix(w, smoothstep(0.10, 0.50, u), aura);
     float nB = 0.0; float nT = 0.0;
     // lóbulos: una sola onda en valor absoluto (bolsas lisas y grandes con un surco limpio entre ellas)
     if (w < 0.995) nB = 0.42 - 1.75 * abs(mf_gnoise(nb * 0.62 + so));
@@ -1027,6 +1059,12 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
 
     // pegado a la cámara el fuego no se dibuja (no tapa la vista): el rayo empieza un poco más allá
     float t = max(tNear, 0.35 * nearFade);
+    if (shape > 8.5) {
+        // el aura del cuerpo: el rayo empieza donde pasa más cerca del eje del cuerpo, así solo se dibuja el fuego
+        // de detrás y el que asoma por el contorno (el cuerpo, que está delante, se ve entero)
+        float den = rd.x * rd.x + rd.z * rd.z;
+        if (den > 1.0e-5) t = max(t, -(ro.x * rd.x + ro.z * rd.z) / den);
+    }
     float pen = -1.0e5; float tPen = t; float uPen = 0.0;
     float t0 = -1.0; float L0 = 1.0; float u0 = 0.0;
     float minOut = 1.0e5;
@@ -1118,7 +1156,8 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     // el borde de dentro no es paralelo al de fuera: sube y baja como las llamas
     float wob = mf_gnoise(p0 / (L0 * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
-    float vp = pen + mix(0.32, 0.10, isFist) * wob * min(pen, 1.5);
+    float calm = max(isFist, (shape < 0.5) ? step(1.5, prm.w) : 0.0);   // el puño y el sol: el borde de dentro, casi paralelo
+    float vp = pen + mix(0.32, 0.10, calm) * wob * min(pen, 1.5);
 
     float sil = mf_aastep(0.0, pen);
     float bFill = mf_aastep(k.x, vp);

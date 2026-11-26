@@ -43,6 +43,17 @@ resplandor). Sale premultiplicado, igual que el realista.
 Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, columna 2, anillos 2, muro 3, chorro 4,
 cruz 7, lanza 3, llama 3. Una explosión que se enfría pasa sola a la 8.
 
+### Forma nueva: 9, AURA (el cuerpo en llamas)
+
+El fuego que envuelve a Ace cuando arde. Una funda alrededor del cuerpo de la que salen lenguas grandes que suben y se
+rizan. En anime solo se dibuja la mitad de detrás: el cuerpo se ve entero y el fuego asoma por su contorno, como en la
+serie (2:29-2:31 y 2:53-2:55).
+
+- Origen en los pies, `dir` horizontal (hacia donde mira el cuerpo), +Y arriba.
+- `prm`: x = radio del cuerpo (0,45), y = alto (1,9), z = fuerza de las llamas de 0 a 1, w = fase de 0 a 1.
+- Su esfera envolvente es la de la llama (la rama `default` de `MeraVolumes.bound`): no hay que tocar nada.
+- Solo para el estilo anime y solo para quien se ve desde fuera. En realista se sigue usando lo de siempre.
+
 ## Lo que no es volumen (Java)
 
 En estilo anime:
@@ -71,7 +82,7 @@ En estilo anime:
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
 | St. Elmo / Shiranui | 2 y 3 | Arcos naranja rojizo con el centro amarillo; las lanzas, rayas amarillas. |
 | Jūjika | 7 y 1 | La cruz, dos trazos amarillo pálido con el borde naranja; el estallido, rojo con borde amarillo. |
-| Cuerpo en llamas | 3 | Lenguas amarillo crema con el contorno ondulado; la piel se ve dentro. |
+| Cuerpo en llamas | 3 | Lenguas amarillo crema con el contorno ondulado; la piel se ve dentro. Un volumen AURA (forma 9) en vez de las llamas sueltas de hombros, brazos y espalda. |
 | Kyōkaen | 3 | Un muro amarillo anaranjado con venas más pálidas. El vapor, blanco plano. |
 | Dai Enkai | 2 | Un aro naranja con anillos amarillos en el suelo; después llamas rojas y amarillas con el centro pálido. |
 | Entei | 6 | Un sol amarillo muy pálido, casi blanco, con el borde naranja fino y algunas llamaradas. Al estallar, pantalla en blanco y después una cúpula roja. |
