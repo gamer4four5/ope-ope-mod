@@ -32,7 +32,7 @@ resplandor). Sale premultiplicado, igual que el realista.
 | N.º | Nombre | Borde | Masa | Corazón | Dónde sale en el vídeo |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Hiken | amarillo `#fdc82a` (y venas) | rojo `#f55749` | manchas negras con filo rojo oscuro | 0:24-0:40 |
-| 2 | natural | rojo anaranjado `#f14a21` | amarillo `#fdcc2e` | amarillo pálido `#fff6b0` | 1:12-1:17, 1:42, 3:00-3:06 |
+| 2 | natural | rojo anaranjado `#f14a21`, y por dentro una banda naranja `#f77d1c` | amarillo `#fdcc2e` | amarillo pálido `#fff6b0` | 1:12-1:17, 1:45, 3:00-3:06 |
 | 3 | Marineford | amarillo pálido `#fde9a0` (fino; no hay borde oscuro) | dorado `#fbcb5a`, venas pálidas `#feeca8` | `#fcd369` | 0:08, 1:22-1:32, 1:55, 2:29-2:54 |
 | 4 | Kagerō | naranja `#ec7821` | amarillo vivo `#f5e024` | pálido `#fff58f` | 0:15-0:17 |
 | 5 | Hotarubi | verde `#73f594` en la orilla | se aclara poco a poco, sin bandas | verde muy pálido `#ccfccf`, halo verde `#57d175` | 1:34-1:53 |

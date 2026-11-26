@@ -1166,6 +1166,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     if (shape > 5.5 && shape < 6.5) amp *= 0.40;
     // las lanzas y las balas, trazos limpios
     if (shape > 6.5 && shape < 7.5) amp *= 0.45;
+    // las bolas y explosiones: por arriba, lenguas más largas (la orilla de arriba, en llamas, como en el 3:02)
+    if (shape < 0.5 && sunM < 0.5) amp *= 1.0 + 0.9 * smoothstep(0.0, 0.7, p.y / max(length(p), 1.0e-3)) * (1.0 - clamp(prm.z, 0.0, 1.0));
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
     float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.05, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
@@ -1366,6 +1368,8 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
     vec3 c = mix(cRim, cFill, bFill);
+    // el fuego natural (paleta 2) lleva una banda naranja entre el filo rojo y el amarillo (3:00-3:02)
+    if (pal > 1.5 && pal < 2.5) c = mix(c, cVein, bFill * (1.0 - mf_aastep(k.x * 1.9, vp)));
     // las venas: el color del borde por los surcos (no en el propio borde, que ya lo es)
     if (k.z > 0.001) {
         float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
