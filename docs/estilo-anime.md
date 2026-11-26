@@ -41,9 +41,12 @@ resplandor). Sale premultiplicado, igual que el realista.
 | 8 | humo | gris `#8f8a8f` | gris claro `#dbd9db` | `#f5f4f5` | lo que queda de una explosión |
 | 9 | columna | filo naranja `#f6b030` | banda amarilla `#fee63d` | amarillo pálido `#fcf199` (casi todo el haz) | 1:16-1:17 |
 | 10 | remolino | no tiene | rojo plano `#de352b` | llamas amarillas `#fdcc2e` con el centro `#fdf68f` y el filo naranja | 1:12-1:13 |
+| 11 | trazo | filo dorado `#f5c85a`, blando (sin línea) | amarillo pálido `#fdf3a6` | igual que la masa | 0:57, 2:11 |
+| 12 | Hidaruma | filo naranja `#f18113`, blando (sin línea) | amarillo `#fccf1e` | amarillo pálido `#fff160` | 1:42 |
+| 13 | cúpula | filo naranja fino `#ff8a23` y grietas del mismo color | rojo plano `#f12316` | igual que la masa, con mucho resplandor rojo | 3:20-3:32 |
 
 Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, columna 9 (vista desde dentro, 2), anillos 2
-(el remolino, 10), muro 3, chorro 4, cruz 7, lanza 3, llama 3. Una explosión que se enfría pasa sola a la 8.
+(el remolino, 10), muro 3, chorro 4, cruz 7, lanza 11, llama 3. Una explosión que se enfría pasa sola a la 8.
 
 ### Formas que cambian en anime
 
@@ -57,7 +60,14 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
     vuelta entera, gruesa en el medio y en punta en los extremos), con llamas amarillas que suben por la cabeza.
     `prm`: x = radio (2), y = alto de la banda (0,5), z = medio ancho de la banda (0,95). Origen a la altura de la
     cintura menos medio alto.
-- **Sol (bola con `prm.w` = 2)**: una esfera lisa con unas pocas llamaradas finas pegadas a la superficie.
+- **Sol (bola con `prm.w` = 2)**: una esfera lisa con unas pocas llamaradas finas pegadas a la superficie. Con la
+  paleta 13 es la cúpula roja del final de Entei: el centro en el suelo, para que se vea media esfera.
+- **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
+  lado. `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
+  delante (las balas de Higan, 0:57). El grosor máximo es 1,25 veces `prm.y`. Para que se parezca a la serie: bala
+  de Higan, largo 2,6 y radio 0,45; lanza de Shiranui, largo 9 o más y radio 0,5.
+- **Llama (8) con la paleta 12**: una cuchilla larga y afilada (las de Hidaruma, 1:42), ancha cerca de la raíz y en
+  punta arriba. Radio 0,15 a 0,21 y alto 1,3 a 1,9; inclinadas unos 20 grados, todas hacia el mismo lado.
 
 ### Forma nueva: 9, AURA (el cuerpo en llamas)
 
@@ -90,15 +100,15 @@ En estilo anime:
 | --- | --- | --- |
 | Hiken | 1 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con vetas amarillas y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). |
 | Kagerō | 4 | Chorro amarillo vivo con el borde naranja y un resplandor rojizo. |
-| Higan | 3 | Rayas amarillo pálido muy largas y finas, con brillo. |
+| Higan | 11 | Cuñas amarillo pálido con el filo dorado blando: nacen en punta junto a Ace y se abren hacia delante (lanza con `prm.z` = 1, sin bola en la cabeza). |
 | Hibashira | 10, 9 y 2 | Primero el remolino: una media luna roja que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2). Después el haz recto amarillo pálido (columna) y, alrededor de su pie y de su punta, una nube de bolas rojas y amarillas (paleta 2). |
 | Enkai | 3 | Un abanico amarillo anaranjado plano que sale de la mano, con rayas más pálidas. |
 | Hotarubi | 5 | Bolas lisas y redondas (no llamas), de 0,2 a 0,45 de radio: verdes en la orilla, casi blancas en el centro y con un halo verde suave. Una bola (forma 0) con paleta 5 sale ya así. |
-| Hidaruma | 2 | Lenguas amarillas con el borde naranja sobre el que arde. |
+| Hidaruma | 12 | Sobre el que arde, 12 a 16 cuchillas de fuego largas y afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12). |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
-| St. Elmo / Shiranui | 2 y 3 | Arcos naranja rojizo con el centro amarillo; las lanzas, rayas amarillas. |
+| St. Elmo / Shiranui | 2, 3 y 11 | Arcos naranja rojizo con el centro amarillo al lanzarlas; la masa que sale de la mano, dorada (paleta 3, 2:09); las lanzas, trazos amarillo pálido muy largos, afilados por delante (paleta 11, 2:11). |
 | Jūjika | 7 y 1 | La cruz, dos trazos gruesos amarillo limón con el centro pálido y un resplandor (el grosor, un quinto del brazo; en anime el sombreador no deja que baje de un décimo); el estallido, rojo con borde amarillo. |
 | Cuerpo en llamas | 3 | Lenguas doradas con el filo amarillo pálido y el contorno ondulado; la piel se ve dentro. Un volumen AURA (forma 9) en vez de las llamas sueltas de hombros, brazos y espalda. |
 | Kyōkaen | 3 | Un muro dorado con venas amarillo pálido. El vapor, blanco plano. |
 | Dai Enkai | 2 | Primero un disco naranja con aros amarillos a ras de suelo, de unos 4 bloques de radio, con Ace en el centro (anillo con `prm.w` = 0, grosor = radio, alto 0,35). Después crece y se levantan las llamas rojas y amarillas con el centro pálido. |
-| Entei | 6 | Un sol casi blanco, liso, con un filo amarillo muy fino, un resplandor naranja ancho y unas pocas llamaradas finas. Al estallar, pantalla en blanco y después una cúpula roja. |
+| Entei | 6 | Un sol casi blanco, liso, con un filo amarillo muy fino, un resplandor naranja ancho y unas pocas llamaradas finas. Al estallar, pantalla en blanco con llamas amarillas y naranjas en la orilla (3:04-3:06) y después una cúpula roja con grietas naranjas (bola lisa con paleta 13, 3:32). |
