@@ -549,13 +549,17 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         d = d0 - R * (0.12 + 0.42 * kf);
         L = R * 0.60;
         u = clamp(d0 / (R * (1.2 + 1.2 * kf)) + 0.25 * v, 0.0, 1.2);
-        // las lenguas suben, se abren hacia fuera y se rizan (más arriba, más)
+        // las lenguas suben, se abren hacia fuera y se rizan como olas (más arriba, más): el ruido, retorcido por dos
+        // remolinos suaves, deja ganchos en las puntas
         float sway = sin(tt * 1.7 + q.y * 2.1) * 0.30 + sin(tt * 2.9 - q.y * 3.7 + q.x * 2.0) * 0.14;
         vec3 qs = q + vec3(sway * R * (0.3 + v), 0.0, 0.5 * sway * R * v);
-        nq = vec3(qs.x / (L * 0.80), qs.y / (L * 2.3) - time * 2.6, qs.z / (L * 0.80));
+        float f1 = 4.2 / R; float a1 = 0.26 * R * (0.4 + 0.6 * smoothstep(0.0, 0.6, d0 / R + 0.5));
+        qs += a1 * vec3(sin(q.y * f1 + tt * 1.3), 0.8 * sin(q.x * f1 * 1.2 + q.z * f1 * 0.7 - tt * 0.9), cos(q.y * f1 * 0.9 + tt * 1.1));
+        qs += 0.45 * a1 * vec3(sin(qs.y * f1 * 2.1 - tt * 1.7), sin(qs.x * f1 * 2.3 + tt * 1.2), cos(qs.y * f1 * 1.9 + qs.x * f1));
+        nq = vec3(qs.x / (L * 0.95), qs.y / (L * 1.7) - time * 2.2, qs.z / (L * 0.95));
         nb = vec3(q.x / (L * 1.2), q.y / (L * 2.0) - time * 1.4, q.z / (L * 1.2));
         amp = L * (0.75 + 1.75 * v) * (0.35 + 0.65 * kf);
-        mf_lip = 1.3;
+        mf_lip = 2.6;
     }
     else {
         // ---------------- 8: LLAMA (pequeña, natural) ----------------
@@ -1016,7 +1020,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     cGlow = vec3(1.0, 0.52, 0.10); k = vec4(0.62, 2.3, 1.0, 1.0);
     if (id > 1.5 && id < 2.5) {
         cRim = vec3(0.945, 0.290, 0.130); cVein = vec3(0.969, 0.490, 0.110); cFill = vec3(0.992, 0.800, 0.180); cCore = vec3(1.0, 0.965, 0.690);
-        cGlow = vec3(1.0, 0.36, 0.10); k = vec4(0.60, 2.2, 0.0, 0.0);
+        cGlow = vec3(1.0, 0.36, 0.10); k = vec4(0.60, 2.2, 1.7, 0.0);
     } else if (id > 2.5 && id < 3.5) {
         cRim = vec3(0.992, 0.914, 0.627); cVein = vec3(0.996, 0.925, 0.660); cFill = vec3(0.984, 0.796, 0.352); cCore = vec3(0.990, 0.826, 0.410);
         cGlow = vec3(0.990, 0.820, 0.420); k = vec4(0.16, 2.6, 1.0, 0.0); gk = vec2(0.42, 0.72);
@@ -1100,6 +1104,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     // lóbulos: una sola onda en valor absoluto (bolsas lisas y grandes con un surco limpio entre ellas)
     if (w < 0.995) nB = 0.42 - 1.75 * abs(mf_gnoise(nb * 0.62 + so));
     // lenguas: una onda estirada con el flujo
+    // (en las explosiones, las lenguas más largas: acaban en punta)
+    if (shape < 0.5 && sunM < 0.5) nq.y *= mix(0.62, 1.0, cool);
     if (w > 0.005) nT = 1.15 * mf_gnoise(nq * 0.62 + so.zxy);
     return d + mix(ampB * nB, amp * nT, w);
 }
@@ -1206,7 +1212,12 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     if (shape > 0.5 && shape < 1.5) { k.x = 0.36; k.w = 0.0; k.y = 1.0e3; }
     // las llamas sueltas y las lanzas son finas: con el borde de las masas serían casi todo borde
     if (shape > 6.5 && shape < 8.5) { k.x *= 0.40; k.y = min(k.y, 0.80); }
+    // las cortinas (el cerco de Enjōmō, el muro): de frente son una lámina; el borde, solo en las puntas, y lo gordo
+    // de abajo, con su corazón
+    if ((shape > 2.5 && shape < 3.5 && prm.w > 0.5 && prm.w < 1.5) || (shape > 3.5 && shape < 4.5)) { k.x *= 0.45; k.y = min(k.y, 0.80); }
     if (VolStyle.z > 0.0) k.x = VolStyle.z;
+    // el aura del cuerpo: su ruido va retorcido y el rayo pasa rozando muchas lenguas; el resplandor, pegado al borde
+    if (shape > 8.5) gk = vec2(0.13, 0.60);
 
     // el resplandor corto de fuera
     float gl = exp(-max(min(minOut, ribMin), 0.0) / gk.x) * gk.y * intensity;
