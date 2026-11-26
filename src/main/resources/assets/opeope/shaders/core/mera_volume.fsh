@@ -440,8 +440,10 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             // (w = 3: un arco corto que barre deprisa, los tajos de fuego de Shiranui, 2:00)
             float arc = step(2.5, prm.w);
             float span = mix(0.86, 0.40, arc);
-            float spd = mix(4.5, 7.0, arc);
-            float lag = fract((time * spd - atan(p.z, p.x)) / 6.2832) / span;      // 0 la cabeza · 1 la cola
+            // (el remolino gira solo; al arco lo lleva quien lo emite: la parte decimal de w es por dónde va la cabeza,
+            // en vueltas, contando desde +X hacia +Z)
+            float hd = (arc > 0.5) ? fract(prm.w) * 6.2832 : time * 4.5;
+            float lag = fract((hd - atan(p.z, p.x)) / 6.2832) / span;      // 0 la cabeza · 1 la cola
             float prof = (lag < 1.0) ? pow(max(sin(3.1416 * lag), 0.0), 0.55) * (1.0 - 0.25 * lag) : 0.0;
             float Rc = R * (0.85 + 0.40 * min(lag, 1.0));
             // hacia la cabeza (el brazo de Ace) el fuego sube en llamas
@@ -453,7 +455,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             mf_lip = 2.2;
             L = min(th * 0.5, 0.40);
             u = min(lag, 1.0);
-            vec2 sr = mf_rot(p.xz, -time * spd);
+            vec2 sr = mf_rot(p.xz, -hd);
             nq = vec3(sr.x / (L * 1.6), p.y / L, sr.y / (L * 1.6));
             nb = vec3(sr.x / (L * 1.8), p.y / (L * 1.2), sr.y / (L * 1.8));
             float hi = clamp(p.y / H0 - 0.8, 0.0, 2.5) * rise;
@@ -1414,9 +1416,10 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         // los tajos de Shiranui (2:00): un arco con el canto de fuera rojo, el medio naranja y el de dentro amarillo
         float th = (prm.z > 0.01) ? prm.z : 0.5;
         float R0 = max(prm.x, 0.5);
-        float lag = min(fract((tm * 7.0 - atan(p0.z, p0.x)) / 6.2832) / 0.40, 1.0);
+        float hd = fract(prm.w) * 6.2832;
+        float lag = min(fract((hd - atan(p0.z, p0.x)) / 6.2832) / 0.40, 1.0);
         float rin = (length(p0.xz) - R0 * (0.85 + 0.40 * lag)) / th;
-        vec2 pr = mf_rot(p0.xz, -tm * 7.0);
+        vec2 pr = mf_rot(p0.xz, -hd);
         float wv = mf_gnoise(vec3(pr * 1.1, tm * 0.7) + so) + 0.5 * mf_gnoise(vec3(pr * 2.6, 3.0) + so.zxy);
         float rv = rin + 0.45 * wv;
         c = vec3(0.992, 0.925, 0.500);
