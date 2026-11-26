@@ -1084,7 +1084,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         cGlow *= 1.0 - s1; k = mix(k, sk, s2);
     }
     // el puño: el borde más fino (si no, los dedos enteros serían borde)
-    if (shape > 0.5 && shape < 1.5) k.x = 0.36;
+    if (shape > 0.5 && shape < 1.5) { k.x = 0.36; k.w = 0.0; k.y = 1.0e3; }
     if (VolStyle.z > 0.0) k.x = VolStyle.z;
 
     // el resplandor corto de fuera
@@ -1124,19 +1124,20 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
     vec3 c = mix(cRim, cFill, bFill);
-    if (k.w > 0.5) {
-        // las manchas negras del Hiken: solo en lo más hondo y a trozos, con su filo rojo oscuro
-        float bn = mf_gnoise(p0 / (L0 * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0));
-        float bv = vp - k.y - 1.6 * (0.35 - bn);
-        c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.10, bv));
-        c = mix(c, cCore, mf_aastep(0.0, bv));
-    } else {
-        c = mix(c, cCore, bCore);
-    }
     // las venas: el color del borde por los surcos (no en el propio borde, que ya lo es)
     if (k.z > 0.001) {
         float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
         c = mix(c, cVein, vn);
+    }
+    if (k.w > 0.5) {
+        // las manchas negras del Hiken: en lo más hondo de la masa, con el filo rojo oscuro y el borde irregular
+        vec3 pb = p0 / (L0 * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0);
+        float bn = mf_gnoise(pb) + 0.55 * mf_gnoise(pb * 2.7 + 5.1) + 0.30 * abs(mf_gnoise(pb * 5.3 + 1.7));
+        float bv = vp - k.y - 0.15 + 1.0 * bn;
+        c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.10, bv));
+        c = mix(c, cCore, mf_aastep(0.0, bv));
+    } else {
+        c = mix(c, cCore, bCore);
     }
     // el destello del golpe: un dibujo casi blanco
     c = mix(c, vec3(1.0, 0.98, 0.90), flash * 0.75);
