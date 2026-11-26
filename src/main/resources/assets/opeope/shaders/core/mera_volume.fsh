@@ -215,13 +215,13 @@ float mf_sdFistToon(vec3 q)
         vec3 k2 = vec3(x, -0.24, 0.40);
         fing = min(fing, min(mf_sdCapsule(q, k0, k1, 0.130 * sc), mf_sdCapsule(q, k1, k2, 0.125 * sc)));
     }
-    d = mf_smin(d, length(q - vec3(0.0, 0.02, 0.02)) - 0.50, 0.10);
+    d = mf_smin(d, length(q - vec3(0.0, 0.02, 0.02)) - 0.54, 0.10);
     d = mf_smin(d, fing, 0.05);
     float th = mf_sdCapsule(q, vec3(-0.50, -0.02, -0.10), vec3(-0.44, -0.28, 0.26), 0.135);
     th = min(th, mf_sdCapsule(q, vec3(-0.44, -0.28, 0.26), vec3(-0.08, -0.38, 0.38), 0.115));
     d = mf_smin(d, th, 0.04);
-    float w = mf_sdCapsule(q, vec3(0.0, 0.0, -0.30), vec3(0.0, 0.0, -0.80), 0.36);
-    d = mf_smin(d, w, 0.16);
+    float w = mf_sdCapsule(q, vec3(0.0, 0.0, -0.30), vec3(0.0, 0.0, -0.55), 0.30);
+    d = mf_smin(d, w, 0.12);
     return d;
 }
 
@@ -313,10 +313,10 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // (en anime, detrás va un brazo de fuego casi tan ancho como el puño, no una cola fina)
         float rr = mix(0.34 * S, 0.06 * S, pow(v, 0.7));
         // (en anime, detrás va un cuerpo de fuego que se ensancha, más ancho que el puño: un cometa, como en el 0:34)
-        if (mf_toon > 0.5) { rr = S * (0.60 + 0.58 * smoothstep(0.0, 1.8 * S, z0 - p.z)) * (1.0 - 0.80 * smoothstep(0.65, 1.0, v)); mf_lip = 1.9; }
+        if (mf_toon > 0.5) { rr = S * (0.40 + 0.80 * smoothstep(0.0, 1.5 * S, z0 - p.z)) * (1.0 - 0.80 * smoothstep(0.65, 1.0, v)); mf_lip = 1.9; }
         float dt = max(length(p.xy - vec2(0.0, -0.02 * S)) - rr, p.z - z0 - 0.1 * S);
         dt = max(dt, z0 - tail - p.z);
-        d = mf_smin(df, dt, 0.25 * S);
+        d = mf_smin(df, dt, ((mf_toon > 0.5) ? 0.09 : 0.25) * S);
         L = 0.20 * S;
         u = clamp((-0.30 * S - p.z) / max(tail + 0.2 * S, 0.01), 0.0, 1.0) * 0.95;
         nq = vec3(p.x / (L * 1.3), p.y / (L * 1.3) - time * 0.6, p.z / (L * 2.6) + time * 3.2);
@@ -547,7 +547,10 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             float hl = 0.775 * Ll;
             float s  = clamp(0.5 - 0.5 * sg * p.z / hl, 0.0, 1.0);          // 0 la punta afilada · 1 el otro extremo
             float pr = pow(s, 0.85) * (1.0 - smoothstep(0.82, 1.0, s) * smoothstep(0.82, 1.0, s));
-            d = length(p.xy) - R * 1.25 * pr;
+            // (las estelas del Hiken, paleta 14: el trazo va ondulado, como un chorro que se retuerce)
+            float wav = (VolStyle.y > 13.5 && VolStyle.y < 14.5) ? 1.0 : 0.0;
+            vec2 bend = wav * R * 1.3 * s * vec2(sin(p.z * 0.75 / R + time * 2.0), cos(p.z * 0.55 / R - time * 1.4 + 1.0));
+            d = length(p.xy - bend) - R * 1.25 * pr;
             // las rayas sueltas: dos trazos finos junto a la punta, que van resbalando
             for (int i = 0; i < 2; i++) {
                 float fi = float(i);
@@ -559,7 +562,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
                 float ds = length(vec3(p.xy - o, max(abs(p.z - zc) - hw, 0.0))) - R * 0.17 * (1.0 - e * e) * sin(3.1416 * ph);
                 d = min(d, ds);
             }
-            d = max(d * 0.85, abs(p.z) - hl);
+            d = max(d * mix(0.85, 0.55, wav), abs(p.z) - hl);
             L = R * 1.2;
             u = 1.0;
             nq = vec3(p.x / L, p.y / L - time * 0.5, p.z / (L * 7.0) + sg * time * 4.0);
@@ -1090,6 +1093,10 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 8.5 && id < 9.5) {
         cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
         cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 13.5) {
+        // 14 las estelas que deja el Hiken (0:38-0:40): chorros rojos con un borde amarillo anaranjado ancho y sin manchas
+        cRim = vec3(0.992, 0.700, 0.220); cVein = cRim; cFill = vec3(0.957, 0.365, 0.250); cCore = cFill;
+        cGlow = vec3(1.0, 0.72, 0.20); k = vec4(0.70, 1.0e3, 0.0, 0.0); gk = vec2(0.50, 0.80);
     } else if (id > 12.5) {
         // 13 la cúpula roja del final de Entei (3:32): roja y plana, con el filo y unas grietas naranjas, y mucho resplandor
         cRim = vec3(1.0, 0.540, 0.140); cVein = cRim; cFill = vec3(0.945, 0.137, 0.086); cCore = cFill;
@@ -1335,9 +1342,15 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         float onF = 1.0 - smoothstep(0.10, 0.30, (mf_part + shrink * Lq) / Lq);
         vp = mix(vp, min(vp, penF * 1.15), onF);
     }
-    float sil = mf_aastep(0.0, pen);
     // los trazos y las cuchillas de Hidaruma no llevan línea: el filo se funde con el aire
     float soft = (pal > 10.5 && pal < 12.5) ? 1.0 : 0.0;
+    // la línea del dibujo no adelgaza con la distancia: de lejos el borde ocupa lo mismo en pantalla (como en el
+    // 0:34, donde el borde amarillo del cometa es tan gordo como en el primer plano del 0:32). Solo en las masas
+    if (shape < 1.5 && soft < 0.5 && VolStyle.z <= 0.0 && k.x > 0.0) {
+        float kMin = 0.034 * pixAng * ViewSize.y * t0 / L0;
+        k.x = clamp(kMin, k.x, k.x * ((shape > 0.5) ? 3.5 : 2.2));
+    }
+    float sil = mf_aastep(0.0, pen);
     if (soft > 0.5) sil = smoothstep(0.0, 0.22, pen);
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
