@@ -17,6 +17,7 @@ uniform vec3 VolMax;
 uniform vec4 VolPrm;          // los parámetros de la forma
 uniform vec4 VolInfo;         // forma, semilla, intensidad, bloques junto a la cámara donde se aclara
 uniform float VolSky;         // la luz que hay alrededor (1 a pleno día, casi 0 de noche): tiñe el humo
+uniform vec4 VolStyle;        // x: 0 = fuego realista, 1 = anime (colores planos, como en la serie) · y: paleta (0 = la de la forma) · z: ancho del borde (0 = el de la paleta)
 
 out vec4 fragColor;
 
@@ -212,6 +213,8 @@ float mf_sdFist(vec3 q)
 // veces más rápido que la distancia; saltar con d tal cual se pasaba del borde y salían anillos como vetas de madera):
 //   mf_lip  cuánto más rápido que una distancia puede cambiar d (1 = distancia de verdad)
 //   mf_dFar otra distancia segura, buena de lejos (-1e9 = ninguna)
+// 1 mientras se dibuja en estilo anime: algunas formas cambian un poco (la columna, más maciza)
+float mf_toon = 0.0;
 float mf_lip;
 float mf_dFar;
 // la columna de Hibashira vista desde el hueco (primera persona): el ruido de sus rendijas (mf_str) y cuánto se mete
@@ -295,7 +298,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float sy = smoothstep(0.4 - 0.6 * zS, 1.4 - 0.9 * zS, p.y) * g;
         // visto desde el hueco (prm.z = 1, la primera persona de Ace) los huecos entre las bandas son más anchos: se
         // ven las cintas de fuego subiendo alrededor y el mundo entre ellas, no una pantalla llena de fuego
-        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45 + 0.7 * zS) * sy;
+        d = d0 + th * (1.35 * band + 0.55 * band2 + 0.45 + 0.7 * zS) * sy * mix(1.0, 0.30, mf_toon * (1.0 - zS));
         // y desde ahí la pared se rompe en lenguas que suben: un ruido sobre la superficie del cilindro (el mismo en todo
         // el grosor, así las rendijas la atraviesan y se ve el mundo), estirado hacia arriba, que sube y gira con las
         // bandas (si no, de cerca la pared parecía lava lisa)
@@ -863,6 +866,232 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
     return vec4(min(rgb, vec3(1.0)), alpha);
 }
 
+// =====================================================================
+//  ESTILO ANIME: el fuego dibujado como en la serie
+//
+//  Colores planos con el borde limpio, sin humo ni degradados: una masa de un color, su borde de otro (grueso, del
+//  mismo ancho por todo el contorno), venas del color del borde por los surcos entre los lóbulos, el corazón de las
+//  masas gordas de un tercer color y un resplandor corto y suave por fuera. Animado «a doses» (12 dibujos por segundo).
+//  Es la misma forma 3D de siempre: se recorre el rayo, pero en vez de sumar luz se mide cuánto se mete en la forma
+//  (el borde), dónde la toca primero (las venas) y por dónde pasó cerca (el resplandor).
+//
+//  Paletas (VolStyle.y; 0 = la de cada forma):
+//    1 Hiken        borde y venas amarillos, masa roja, manchas negras en lo más hondo
+//    2 natural      borde rojo anaranjado, masa amarilla, corazón amarillo pálido
+//    3 Marineford   masa amarillo anaranjada, venas amarillo pálido, borde naranja suave
+//    4 Kagerō       borde naranja, chorro amarillo vivo, corazón pálido
+//    5 Hotarubi     verde pálido con el corazón casi blanco
+//    6 sol de Entei borde naranja fino, amarillo, y casi todo blanco amarillento
+//    7 Jūjika       cruz amarillo pálido con el borde naranja
+//    8 humo         gris claro plano con los surcos más oscuros (lo que queda de una explosión)
+// =====================================================================
+void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec3 cCore, out vec3 cGlow, out vec4 k)
+{
+    // k: x ancho del borde (en L) · y hondura del corazón (en L) · z ancho de las venas (0 = sin venas) · w manchas negras
+    cRim  = vec3(0.992, 0.784, 0.165); cVein = cRim; cFill = vec3(0.961, 0.341, 0.286); cCore = vec3(0.07, 0.02, 0.03);
+    cGlow = vec3(1.0, 0.52, 0.10); k = vec4(0.62, 2.3, 1.0, 1.0);
+    if (id > 1.5 && id < 2.5) {
+        cRim = vec3(0.945, 0.290, 0.130); cVein = vec3(0.969, 0.490, 0.110); cFill = vec3(0.992, 0.800, 0.180); cCore = vec3(1.0, 0.965, 0.690);
+        cGlow = vec3(1.0, 0.36, 0.10); k = vec4(0.60, 2.2, 0.0, 0.0);
+    } else if (id > 2.5 && id < 3.5) {
+        cRim = vec3(0.976, 0.690, 0.250); cVein = vec3(0.996, 0.910, 0.600); cFill = vec3(0.988, 0.790, 0.370); cCore = vec3(0.996, 0.880, 0.540);
+        cGlow = vec3(0.98, 0.62, 0.20); k = vec4(0.22, 2.6, 1.0, 0.0);
+    } else if (id > 3.5 && id < 4.5) {
+        cRim = vec3(0.925, 0.470, 0.130); cVein = vec3(0.945, 0.650, 0.140); cFill = vec3(0.960, 0.880, 0.140); cCore = vec3(1.0, 0.960, 0.560);
+        cGlow = vec3(0.90, 0.30, 0.10); k = vec4(0.40, 1.5, 0.0, 0.0);
+    } else if (id > 4.5 && id < 5.5) {
+        cRim = vec3(0.640, 0.940, 0.560); cVein = cRim; cFill = vec3(0.800, 0.990, 0.600); cCore = vec3(0.950, 1.0, 0.850);
+        cGlow = vec3(0.55, 0.95, 0.50); k = vec4(0.35, 1.0, 0.0, 0.0);
+    } else if (id > 5.5 && id < 6.5) {
+        cRim = vec3(0.957, 0.490, 0.080); cVein = vec3(0.996, 0.800, 0.200); cFill = vec3(0.996, 0.890, 0.230); cCore = vec3(1.0, 0.985, 0.800);
+        cGlow = vec3(1.0, 0.60, 0.15); k = vec4(0.20, 0.70, 0.0, 0.0);
+    } else if (id > 6.5 && id < 7.5) {
+        cRim = vec3(0.965, 0.520, 0.150); cVein = cRim; cFill = vec3(0.992, 0.800, 0.330); cCore = vec3(0.996, 0.930, 0.640);
+        cGlow = vec3(1.0, 0.55, 0.15); k = vec4(0.30, 0.9, 0.0, 0.0);
+    } else if (id > 7.5) {
+        cRim = vec3(0.560, 0.540, 0.560); cVein = vec3(0.620, 0.600, 0.620); cFill = vec3(0.860, 0.850, 0.860); cCore = vec3(0.960, 0.955, 0.960);
+        cGlow = vec3(0.0); k = vec4(0.45, 2.2, 1.0, 0.0);
+    }
+}
+
+// la paleta de cada forma cuando no se pide otra
+float mf_toonDefault(float shape, vec4 prm)
+{
+    if (shape < 0.5) return (prm.w > 1.5) ? 6.0 : 2.0;     // el sol de Entei · las bolas y explosiones
+    if (shape < 1.5) return 1.0;                            // Hiken
+    if (shape < 2.5) return 2.0;                            // Hibashira
+    if (shape < 3.5) return 2.0;                            // los anillos y el cerco
+    if (shape < 4.5) return 3.0;                            // el muro (Kyōkaen)
+    if (shape < 5.5) return 4.0;                            // Kagerō
+    if (shape < 6.5) return 7.0;                            // Jūjika
+    if (shape < 7.5) return 3.0;                            // las lanzas y las balas
+    return 3.0;                                             // las llamas sueltas y las del cuerpo
+}
+
+// El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
+// el ruido y devuelve en skip la distancia segura hasta ella (> 0).
+float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrink,
+                   out float L, out float u, out float skip)
+{
+    float d; vec3 nb; vec3 nq; float amp;
+    mf_shape(p, shape, prm, tm, d, L, u, nb, nq, amp);
+    d += shrink * L;
+    float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
+    float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
+    float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
+    float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    float flo = (shape > 7.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
+    // el sol de Entei es una bola lisa con unas pocas llamas; y el humo de una explosión, bolsas redondas, no jirones
+    float sunM = (shape < 0.5) ? step(1.5, prm.w) : 0.0;
+    amp *= mix(1.0, 0.40, sunM);
+    if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
+    float ampB = mix(amp * 1.1, max(amp, L * 0.55), massy) * mix(1.0, 0.55, sunM);
+    float envW = max(amp * 1.25, ampB * 0.85);
+    skip = 0.0;
+    if (d - envW > 0.0) {
+        skip = max((d - envW) / mf_lip, mf_dFar + shrink * L - envW);
+        return d;
+    }
+    float w = smoothstep(0.55, 0.95, u) * (1.0 - cool);
+    w = max(w, selfPil);
+    w = mix(w, smoothstep(0.30, 0.75, u), flo);
+    float nB = 0.0; float nT = 0.0;
+    // lóbulos: una sola onda en valor absoluto (bolsas lisas y grandes con un surco limpio entre ellas)
+    if (w < 0.995) nB = 0.42 - 1.75 * abs(mf_gnoise(nb * 0.62 + so));
+    // lenguas: una onda estirada con el flujo
+    if (w > 0.005) nT = 1.15 * mf_gnoise(nq * 0.62 + so.zxy);
+    return d + mix(ampB * nB, amp * nT, w);
+}
+
+float mf_aastep(float th, float v)
+{
+    float fw = clamp(fwidth(v) * 0.75, 1e-4, 0.35);
+    return smoothstep(th - fw, th + fw, v);
+}
+
+vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
+                  float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float pixAng)
+{
+    float flash = clamp(intensity - 1.0, 0.0, 1.0);
+    intensity = clamp(intensity, 0.0, 1.0);
+    if (intensity <= 0.002 || tFar <= tNear) return vec4(0.0);
+
+    mf_toon = 1.0;
+    vec3 so = fract(vec3(seed) * vec3(0.1031, 0.1137, 0.1213) + vec3(0.13, 0.57, 0.91)) * 61.0;
+    // animado «a doses», como el dibujo: la forma cambia 12 veces por segundo
+    float tm = floor(time * 12.0 + 0.5) / 12.0;
+    float shrink = (1.0 - intensity) * 0.9;
+
+    // pegado a la cámara el fuego no se dibuja (no tapa la vista): el rayo empieza un poco más allá
+    float t = max(tNear, 0.35 * nearFade);
+    float pen = -1.0e5; float tPen = t; float uPen = 0.0;
+    float t0 = -1.0; float L0 = 1.0; float u0 = 0.0;
+    float minOut = 1.0e5;
+    float pA = -1.0e5; float pB = -1.0e5; float tB = t;   // las dos muestras anteriores (para afinar el máximo)
+    float dPrev = 1.0; float tPrev = t; bool hasPrev = false;
+    float Lr = 1.0;
+
+    for (int i = 0; i < 64; i++) {
+        if (t >= tFar) break;
+        vec3 p = ro + rd * t;
+        float L; float u; float skip;
+        float dd = mf_toonField(p, shape, prm, tm, so, shrink, L, u, skip);
+        float stepIn = L * 0.13;
+        if (shape > 4.5 && shape < 5.5) stepIn *= 1.0 + 1.4 * rd.z * rd.z;
+        if (skip > 0.0) {
+            minOut = min(minOut, dd / L);
+            Lr = L;
+            t += max(skip * 0.85, stepIn * 0.5);
+            hasPrev = false; pA = -1.0e5; pB = -1.0e5;
+            continue;
+        }
+        float pp = -dd / L;
+        if (pp < 0.0) minOut = min(minOut, -pp);
+        // la primera vez que entra: el punto justo, entre esta muestra y la anterior
+        if (t0 < 0.0 && pp > 0.0) {
+            t0 = (hasPrev && dPrev > 0.0) ? tPrev + (t - tPrev) * dPrev / (dPrev - dd) : t;
+            L0 = L; u0 = u;
+        }
+        // lo más hondo que llega, afinado con las tres últimas muestras (sin escalones entre píxeles)
+        if (pp > pen) { pen = pp; tPen = t; uPen = u; }
+        if (pB > -1.0e4 && pA > -1.0e4 && pB >= pA && pB >= pp) {
+            float den = 2.0 * pB - pA - pp;
+            float pk = pB + ((den > 1.0e-5) ? (pp - pA) * (pp - pA) / (8.0 * den) : 0.0);
+            if (pk > pen) { pen = pk; tPen = tB; }
+        }
+        pA = pB; pB = pp; tB = t;
+        dPrev = dd; tPrev = t; hasPrev = true; Lr = L;
+        t += stepIn;
+    }
+
+    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k;
+    float pal = (VolStyle.y > 0.5) ? VolStyle.y : mf_toonDefault(shape, prm);
+    mf_toonPal(pal, cRim, cVein, cFill, cCore, cGlow, k);
+    float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
+    if (cool > 0.001) {
+        // la explosión que se apaga: humo plano, gris claro (primero el borde, luego todo)
+        vec3 sR; vec3 sV; vec3 sF; vec3 sC; vec3 sG; vec4 sk;
+        mf_toonPal(8.0, sR, sV, sF, sC, sG, sk);
+        float s1 = smoothstep(0.25, 0.60, cool); float s2 = smoothstep(0.45, 0.85, cool);
+        cRim = mix(cRim, sR, s1); cVein = mix(cVein, sV, s1); cFill = mix(cFill, sF, s2); cCore = mix(cCore, sC, s2);
+        cGlow *= 1.0 - s1; k = mix(k, sk, s2);
+    }
+    if (VolStyle.z > 0.0) k.x = VolStyle.z;
+
+    // el resplandor corto de fuera
+    float gl = exp(-max(minOut, 0.0) / 0.30) * 0.60 * intensity;
+    if (pen <= 0.0 || t0 < 0.0) {
+        if (gl < 0.004) return vec4(0.0);
+        return vec4(cGlow * gl, gl * 0.75);
+    }
+
+    // dónde toca primero el rayo: la normal y los surcos (un punto un poco hacia fuera está cerca de otra pared)
+    vec3 p0 = ro + rd * t0;
+    float e = 0.07 * L0;
+    float La; float ua; float sa;
+    vec2 ev = vec2(1.0, -1.0);
+    float f1 = mf_toonField(p0 + ev.xyy * e, shape, prm, tm, so, shrink, La, ua, sa);
+    float f2 = mf_toonField(p0 + ev.yyx * e, shape, prm, tm, so, shrink, La, ua, sa);
+    float f3 = mf_toonField(p0 + ev.yxy * e, shape, prm, tm, so, shrink, La, ua, sa);
+    float f4 = mf_toonField(p0 + ev.xxx * e, shape, prm, tm, so, shrink, La, ua, sa);
+    vec3 nrm = ev.xyy * f1 + ev.yyx * f2 + ev.yxy * f3 + ev.xxx * f4;
+    float nl = length(nrm);
+    nrm = (nl > 1.0e-6) ? nrm / nl : -rd;
+    float gmag = nl / (4.0 * e);                    // cuánto cambia el campo por bloque (1 = distancia de verdad)
+    float h = 0.55 * L0;
+    float fo = mf_toonField(p0 + nrm * h, shape, prm, tm, so, shrink, La, ua, sa);
+    float open = clamp(fo / (h * max(gmag, 0.35)), 0.0, 1.0);   // 1 = superficie abierta, menos = surco
+
+    // el borde de dentro no es paralelo al de fuera: sube y baja como las llamas
+    float wob = mf_gnoise((ro + rd * tPen) / (Lr * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
+    float vp = pen + 0.32 * wob * min(pen, 1.5);
+
+    float sil = mf_aastep(0.0, pen);
+    float bFill = mf_aastep(k.x, vp);
+    float bCore = mf_aastep(k.y, vp);
+    vec3 c = mix(cRim, cFill, bFill);
+    if (k.w > 0.5) {
+        // las manchas negras del Hiken: solo en lo más hondo y a trozos, con su filo rojo oscuro
+        float bn = mf_gnoise((ro + rd * tPen) / (Lr * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0));
+        float bv = vp - k.y - 1.6 * (0.35 - bn);
+        c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.10, bv));
+        c = mix(c, cCore, mf_aastep(0.0, bv));
+    } else {
+        c = mix(c, cCore, bCore);
+    }
+    // las venas: el color del borde por los surcos (no en el propio borde, que ya lo es)
+    if (k.z > 0.001) {
+        float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
+        c = mix(c, cVein, vn);
+    }
+    // el destello del golpe: un dibujo casi blanco
+    c = mix(c, vec3(1.0, 0.98, 0.90), flash * 0.75);
+    // lo que cruza el hueco de la cámara se desvanece
+    float nfk = (nearFade > 0.0) ? smoothstep(0.35 * nearFade, nearFade + 0.15, t0) : 1.0;
+    float a = sil * nfk * smoothstep(0.0, 0.12, intensity);
+    return vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
+}
+
 vec3 mfUnproject(vec2 ndc, float z) {
     vec4 p = InvViewProj * vec4(ndc, z, 1.0);
     return p.xyz / p.w;
@@ -930,7 +1159,9 @@ void main() {
         nearF = max(nearF, wc * max(rc - 0.21 * Rc, 0.0) * 1.6);
     }
 
-    vec4 col = mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin, pixAng);
+    vec4 col = (VolStyle.x > 0.5)
+        ? mfRenderToon(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, pixAng)
+        : mfRender(lro, lrd, tn, tf, VolInfo.x, VolPrm, VolTime, VolInfo.y, VolInfo.z, nearF, thin, pixAng);
     if (col.a < 0.002 && max(col.r, max(col.g, col.b)) < 0.002) discard;
     fragColor = col;
 }
