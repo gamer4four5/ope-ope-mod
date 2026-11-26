@@ -1350,6 +1350,9 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         float kMin = 0.034 * pixAng * ViewSize.y * t0 / L0;
         k.x = clamp(kMin, k.x, k.x * ((shape > 0.5) ? 3.5 : 2.2));
     }
+    // y tampoco engorda al acercarse: pegado a la cámara (un chorro visto en primera persona) el borde no pasa de
+    // un 6 % del alto de la pantalla
+    if (soft < 0.5 && VolStyle.z <= 0.0) k.x = min(k.x, 0.065 * pixAng * ViewSize.y * t0 / L0);
     float sil = mf_aastep(0.0, pen);
     if (soft > 0.5) sil = smoothstep(0.0, 0.22, pen);
     float bFill = mf_aastep(k.x, vp);

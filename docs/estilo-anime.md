@@ -72,6 +72,8 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   ve una bola con su aro amarillo y el cometa detrás (0:34).
 - **El borde de las masas (bolas y puño) no adelgaza con la distancia**: de lejos ocupa lo mismo en pantalla (un 3 % del
   alto), hasta 3,5 veces el ancho normal en el puño y 2,2 en las bolas. Con `VolStyle.z` > 0 manda ese valor.
+- **Ni engorda al acercarse**: en cualquier forma, el borde no pasa de un 6 % del alto de la pantalla (un chorro visto
+  en primera persona es amarillo con el filo naranja, no una mancha naranja).
 - **Llama (8) con la paleta 12**: una cuchilla larga y afilada (las de Hidaruma, 1:42), ancha cerca de la raíz y en
   punta arriba. Radio 0,15 a 0,21 y alto 1,3 a 1,9; inclinadas unos 20 grados, todas hacia el mismo lado.
 
