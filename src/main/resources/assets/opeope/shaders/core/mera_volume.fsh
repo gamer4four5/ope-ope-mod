@@ -282,6 +282,20 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nb = pr / (Rn * (0.62 - 0.22 * cl)) - flow * (time * 0.22);   // al enfriarse, bolsas más pequeñas (coliflor)
         // al enfriarse, el borde se deshilacha más (el humo no tiene borde liso)
         amp = R * (0.11 + 0.30 * cl * cl + 0.50 * smoothstep(R * 0.88, R * 1.5, r)) * (1.0 + 1.3 * max(dir.y, 0.0) * (1.0 - mv) + 1.2 * mv * back);
+        if (mf_toon > 0.5 && prm.w > 1.5) {
+            for (int i = 0; i < 5; i++) {
+                float fi = float(i);
+                vec3 n = normalize(vec3(sin(fi * 2.4 + 0.6), 0.9 * cos(fi * 1.7 + 0.2), cos(fi * 2.4 + 0.6)));
+                vec3 a = normalize(cross(n, vec3(0.0, 1.0, 0.0)));
+                vec3 b = cross(n, a);
+                vec2 q2 = vec2(dot(p, a), dot(p, b));
+                float tt = fract((atan(q2.y, q2.x) + time * (0.22 + 0.08 * fi) + fi * 2.1) / 6.2832) / 0.20;
+                if (tt < 1.0) {
+                    float sn = sin(3.1416 * tt);
+                    mf_rib = min(mf_rib, length(vec2(length(q2) - R * (1.03 + 0.06 * sn), dot(p, n) - R * 0.18 * (fi - 2.0))) - R * 0.038 * sn);
+                }
+            }
+        }
     }
     else if (shape < 1.5) {
         // ---------------- 1: PUÑO (Hiken) ----------------
@@ -371,6 +385,20 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nq = vec3(sw.x / (L * 0.8 * fin), p.y / (L * 3.6) - time * 3.0, sw.y / (L * 0.8 * fin));
         nb = vec3(sw.x / (L * 1.2 * fin), p.y / (L * 4.2) - time * 1.6, sw.y / (L * 1.2 * fin));
         amp = L * (0.75 + 0.90 * v);
+        if (mf_toon > 0.5 && zS < 0.5) {
+            // (anime) la columna de la serie (1:16): un haz recto y liso que se abre en el pie y arriba, sin hueco
+            float foot = pow(1.0 - v, 7.0);
+            float top = smoothstep(0.78, 1.0, v);
+            float Rc = R * (0.50 + 0.80 * foot + 0.55 * top * top);
+            d = max(length(c) - Rc, yCut);
+            mf_lip = 1.0 + 7.5 * R / H;
+            mf_dFar = -1e9;
+            mf_str = 0.0; mf_core = 0.0;
+            L = clamp(R * 0.30, 0.18, 0.90);
+            nq = vec3(sw.x / (L * 0.9), p.y / (L * 3.0) - time * 3.0, sw.y / (L * 0.9));
+            nb = vec3(sw.x / (L * 1.3), p.y / (L * 2.2) - time * 1.6, sw.y / (L * 1.3));
+            amp = L * (0.10 + 0.85 * foot + 0.80 * top);
+        }
     }
     else if (shape < 3.5) {
         // ---------------- 3: CERCO (Enjomo) ----------------
@@ -391,12 +419,36 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // (la altura cambia de un sitio a otro: la distancia hasta arriba ya no es exacta)
         mf_lip = mix(1.0, 1.4, cur);
         L = mix(max(th, 0.25 * H0) * 0.9, max(th * 1.1, 0.5), cur);
+        if (mf_toon > 0.5) L = min(L, max(H0 * 1.3, 0.3));
         u = p.y / H;
         // en la cortina, el ruido estirado hacia arriba: vetas y lenguas que suben, no bolas redondas
         nq = vec3(p.x / (L * mix(0.8, 0.7, cur)), p.y / (L * mix(2.0, 3.0, cur)) - time * mix(2.6, 3.2, cur), p.z / (L * mix(0.8, 0.7, cur)));
         nb = vec3(p.x / (L * mix(1.5, 1.1, cur)), p.y / (L * mix(1.5, 3.6, cur)) - time * mix(1.2, 1.9, cur), p.z / (L * mix(1.5, 1.1, cur)));
         // y abajo casi sin huecos: la masa se abre en lenguas sobre todo en la mitad de arriba
         amp = mix(L * mix(0.55, 0.45, cur), H * mix(0.45, 0.34, cur), mix(v, v * v, cur));
+        if (mf_toon > 0.5 && prm.w > 1.5) {
+            // (anime) el remolino de Hibashira (1:12): una media luna plana que gira alrededor de Ace, gruesa en el
+            // medio y en punta en los extremos, con la cola más abierta
+            float lag = fract((time * 4.5 - atan(p.z, p.x)) / 6.2832) / 0.86;      // 0 la cabeza · 1 la cola
+            float prof = (lag < 1.0) ? pow(max(sin(3.1416 * lag), 0.0), 0.55) * (1.0 - 0.25 * lag) : 0.0;
+            float Rc = R * (0.85 + 0.40 * min(lag, 1.0));
+            // hacia la cabeza (el brazo de Ace) el fuego sube en llamas
+            float rise = (1.0 - smoothstep(0.02, 0.50, lag)) * prof;
+            float top = H0 * (0.35 + 0.65 * prof) + H0 * 3.2 * rise;
+            vec2 e = vec2(abs(length(p.xz) - Rc) - th * prof, abs(p.y - 0.5 * top) - 0.5 * top);
+            d = min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
+            if (lag >= 1.0) d += R * min(lag - 1.0, 1.163 - lag) * 3.0;
+            mf_lip = 2.2;
+            L = min(th * 0.5, 0.40);
+            u = min(lag, 1.0);
+            vec2 sr = mf_rot(p.xz, -time * 4.5);
+            nq = vec3(sr.x / (L * 1.6), p.y / L, sr.y / (L * 1.6));
+            nb = vec3(sr.x / (L * 1.8), p.y / (L * 1.2), sr.y / (L * 1.8));
+            float hi = clamp(p.y / H0 - 0.8, 0.0, 2.5) * rise;
+            u = max(u, 0.45 + 0.4 * hi);
+            nq.y -= time * 2.4;
+            amp = L * (0.25 + 0.45 * min(lag, 1.0) + 1.3 * hi);
+        }
     }
     else if (shape < 4.5) {
         // ---------------- 4: MURO (Kyokaen): una cortina de fuego ----------------
@@ -946,15 +998,19 @@ vec4 mfRender(vec3 ro, vec3 rd, float tNear, float tFar,
 //  Paletas (VolStyle.y; 0 = la de cada forma):
 //    1 Hiken        borde y venas amarillos, masa roja, manchas negras en lo más hondo
 //    2 natural      borde rojo anaranjado, masa amarilla, corazón amarillo pálido
-//    3 Marineford   masa amarillo anaranjada, venas amarillo pálido, borde naranja suave
+//    3 Marineford   masa dorada, y el borde y las venas amarillo pálido (el fuego de Marineford no tiene borde oscuro)
 //    4 Kagerō       borde naranja, chorro amarillo vivo, corazón pálido
 //    5 Hotarubi     verde pálido con el corazón casi blanco
-//    6 sol de Entei borde naranja fino, amarillo, y casi todo blanco amarillento
-//    7 Jūjika       cruz amarillo pálido con el borde naranja
+//    6 sol de Entei casi todo blanco amarillento, con un filo amarillo muy fino y un resplandor ancho
+//    7 Jūjika       cruz amarillo limón con el centro pálido y el filo dorado
 //    8 humo         gris claro plano con los surcos más oscuros (lo que queda de una explosión)
+//    9 columna      el haz de Hibashira: casi todo amarillo pálido, una banda amarilla y el filo naranja
+//   10 remolino     rojo plano sin borde, con llamas amarillas montadas encima (el remolino de Hibashira)
 // =====================================================================
-void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec3 cCore, out vec3 cGlow, out vec4 k)
+void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec3 cCore, out vec3 cGlow, out vec4 k, out vec2 gk)
 {
+    // gk: x hasta dónde llega el resplandor de fuera (en L) · y su fuerza
+    gk = vec2(0.30, 0.60);
     // k: x ancho del borde (en L) · y hondura del corazón (en L) · z ancho de las venas (0 = sin venas) · w manchas negras
     cRim  = vec3(0.992, 0.784, 0.165); cVein = cRim; cFill = vec3(0.961, 0.341, 0.286); cCore = vec3(0.07, 0.02, 0.03);
     cGlow = vec3(1.0, 0.52, 0.10); k = vec4(0.62, 2.3, 1.0, 1.0);
@@ -962,20 +1018,26 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
         cRim = vec3(0.945, 0.290, 0.130); cVein = vec3(0.969, 0.490, 0.110); cFill = vec3(0.992, 0.800, 0.180); cCore = vec3(1.0, 0.965, 0.690);
         cGlow = vec3(1.0, 0.36, 0.10); k = vec4(0.60, 2.2, 0.0, 0.0);
     } else if (id > 2.5 && id < 3.5) {
-        cRim = vec3(0.976, 0.690, 0.250); cVein = vec3(0.996, 0.910, 0.600); cFill = vec3(0.988, 0.790, 0.370); cCore = vec3(0.996, 0.880, 0.540);
-        cGlow = vec3(0.98, 0.62, 0.20); k = vec4(0.22, 2.6, 1.0, 0.0);
+        cRim = vec3(0.992, 0.914, 0.627); cVein = vec3(0.996, 0.925, 0.660); cFill = vec3(0.984, 0.796, 0.352); cCore = vec3(0.990, 0.826, 0.410);
+        cGlow = vec3(0.990, 0.820, 0.420); k = vec4(0.16, 2.6, 1.0, 0.0); gk = vec2(0.42, 0.72);
     } else if (id > 3.5 && id < 4.5) {
         cRim = vec3(0.925, 0.470, 0.130); cVein = vec3(0.945, 0.650, 0.140); cFill = vec3(0.960, 0.880, 0.140); cCore = vec3(1.0, 0.960, 0.560);
         cGlow = vec3(0.90, 0.30, 0.10); k = vec4(0.40, 1.5, 0.0, 0.0);
     } else if (id > 4.5 && id < 5.5) {
         cRim = vec3(0.640, 0.940, 0.560); cVein = cRim; cFill = vec3(0.800, 0.990, 0.600); cCore = vec3(0.950, 1.0, 0.850);
-        cGlow = vec3(0.55, 0.95, 0.50); k = vec4(0.35, 1.0, 0.0, 0.0);
+        cGlow = vec3(0.55, 0.95, 0.50); k = vec4(0.35, 1.0, 0.0, 0.0); gk = vec2(0.70, 0.80);
     } else if (id > 5.5 && id < 6.5) {
-        cRim = vec3(0.957, 0.490, 0.080); cVein = vec3(0.996, 0.800, 0.200); cFill = vec3(0.996, 0.890, 0.230); cCore = vec3(1.0, 0.985, 0.800);
-        cGlow = vec3(1.0, 0.62, 0.16); k = vec4(0.11, 0.34, 0.0, 0.0);
+        cRim = vec3(0.976, 0.860, 0.400); cVein = cRim; cFill = vec3(0.984, 0.972, 0.740); cCore = vec3(0.996, 1.0, 0.860);
+        cGlow = vec3(1.0, 0.66, 0.22); k = vec4(0.05, 0.16, 0.0, 0.0); gk = vec2(0.80, 0.85);
     } else if (id > 6.5 && id < 7.5) {
-        cRim = vec3(0.965, 0.520, 0.150); cVein = cRim; cFill = vec3(0.992, 0.800, 0.330); cCore = vec3(0.996, 0.930, 0.640);
-        cGlow = vec3(1.0, 0.50, 0.14); k = vec4(0.20, 0.50, 0.0, 0.0);
+        cRim = vec3(0.992, 0.800, 0.390); cVein = cRim; cFill = vec3(0.996, 0.960, 0.500); cCore = vec3(1.0, 0.992, 0.650);
+        cGlow = vec3(1.0, 0.72, 0.22); k = vec4(0.16, 0.50, 0.0, 0.0); gk = vec2(0.60, 0.85);
+    } else if (id > 8.5 && id < 9.5) {
+        cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
+        cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 9.5) {
+        cRim = vec3(0.871, 0.208, 0.170); cVein = cRim; cFill = cRim; cCore = cRim;
+        cGlow = vec3(0.95, 0.30, 0.10); k = vec4(0.0, 1.0e3, 0.0, 0.0); gk = vec2(0.22, 0.40);
     } else if (id > 7.5) {
         cRim = vec3(0.560, 0.540, 0.560); cVein = vec3(0.620, 0.600, 0.620); cFill = vec3(0.860, 0.850, 0.860); cCore = vec3(0.960, 0.955, 0.960);
         cGlow = vec3(0.0); k = vec4(0.45, 2.2, 1.0, 0.0);
@@ -987,8 +1049,8 @@ float mf_toonDefault(float shape, vec4 prm)
 {
     if (shape < 0.5) return (prm.w > 1.5) ? 6.0 : 2.0;     // el sol de Entei · las bolas y explosiones
     if (shape < 1.5) return 1.0;                            // Hiken
-    if (shape < 2.5) return 2.0;                            // Hibashira
-    if (shape < 3.5) return 2.0;                            // los anillos y el cerco
+    if (shape < 2.5) return (prm.z > 0.5) ? 2.0 : 9.0;     // Hibashira: desde dentro, llamas · desde fuera, el haz
+    if (shape < 3.5) return (prm.w > 1.5) ? 10.0 : 2.0;    // el remolino de Hibashira · los anillos y el cerco
     if (shape < 4.5) return 3.0;                            // el muro (Kyōkaen)
     if (shape < 5.5) return 4.0;                            // Kagerō
     if (shape < 6.5) return 7.0;                            // Jūjika
@@ -1005,6 +1067,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     mf_shape(p, shape, prm, tm, d, L, u, nb, nq, amp);
     d += shrink * L;
     float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
+    // (el haz de Hibashira y su remolino son lisos: sin bolsas)
+    if ((shape > 1.5 && shape < 2.5 && prm.z < 0.5) || (shape > 2.5 && shape < 3.5 && prm.w > 1.5)) massy = 0.0;
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
@@ -1012,11 +1076,13 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float aura = (shape > 8.5) ? 1.0 : 0.0;
     // el sol de Entei es una bola lisa con unas pocas llamas; y el humo de una explosión, bolsas redondas, no jirones
     float sunM = (shape < 0.5) ? step(1.5, prm.w) : 0.0;
-    amp *= mix(1.0, 0.22, sunM);
+    amp *= mix(1.0, 0.15, sunM);
     // la cruz de Jūjika son dos trazos casi rectos
     if (shape > 5.5 && shape < 6.5) amp *= 0.40;
+    // las lanzas y las balas, trazos limpios
+    if (shape > 6.5 && shape < 7.5) amp *= 0.45;
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
-    float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.22, sunM);
+    float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.05, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
     skip = 0.0;
     if (d - envW > 0.0) {
@@ -1071,6 +1137,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float pA = -1.0e5; float pB = -1.0e5; float tB = t;   // las dos muestras anteriores (para afinar el máximo)
     float dPrev = 1.0; float tPrev = t; bool hasPrev = false;
     float Lr = 1.0;
+    bool startIn = false;                     // el rayo empezó ya dentro del fuego (no hay superficie que mirar)
     float ribMin = 1.0e5; float tRib = t;     // las cintas: lo más cerca que pasa el rayo de una, y dónde
 
     for (int i = 0; i < 72; i++) {
@@ -1095,6 +1162,7 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         // la primera vez que entra: el punto justo, entre esta muestra y la anterior
         if (t0 < 0.0 && pp > 0.0) {
             t0 = (hasPrev && dPrev > 0.0) ? tPrev + (t - tPrev) * dPrev / (dPrev - dd) : t;
+            startIn = (i == 0);
             L0 = L; u0 = u;
         }
         // lo más hondo que llega, afinado con las tres últimas muestras (sin escalones entre píxeles)
@@ -1109,24 +1177,41 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
         t += stepIn;
     }
 
-    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k;
+    // lo que está metido en el fuego (el suelo bajo un aro, un bloque dentro de una explosión): donde el rayo choca
+    // con el mundo dentro de la forma, cuenta como hondo según lo dentro que quede ese punto. Así un aro plano en el
+    // suelo es masa por dentro y borde solo en su orilla, y la base de una llama no es toda borde
+    float B = mfBound(shape, prm);
+    float bb = dot(ro, rd);
+    float hh = bb * bb - (dot(ro, ro) - B * B);
+    float tExit = (hh > 0.0) ? (-bb + sqrt(hh)) : tFar;
+    if (tFar < tExit - 0.002 * B && t0 >= 0.0) {
+        float Le; float ue; float se;
+        float de = mf_toonField(ro + rd * tFar, shape, prm, tm, so, shrink, Le, ue, se);
+        if (se <= 0.0 && de < 0.0) pen = max(pen, -de / Le * 3.0);
+    }
+
+    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k; vec2 gk;
     float pal = (VolStyle.y > 0.5) ? VolStyle.y : mf_toonDefault(shape, prm);
-    mf_toonPal(pal, cRim, cVein, cFill, cCore, cGlow, k);
+    mf_toonPal(pal, cRim, cVein, cFill, cCore, cGlow, k, gk);
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     if (cool > 0.001) {
         // la explosión que se apaga: humo plano, gris claro (primero el borde, luego todo)
-        vec3 sR; vec3 sV; vec3 sF; vec3 sC; vec3 sG; vec4 sk;
-        mf_toonPal(8.0, sR, sV, sF, sC, sG, sk);
+        vec3 sR; vec3 sV; vec3 sF; vec3 sC; vec3 sG; vec4 sk; vec2 sg;
+        mf_toonPal(8.0, sR, sV, sF, sC, sG, sk, sg);
         float s1 = smoothstep(0.25, 0.60, cool); float s2 = smoothstep(0.45, 0.85, cool);
         cRim = mix(cRim, sR, s1); cVein = mix(cVein, sV, s1); cFill = mix(cFill, sF, s2); cCore = mix(cCore, sC, s2);
         cGlow *= 1.0 - s1; k = mix(k, sk, s2);
     }
     // el puño: el borde más fino (si no, los dedos enteros serían borde)
     if (shape > 0.5 && shape < 1.5) { k.x = 0.36; k.w = 0.0; k.y = 1.0e3; }
+    // las llamas sueltas y las lanzas son finas: con el borde de las masas serían casi todo borde
+    if (shape > 6.5 && shape < 8.5) { k.x *= 0.40; k.y = min(k.y, 0.80); }
     if (VolStyle.z > 0.0) k.x = VolStyle.z;
 
     // el resplandor corto de fuera
-    float gl = exp(-max(min(minOut, ribMin), 0.0) / 0.30) * 0.60 * intensity;
+    float gl = exp(-max(min(minOut, ribMin), 0.0) / gk.x) * gk.y * intensity;
+    // (el resplandor se apaga antes de llegar al borde de la esfera que envuelve la forma: sin corte a la vista)
+    gl *= 1.0 - smoothstep(0.78 * B, 0.98 * B, sqrt(max(dot(ro, ro) - bb * bb, 0.0)));
     // las cintas: trazos finos del color del borde, por delante o por detrás del cuerpo según dónde pasan
     float ribA = (ribMin < 1.0e4) ? (1.0 - mf_aastep(0.0, ribMin)) * intensity : 0.0;
     if (pen <= 0.0 || t0 < 0.0) {
@@ -1152,11 +1237,13 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     float h = 0.55 * L0;
     float fo = mf_toonField(p0 + nrm * h, shape, prm, tm, so, shrink, La, ua, sa);
     float open = clamp(fo / (h * max(gmag, 0.35)), 0.0, 1.0);   // 1 = superficie abierta, menos = surco
+    if (startIn) open = 1.0;
 
     // el borde de dentro no es paralelo al de fuera: sube y baja como las llamas
     float wob = mf_gnoise(p0 / (L0 * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float calm = max(isFist, (shape < 0.5) ? step(1.5, prm.w) : 0.0);   // el puño y el sol: el borde de dentro, casi paralelo
+    if (shape > 1.5 && shape < 2.5 && prm.z < 0.5) calm = 1.0;          // y el haz de Hibashira
     float vp = pen + mix(0.32, 0.10, calm) * wob * min(pen, 1.5);
 
     float sil = mf_aastep(0.0, pen);
@@ -1167,6 +1254,53 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
     if (k.z > 0.001) {
         float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
         c = mix(c, cVein, vn);
+    }
+    if (shape > 2.5 && shape < 3.5 && prm.w < 0.5) {
+        // los anillos del suelo (no la cortina de Enjōmō): masa naranja con aros amarillos que corren hacia fuera,
+        // como el aro del Dai Enkai del 2:59
+        float th = (prm.z > 0.01) ? prm.z : 0.5;
+        float R0 = max(prm.x, 0.5);
+        float lr = length(p0.xz);
+        float q = lr / (R0 + th) + 0.035 * wob;              // 0 en el centro, 1 en la orilla
+        float eo = (lr - R0) / th;                           // -1 la orilla de dentro, +1 la de fuera
+        float edge = (R0 > th * 1.05) ? abs(eo) : eo;        // (un disco lleno no tiene orilla de dentro)
+        float wr = mf_gnoise(vec3(p0.xz * 1.4, tm * 1.3) + so);
+        float rimK = mf_aastep(0.80 + 0.16 * wr, edge);
+        // los aros: finos, casi redondos y a trozos
+        float ph = q * 3.4 - tm * 0.8;
+        float fr = abs(fract(ph) - 0.5);
+        float ang = atan(p0.z, p0.x);
+        float brk = mf_gnoise(vec3(cos(ang) * 2.2, sin(ang) * 2.2, floor(ph) * 3.7) + so.yzx);
+        float ring = (1.0 - mf_aastep(0.085, fr)) * mf_aastep(-0.20, brk) * step(0.30, q);
+        vec3 cBase = mix(cRim, cFill, 0.45);
+        c = mix(cBase, cFill, ring);
+        c = mix(c, mix(cRim, cBase, 0.25), rimK);
+        bCore = 0.0;
+    }
+    if (shape > 2.5 && shape < 3.5 && prm.w > 1.5) {
+        // el remolino de Hibashira: rojo plano, y montadas en él (por dentro y hacia la cabeza) llamas amarillas con
+        // el centro pálido y el filo naranja; sueltas por el resto, algunas lenguas amarillas pequeñas
+        float th = (prm.z > 0.01) ? prm.z : 0.5;
+        float R0 = max(prm.x, 0.5);
+        float lag = min(fract((tm * 4.5 - atan(p0.z, p0.x)) / 6.2832) / 0.86, 1.0);
+        float rin = (length(p0.xz) - R0 * (0.85 + 0.40 * lag)) / th;
+        float headK = 1.0 - smoothstep(0.05, 0.60, lag);
+        float H0 = max(prm.y, 0.3);
+        vec2 pr = mf_rot(p0.xz, -tm * 4.5);
+        float yn = mf_gnoise(vec3(pr * 1.3, p0.y * 1.3 + tm * 0.8) + so);
+        float up = clamp((p0.y - 0.9 * H0) / H0, 0.0, 1.6);
+        float yv = headK * (0.62 - 0.45 * rin) + 0.50 * yn + 0.40 * min(up, 1.0);
+        // (lenguas sueltas, alargadas a lo largo del remolino)
+        float lick = mf_gnoise(vec3(lag * 9.0, length(p0.xz) / th * 1.7, tm * 1.1) + so.zxy);
+        yv = max(yv, 0.10 + 1.15 * lick);
+        c = mix(c, vec3(0.930, 0.400, 0.110), mf_aastep(0.50, yv));
+        c = mix(c, vec3(0.992, 0.800, 0.180), mf_aastep(0.57, yv));
+        c = mix(c, vec3(0.992, 0.965, 0.560), mf_aastep(1.08, yv));
+        // las llamas que suben: el filo naranja y el centro pálido, como cualquier llama
+        float fl = smoothstep(0.15, 0.55, up);
+        c = mix(c, vec3(0.992, 0.965, 0.560), fl * mf_aastep(1.5, vp));
+        c = mix(c, vec3(0.930, 0.400, 0.110), fl * (1.0 - mf_aastep(0.24, vp)));
+        bCore = 0.0;
     }
     if (k.w > 0.5) {
         // las manchas negras del Hiken: en lo más hondo de la masa, con el filo rojo oscuro y el borde irregular
