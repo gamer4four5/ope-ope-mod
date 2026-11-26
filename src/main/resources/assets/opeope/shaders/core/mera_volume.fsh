@@ -297,7 +297,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
                 float tt = fract((atan(q2.y, q2.x) + time * (0.22 + 0.08 * fi) + fi * 2.1) / 6.2832) / 0.20;
                 if (tt < 1.0) {
                     float sn = sin(3.1416 * tt);
-                    mf_rib = min(mf_rib, length(vec2(length(q2) - R * (1.03 + 0.06 * sn), dot(p, n) - R * 0.18 * (fi - 2.0))) - R * 0.038 * sn);
+                    mf_rib = min(mf_rib, length(vec2(length(q2) - R * (1.03 + 0.06 * sn), dot(p, n) - R * 0.18 * (fi - 2.0))) - R * 0.024 * sn);
                 }
             }
         }
@@ -508,6 +508,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // ---------------- 6: CRUZ (Jujika) ----------------
         float A  = max(prm.x, 0.3);
         float th = (prm.y > 0.01) ? prm.y : 0.3;
+        if (mf_toon > 0.5) th = max(th, 0.10 * A);        // (anime) dos trazos gruesos, un quinto del brazo
         float r  = th * 0.8;
         // el brazo de abajo baja 1,3 A, o hasta el suelo si z lo dice (antes se metía en él)
         float lo = (prm.z > 0.01) ? min(1.3 * A, prm.z) : 1.3 * A;
@@ -554,7 +555,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float v = clamp(q.y / H, 0.0, 1.4);
         float rb = R * (0.80 + 0.30 * smoothstep(0.50, 0.80, v) - 0.25 * smoothstep(0.85, 1.05, v));
         float d0 = mf_sdCapsule(q, vec3(0.0, R * 0.8, 0.0), vec3(0.0, max(H - R * 0.6, R), 0.0), rb);
-        d = d0 - R * (0.12 + 0.42 * kf);
+        d = d0 - R * (0.08 + 0.20 * kf);
         L = R * 0.60;
         u = clamp(d0 / (R * (1.2 + 1.2 * kf)) + 0.25 * v, 0.0, 1.2);
         // las lenguas suben, se abren hacia fuera y se rizan como olas (más arriba, más): el ruido, retorcido por dos
@@ -564,9 +565,9 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float f1 = 4.2 / R; float a1 = 0.26 * R * (0.4 + 0.6 * smoothstep(0.0, 0.6, d0 / R + 0.5));
         qs += a1 * vec3(sin(q.y * f1 + tt * 1.3), 0.8 * sin(q.x * f1 * 1.2 + q.z * f1 * 0.7 - tt * 0.9), cos(q.y * f1 * 0.9 + tt * 1.1));
         qs += 0.45 * a1 * vec3(sin(qs.y * f1 * 2.1 - tt * 1.7), sin(qs.x * f1 * 2.3 + tt * 1.2), cos(qs.y * f1 * 1.9 + qs.x * f1));
-        nq = vec3(qs.x / (L * 0.95), qs.y / (L * 1.7) - time * 2.2, qs.z / (L * 0.95));
+        nq = vec3(qs.x / (L * 1.25), qs.y / (L * 2.3) - time * 1.9, qs.z / (L * 1.25));
         nb = vec3(q.x / (L * 1.2), q.y / (L * 2.0) - time * 1.4, q.z / (L * 1.2));
-        amp = L * (0.75 + 1.75 * v) * (0.35 + 0.65 * kf);
+        amp = L * (1.25 + 2.6 * v) * (0.30 + 0.70 * kf);
         mf_lip = 2.6;
     }
     else {

@@ -61,8 +61,8 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
 
 ### Forma nueva: 9, AURA (el cuerpo en llamas)
 
-El fuego que envuelve a Ace cuando arde. Una funda alrededor del cuerpo de la que salen lenguas grandes que suben y se
-rizan. En anime solo se dibuja la mitad de detrás: el cuerpo se ve entero y el fuego asoma por su contorno, como en la
+El fuego que envuelve a Ace cuando arde. Una funda alrededor del cuerpo de la que salen lenguas grandes y separadas, que
+suben, se rizan y llegan a un cuerpo de ancho a cada lado. En anime solo se dibuja la mitad de detrás: el cuerpo se ve entero y el fuego asoma por su contorno, como en la
 serie (2:29-2:31 y 2:53-2:55).
 
 - Origen en los pies, `dir` horizontal (hacia donde mira el cuerpo), +Y arriba.
@@ -97,7 +97,7 @@ En estilo anime:
 | Hidaruma | 2 | Lenguas amarillas con el borde naranja sobre el que arde. |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
 | St. Elmo / Shiranui | 2 y 3 | Arcos naranja rojizo con el centro amarillo; las lanzas, rayas amarillas. |
-| Jūjika | 7 y 1 | La cruz, dos trazos gruesos amarillo limón con el centro pálido y un resplandor (el grosor, un quinto del brazo); el estallido, rojo con borde amarillo. |
+| Jūjika | 7 y 1 | La cruz, dos trazos gruesos amarillo limón con el centro pálido y un resplandor (el grosor, un quinto del brazo; en anime el sombreador no deja que baje de un décimo); el estallido, rojo con borde amarillo. |
 | Cuerpo en llamas | 3 | Lenguas doradas con el filo amarillo pálido y el contorno ondulado; la piel se ve dentro. Un volumen AURA (forma 9) en vez de las llamas sueltas de hombros, brazos y espalda. |
 | Kyōkaen | 3 | Un muro dorado con venas amarillo pálido. El vapor, blanco plano. |
 | Dai Enkai | 2 | Primero un disco naranja con aros amarillos a ras de suelo, de unos 4 bloques de radio, con Ace en el centro (anillo con `prm.w` = 0, grosor = radio, alto 0,35). Después crece y se levantan las llamas rojas y amarillas con el centro pálido. |
