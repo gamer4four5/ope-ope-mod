@@ -1123,10 +1123,15 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 8.5 && id < 9.5) {
         cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
         cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 19.5) {
+        // 20 las nubes de fuego al pie de la columna de Hibashira (1:16-1:18): rojo plano sin borde, con llamas amarillas
+        //    (el filo naranja, el centro pálido) por arriba y por las orillas
+        cRim = vec3(0.922, 0.235, 0.118); cVein = vec3(0.961, 0.549, 0.118); cFill = cRim; cCore = vec3(1.0, 0.955, 0.560);
+        cGlow = vec3(1.0, 0.50, 0.12); k = vec4(0.0, 1.0e3, 0.0, 0.0); gk = vec2(0.26, 0.55);
     } else if (id > 18.5) {
         // 19 la hoguera pálida de Hidaruma (1:54): amarillo pálido casi entero, con la orilla dorada en llamitas
         cRim = vec3(0.960, 0.760, 0.270); cVein = vec3(0.972, 0.800, 0.340); cFill = vec3(0.992, 0.945, 0.640); cCore = cFill;
-        cGlow = vec3(1.0, 0.85, 0.45); k = vec4(0.20, 1.0e3, 0.0, 0.0); gk = vec2(0.45, 0.70);
+        cGlow = vec3(1.0, 0.85, 0.45); k = vec4(0.20, 1.0e3, 0.0, 0.0); gk = vec2(0.30, 0.50);
     } else if (id > 17.5) {
         // 18 la cruz de llamas de Jūjika (2:22,5): dorada y lisa por dentro, la orilla pálida y un resplandor ancho
         cRim = vec3(0.988, 0.870, 0.560); cVein = cRim; cFill = vec3(0.988, 0.800, 0.365); cCore = vec3(0.996, 0.830, 0.440);
@@ -1219,6 +1224,17 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     if (shape > 6.5 && shape < 7.5) amp *= 0.45;
     // las bolas y explosiones: por arriba, lenguas más largas (la orilla de arriba, en llamas, como en el 3:02)
     if (shape < 0.5 && sunM < 0.5) amp *= 1.0 + 0.9 * smoothstep(0.0, 0.7, p.y / max(length(p), 1.0e-3)) * (1.0 - clamp(prm.z, 0.0, 1.0));
+    // una bola enorme (la hoguera de Hidaruma, la cúpula) no lleva lenguas más largas que una de 2,6 bloques: las
+    // bolsas tampoco crecen con ella, y con lenguas de dos bloques sobre bolsas de uno quedaba un fleco de pelos con
+    // escalones en vez de una masa
+    if (shape < 0.5 && sunM < 0.5) amp *= min(1.0, 2.6 / max(prm.x, 0.05));
+    // y ninguna lengua llega a la esfera que envuelve la bola: antes las de los lados salían cortadas en arco
+    if (shape < 0.5 && sunM < 0.5) {
+        float Bq = max(prm.x, 0.05) * (1.75 + 0.6 * clamp(prm.z, 0.0, 1.0) + 0.45 * cool);
+        amp *= 1.0 - smoothstep(0.80 * Bq, 0.98 * Bq, length(p));
+    }
+    // las nubes de la columna (paleta 20), más macizas
+    if (shape < 0.5 && VolStyle.y > 19.5) amp *= 0.60;
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
     float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.05, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
@@ -1235,7 +1251,7 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     // las bolas y explosiones: lenguas que salen ya desde el borde de la masa (llamas en punta, no solo bolsas)
     if (shape < 0.5) w = max(w, smoothstep(0.25, 0.80, u) * (1.0 - cool) * (1.0 - sunM));
     if (nace > 0.5) w = smoothstep(0.30, 0.62, u);
-    if (hog > 0.5) w = max(w, smoothstep(0.20, 0.60, u) * (1.0 - cool));
+    if (hog > 0.5) w = max(w, smoothstep(0.45, 0.85, u) * (1.0 - cool));
     // el aura del cuerpo: casi todo lenguas
     w = mix(w, smoothstep(0.10, 0.50, u), aura);
     float nB = 0.0; float nT = 0.0;
@@ -1244,7 +1260,7 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     // lenguas: una onda estirada con el flujo
     // (en las explosiones, las lenguas más largas: acaban en punta)
     if (shape < 0.5 && sunM < 0.5) nq.y *= mix(0.62, 1.0, cool);
-    if (w > 0.005) nT = 1.15 * mf_gnoise(nq * mix(0.62, 1.50, hog) + so.zxy);
+    if (w > 0.005) nT = 1.15 * mf_gnoise(nq * mix(0.62, 1.00, hog) + so.zxy);
     return d + mix(ampB * nB, amp * nT, w);
 }
 
@@ -1336,6 +1352,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // con el mundo dentro de la forma, cuenta como hondo según lo dentro que quede ese punto. Así un aro plano en el
     // suelo es masa por dentro y borde solo en su orilla, y la base de una llama no es toda borde
     float veil = 0.0;
+    float penRaw = pen;                       // lo hondo de verdad, sin contar lo que tapa el mundo
     float B = mfBound(shape, prm);
     float bb = dot(ro, rd);
     float hh = bb * bb - (dot(ro, ro) - B * B);
@@ -1484,6 +1501,18 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         band = mix(band, vec3(0.988, 0.900, 0.560), mf_aastep(k.x * 0.78, vp));
         c = mix(band, cFill, bFill);
     }
+    if (pal > 19.5) {
+        // las nubes de la columna: sobre el rojo, llamas amarillas en lo que mira hacia arriba y cerca del contorno
+        vec3 pc = p0 / (L0 * 1.9); pc.y = pc.y * 0.50 - tm * 0.9;
+        float fn = mf_gnoise(pc + so.zxy) + 0.5 * mf_gnoise(pc * 2.3 + so);
+        float edgeK = 1.0 - smoothstep(0.0, 1.6, vp);
+        float yv = 0.55 * nrm.y + 0.60 * edgeK + 0.70 * fn;
+        c = cFill;
+        c = mix(c, cVein, mf_aastep(0.62 - 0.09, yv));
+        c = mix(c, vec3(0.996, 0.863, 0.200), mf_aastep(0.62, yv));
+        c = mix(c, cCore, mf_aastep(0.62 + 0.42, yv));
+        bCore = 0.0;
+    }
     // las venas: el color del borde por los surcos (no en el propio borde, que ya lo es)
     if (k.z > 0.001) {
         float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
@@ -1596,10 +1625,15 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     }
     if (k.w > 0.5) {
         // las manchas negras del Hiken: en lo más hondo de la masa, con el filo rojo oscuro y el borde irregular
-        vec3 pb = p0 / (L0 * 3.1) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0);
-        float bn = mf_gnoise(pb) + 0.55 * mf_gnoise(pb * 2.7 + 5.1) + 0.30 * abs(mf_gnoise(pb * 5.3 + 1.7));
-        float bv = vp - k.y - 0.15 + 1.0 * bn;
-        c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.10, bv));
+        // (0:24-0:25,5: pocas, pequeñas, alargadas y de borde roto, en el centro de cada masa roja; no un agujero
+        // redondo. Y solo donde el fuego es hondo de verdad: antes el suelo y lo que quedaba dentro de la bola
+        // contaban como hondo y salían pintados de negro)
+        float vq = penRaw + 0.10 * wob * min(penRaw, 1.5);
+        vec3 pb = p0 / (L0 * 2.2) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0);
+        pb.x *= 0.55;
+        float bn = mf_gnoise(pb) + 0.55 * mf_gnoise(pb * 2.7 + 5.1) + 0.40 * abs(mf_gnoise(pb * 5.3 + 1.7));
+        float bv = 1.0 * (vq - k.y) + 1.3 * bn - 0.28;
+        c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.07, bv));
         c = mix(c, cCore, mf_aastep(0.0, bv));
     } else {
         c = mix(c, cCore, bCore);
@@ -1635,7 +1669,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     float a = sil * nfk * smoothstep(0.0, 0.12, intensity);
     vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
     // la hoguera pálida deja ver un poco lo que arde dentro (las siluetas del 1:54)
-    if (pal > 18.5 && pal < 19.5) outc *= 1.0 - 0.14 * veil;
+    // (solo con la cámara dentro o pegada: de lejos, por la base se veía el suelo y la hoguera parecía hueca)
+    if (pal > 18.5 && pal < 19.5) outc *= 1.0 - 0.14 * veil * (1.0 - smoothstep(1.0, 1.5, length(ro) / max(prm.x, 0.05)));
     // la cinta que pasa por delante del cuerpo se pinta encima; la que pasa por detrás asoma por el borde
     float front = step(tRib, t0);
     float ra = ribA * mix(1.0 - a, 1.0, front);
@@ -1687,25 +1722,27 @@ vec4 mf_toonImpact(vec3 ro, vec3 rd, float tm, vec3 so, float pal, float pixAng,
         float cell = (ph + sw * th * (1.0 + 0.4 * fj)) / 6.2832 * N + 0.37 + 0.5 * fj;
         float ci = mod(floor(cell), N); float cf = fract(cell) - 0.5;
         vec3 h = mf_hash33(vec3(ci, floor(fr * 0.5), 5.0 + 9.0 * fj) + floor(so.yzx));
-        float on = step(mix(0.25, 0.48, hik), h.x);
+        float on = step(mix(0.25, 0.30, hik), h.x);
         float t0 = mix(0.18 + 1.05 * h.y, 0.10 + 0.55 * h.y, hik);
         float len = 0.40 + 0.40 * h.x;
         float tk = clamp((th - t0) / len, 0.0, 1.0);
-        float hw = mix((0.20 + 0.20 * h.z) * pow(sin(3.1416 * tk), 0.8) * (0.30 + 0.70 * tk),
+        float hw = mix(0.60 * (0.20 + 0.20 * h.z) * pow(max(sin(3.1416 * tk), 0.0), 0.8) * (0.30 + 0.70 * tk),
                        (0.035 + 0.11 * h.z) * smoothstep(t0, t0 + 1.1, th), hik);
         float off = (h.z - 0.5) * 0.3 + 0.16 * sw * sin(th * 7.0 + h.y * 6.0);
         float aa = pixAng * N / (6.2832 * sth);
         float dv = abs(cf - off) - hw;
-        float m = (1.0 - smoothstep(-aa, aa, dv)) * on * step(t0, th);
+        // (donde la llama ya se ha acabado no queda ni un hilo)
+        float lit = on * step(t0, th) * smoothstep(0.0, 0.012, hw);
+        float m = (1.0 - smoothstep(-aa, aa, dv)) * lit;
         c = mix(c, st, m);
-        c = mix(c, pale, (1.0 - smoothstep(-aa, aa, dv + hw * 0.55)) * on * step(t0, th) * (1.0 - hik));
+        c = mix(c, pale, (1.0 - smoothstep(-aa, aa, dv + hw * 0.55)) * lit * (1.0 - hik));
     }
     if (hik > 0.5) {
         // esquirlas negras que salen despedidas
         vec3 q = vec3(cos(ph) * 3.6, sin(ph) * 3.6, log(max(th, 0.05)) * 5.2 - tm * 2.4);
         float sn = mf_gnoise(q + so) + 0.60 * mf_gnoise(q * 2.3 + so.zxy) + 0.30 * mf_gnoise(q * 5.1 + so.yzx);
         // (más hacia abajo y hacia los lados que hacia el centro)
-        c = mix(c, vec3(0.03, 0.01, 0.02), mf_aastep(0.50 - 0.16 * smoothstep(0.5, 1.1, th), sn) * smoothstep(0.22, 0.50, th));
+        c = mix(c, vec3(0.03, 0.01, 0.02), mf_aastep(0.60 - 0.16 * smoothstep(0.5, 1.1, th), sn) * smoothstep(0.22, 0.50, th));
     }
     return vec4(c * kI, kI);
 }
@@ -1713,7 +1750,13 @@ vec4 mf_toonImpact(vec3 ro, vec3 rd, float tm, vec3 so, float pal, float pixAng,
 vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
                   float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float pixAng)
 {
-    vec4 o = mfRenderToon0(ro, rd, tNear, tFar, shape, prm, time, seed, intensity, nearFade, pixAng);
+    // VolStyle.w de 2 a 3: solo el fotograma del golpe (con fuerza w − 2); la bola no se dibuja. Para el golpe que
+    // lleva otra paleta que su bola (el del Hiken: bola limpia con la 16, fotograma con la 1) y para el que no tiene
+    // bola que ver desde fuera (Hidaruma)
+    float wI = VolStyle.w;
+    bool solo = (shape < 0.5 && wI > 1.5);
+    if (solo) wI -= 2.0;
+    vec4 o = solo ? vec4(0.0) : mfRenderToon0(ro, rd, tNear, tFar, shape, prm, time, seed, intensity, nearFade, pixAng);
     if (shape < 0.5) {
         float R = max(prm.x, 0.05);
         float inK = 1.0 - smoothstep(0.70 * R, R, length(ro));
@@ -1723,11 +1766,11 @@ vec4 mfRenderToon(vec3 ro, vec3 rd, float tNear, float tFar,
             // dentro de la cúpula de Entei todo se ve teñido de rojo (3:22-3:29), sin tapar la vista
             float a = 0.30 * inK * it;
             o = o * (1.0 - a) + vec4(vec3(0.945, 0.137, 0.086) * a, a);
-        } else if (VolStyle.w > 0.001 && inK > 0.003) {
+        } else if (wI > 0.001 && inK > 0.003) {
             // VolStyle.w: el fotograma del golpe (lo pide quien emite la explosión, unas décimas de segundo)
             float tm = floor(time * 12.0 + 0.5) / 12.0;
             vec3 so = fract(vec3(seed) * vec3(0.1031, 0.1137, 0.1213) + vec3(0.13, 0.57, 0.91)) * 61.0;
-            vec4 im = mf_toonImpact(ro, rd, tm, so, pal, pixAng, inK * clamp(VolStyle.w, 0.0, 1.0) * smoothstep(0.0, 0.12, it));
+            vec4 im = mf_toonImpact(ro, rd, tm, so, pal, pixAng, inK * clamp(wI, 0.0, 1.0) * smoothstep(0.0, 0.12, it));
             o = o * (1.0 - im.a) + im;
         }
     }
