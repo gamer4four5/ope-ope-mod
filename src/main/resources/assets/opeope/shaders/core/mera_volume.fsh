@@ -1531,6 +1531,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     float wob = mf_gnoise(p0 / (L0 * 2.2) + so.yzx + vec3(0.0, 0.0, tm * 0.9));
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float calm = max(isFist, (shape < 0.5) ? step(1.5, prm.w) : 0.0);   // el puño y el sol: el borde de dentro, casi paralelo
+    // (el cuerpo de fuego de detrás del puño no: su borde de dentro sube y baja como las llamas, 0:34)
+    if (isFist > 0.5) { float Sc = max(prm.x, 0.2); calm = 1.0 - 1.0 * smoothstep(0.1 * Sc, 1.5 * Sc, -0.45 * Sc - p0.z); }
     if (shape > 1.5 && shape < 2.5 && prm.z < 0.5) calm = 1.0;          // y el haz de Hibashira
     float vp = pen + mix(0.32, 0.10, calm) * wob * min(pen, 1.5);
 
@@ -1558,7 +1560,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (isFist > 0.5 && VolStyle.z <= 0.0) {
         float Sf = max(prm.x, 0.2);
         float tailK = smoothstep(0.1 * Sf, 1.5 * Sf, -0.45 * Sf - p0.z);
-        float kBody = min(k.x * 3.0, 0.16 * pixAng * ViewSize.y * t0 / L0);
+        float kBody = min(k.x * 6.0, 0.22 * pixAng * ViewSize.y * t0 / L0);
         k.x = mix(k.x, max(k.x, kBody), tailK);
     }
     float sil = mf_aastep(0.0, pen);
@@ -1641,19 +1643,19 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float rimK = mf_aastep(0.80 + 0.16 * wr, edge);
         // los aros: uno cada bloque más o menos (un disco grande lleva muchos, como en el 2:59,5), ondulados y casi
         // seguidos, amarillos con el centro pálido, que corren hacia fuera
-        float nR = max(3.0, (R0 + th) / 0.95);
+        float nR = max(3.0, (R0 + th) / 0.65);
         float ang = atan(p0.z, p0.x);
         float wv = mf_gnoise(vec3(p0.xz * 1.9, tm * 1.1) + so.zxy) + 0.5 * mf_gnoise(vec3(p0.xz * 4.3, tm * 1.7) + so);
         float ph = q * nR - tm * 1.5 + 0.22 * wv;
         float fr = abs(fract(ph) - 0.5);
         float brk = mf_gnoise(vec3(cos(ang) * 2.6, sin(ang) * 2.6, floor(ph) * 3.7) + so.yzx);
         float gate = mf_aastep(-0.62, brk) * step(0.5, ph + tm * 1.5);
-        float ring = (1.0 - mf_aastep(0.21, fr)) * gate;
+        float ring = (1.0 - mf_aastep(0.18, fr)) * gate;
         float ringC = (1.0 - mf_aastep(0.07, fr)) * gate;
         vec3 cBase = mix(cRim, cFill, 0.45);
         c = mix(cBase, cFill, ring);
         c = mix(c, mix(cFill, cCore, 0.6), ringC);
-        c = mix(c, mix(cRim, cBase, 0.25), rimK);
+        c = mix(c, mix(cRim, cBase, 0.62), rimK);
         bCore = 0.0;
     }
     if (pal > 12.5 && pal < 13.5) {
