@@ -451,8 +451,13 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             // entero y suben más, hasta taparlo casi todo justo antes de la columna, 1:13)
             float grow = (1.0 - arc) * clamp(fract(prm.w) / 0.49, 0.0, 1.0);
             float rise = (1.0 - smoothstep(0.02 + 0.80 * grow, 0.50 + 1.30 * grow, lag)) * prof * (1.0 - arc);
-            float top = H0 * (0.35 + 0.65 * prof) + H0 * (3.2 + 2.6 * grow) * rise;
-            vec2 e = vec2(abs(length(p.xz) - Rc) - th * prof, abs(p.y - 0.5 * top) - 0.5 * top);
+            // (el de Hibashira, paleta por defecto: la llamarada de la cabeza sube más desde el principio, 1:12, y al
+            // crecer las llamas se cierran hacia dentro sobre Ace hasta hacer una cúpula, 1:13-1:14; vistas desde arriba
+            // eran un aro plano con un hueco en medio)
+            float hib = (1.0 - arc) * (1.0 - step(0.5, VolStyle.y));
+            float top = H0 * (0.35 + 0.65 * prof) + H0 * mix(3.2 + 2.6 * grow, 4.6 + 1.2 * grow, hib) * rise;
+            float Rl = max(Rc - 0.9 * hib * grow * max(p.y - H0, 0.0), 0.0);
+            vec2 e = vec2(abs(length(p.xz) - Rl) - th * prof, abs(p.y - 0.5 * top) - 0.5 * top);
             d = min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
             if (lag >= 1.0) d += R * min(lag - 1.0, 1.0 / span - lag) * 3.0 * span / 0.86;
             mf_lip = 2.2;
@@ -586,10 +591,12 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         if (mf_toon > 0.5) {
             // (anime) un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas
             // al lado. z = 0: la lanza, afilada por delante (2:11) · z = 1: la bala de Higan, afilada por detrás (0:57)
-            float sg = (prm.z > 0.5) ? -1.0 : 1.0;
+            float sg = (prm.z > 0.5 && prm.z < 1.5) ? -1.0 : 1.0;
             float hl = 0.775 * Ll;
             float s  = clamp(0.5 - 0.5 * sg * p.z / hl, 0.0, 1.0);          // 0 la punta afilada · 1 el otro extremo
             float pr = pow(s, 0.85) * (1.0 - smoothstep(0.82, 1.0, s) * smoothstep(0.82, 1.0, s));
+            // (z = 2: la columna del St. Elmo, 2:11-2:12: afilada por delante, se abre enseguida y sigue del mismo ancho)
+            if (prm.z > 1.5) { float xe = 1.0 - clamp(s / 0.30, 0.0, 1.0); pr = (1.0 - xe * xe) * (1.0 - smoothstep(0.88, 1.0, s) * smoothstep(0.88, 1.0, s)); }
             // (las estelas del Hiken, paleta 14: el trazo va ondulado, como un chorro que se retuerce)
             float wav = (VolStyle.y > 13.5 && VolStyle.y < 14.5) ? 1.0 : 0.0;
             // (el estallido de Jūjika, paleta 21: sin rayas sueltas)
