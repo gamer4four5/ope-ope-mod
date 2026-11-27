@@ -1311,7 +1311,10 @@ vec4 mf_wallDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float tm, 
             float xs = xa + 0.15 * p.y;
             vec3 ps = vec3(xs / 1.1, p.y / 4.5 - tm * 0.6, 7.7) + sj.yzx;
             float sn = mf_gnoise(ps) + 0.5 * mf_gnoise(ps * vec3(2.3, 1.7, 1.0) + 3.3);
-            c = mix(c, vec3(0.992, 0.918, 0.600), smoothstep(-0.25, 0.20, sn) * smoothstep(0.10, 0.55, dIn) * 0.85);
+            // (de cerca, 2:44, la tanda menuda de contornos manda y las franjas anchas casi no se ven; «de cerca» es por el
+            // tamaño de cada vuelta visto desde la cámara, en radianes, así no depende de la resolución)
+            float fineK = smoothstep(0.16, 0.30, 0.9 / max(t, 1.0e-3));
+            c = mix(c, vec3(0.992, 0.918, 0.600), smoothstep(-0.25, 0.20, sn) * smoothstep(0.10, 0.55, dIn) * 0.85 * (1.0 - 0.85 * fineK));
             // las líneas pálidas quebradas (2:44): el contorno de las llamas de dentro. Son la misma clase de silueta en
             // punta, repetida hacia arriba cada 2.2 bloques y subiendo; cada contorno sale a trozos
             vec3 pl = vec3(xs / 1.0, p.y / 3.0 - tm * 0.5, 3.9) + sj;
@@ -1327,6 +1330,19 @@ vec4 mf_wallDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float tm, 
             // (donde los contornos se apiñan no se pintan, y junto al suelo tampoco: ahí serían rayas tendidas)
             line *= (1.0 - smoothstep(3.0, 3.0 * 1.6, gN)) * smoothstep(0.5, 0.5 + 0.8, p.y);
             c = mix(c, vec3(0.992, 0.918, 0.600), line * gate * 0.9 * smoothstep(0.0, 0.10 + 0.05, dIn));
+            // de cerca (2:44), otra tanda de contornos más menudos: solo cuando cada vuelta ocupa en pantalla bastantes
+            // píxeles; de lejos se confundirían en una trama
+            vec3 pf = vec3(xs / 0.5, p.y / 1.6 - tm * 0.5, 6.1) + sj.zxy;
+            float f1 = abs(mf_gnoise(pf));
+            float f2 = abs(mf_gnoise(pf * vec3(2.4, 2.0, 1.0) + 2.0));
+            float G2 = p.y + 1.0 * min(2.5 * f1, 1.0) + 0.3 * min(2.5 * f2, 1.0);
+            float ph2 = G2 / 0.9 - tm * 0.6;
+            float gN2 = length(vec2(dFdx(G2), dFdy(G2))) / (0.9 * max(pixAng * t, 1.0e-5));
+            float lw2 = 0.5 * 0.12 * clamp(gN2, 0.3, 6.0);
+            float fr2 = abs(fract(ph2 + 0.5) - 0.5);
+            float gate2 = smoothstep(-0.40, -0.40 + 0.30, mf_gnoise(vec3(xs * 0.35, floor(ph2 + 0.5) * 5.1, tm * 0.4) + sj.zxy));
+            float line2 = (1.0 - smoothstep(lw2 * 0.2, lw2, fr2)) * (1.0 - smoothstep(6.0, 6.0 * 1.6, gN2));
+            c = mix(c, vec3(0.992, 0.918, 0.600), line2 * gate2 * 0.9 * fineK * smoothstep(0.0, 0.10 + 0.05, dIn));
         }
         if (nearFade > 0.0) a *= smoothstep(0.35 * nearFade, nearFade + 0.15, t);
         acc += (1.0 - acc.a) * vec4(c * a, a);
@@ -1429,6 +1445,77 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     return vec4(col * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a)) * fade;
 }
 
+// La hoguera de Hidaruma en dibujo (1:54-1:56): tampoco se recorre. Es un dibujo plano en una lámina que pasa por el
+// centro y mira a la cámara: una masa ancha de amarillo pálido, de orilla blanda, que por arriba y por los lados se
+// abre en lenguas anchas separadas por muescas en punta (naranja en el filo, dorado un poco más adentro); por dentro,
+// pinceladas doradas y blandas que suben en abanico desde el pie. Lo que arde dentro se adivina como una sombra.
+// VolStyle.z: a qué altura del suelo está el centro (0 = no se sabe: sin sombras ni corte por el suelo).
+vec4 mf_hogDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time, vec3 so, float intensity, float flash,
+                float pixAng)
+{
+    float R = max(prm.x, 0.05);
+    float tm = floor(time * 12.0 + 0.5) / 12.0;
+    float dC = length(ro);
+    float gy = VolStyle.z;
+    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k; vec2 gk;
+    mf_toonPal(19.0, cRim, cVein, cFill, cCore, cGlow, k, gk);
+    // con la cámara dentro, un velo pálido por toda la vista
+    float inK = 1.0 - smoothstep(0.6 * R, 1.0 * R, dC);
+    vec4 veil = vec4(cFill, 1.0) * (0.22 * inK * intensity);
+    vec3 n = normalize(vec3(ro.x, 0.35 * ro.y, ro.z) + vec3(0.0, 0.0, 1.0e-4));
+    float den = dot(rd, n);
+    if (abs(den) < 1.0e-4) return veil;
+    float t = -dot(ro, n) / den;
+    if (t <= max(tNear, 0.0)) return veil;
+    vec3 p = ro + rd * t;
+    if (gy > 0.01 && p.y < -gy - 0.05) return veil;
+    // lo que hay dentro de la hoguera y no es el suelo (los que arden): se ve como una sombra a través del fuego,
+    // esté delante o detrás de la lámina
+    float bq = dot(ro, rd);
+    float tExit = -bq + sqrt(max(bq * bq - (dC * dC - VolMax.x * VolMax.x), 0.0));
+    float sil = 0.0;
+    if (gy > 0.01 && tFar < tExit - 1.0e-3) {
+        vec3 ps = ro + rd * tFar;
+        sil = step(-gy + 0.05, ps.y) * (1.0 - smoothstep(0.85 * R, R, length(ps)));
+    }
+    if (t >= tFar && sil <= 0.0) return veil;
+    vec3 ex = normalize(vec3(n.z, 0.0, -n.x));
+    vec3 ey = cross(n, ex);
+    vec2 q = vec2(dot(p, ex), dot(p, ey)) / R;
+    if (dot(q, q) > 2.6) return veil;
+    // en abanico desde un punto por debajo del centro: de ahí suben las lenguas y las pinceladas
+    vec2 v = q + vec2(0.0, 0.90);
+    float r2 = length(v);
+    float th = atan(v.x, v.y);
+    float E = (length(q / vec2(1.25, 1.00)) - 1.0) * 1.00;
+    float up = smoothstep(-0.3, 0.5, q.y);
+    float hv = mf_gnoise(vec3(th * 2.2, tm * 0.35, 4.1) + so);
+    float ts = th + 0.0 * E;
+    float n1 = abs(mf_gnoise(vec3(ts * 5.0, r2 * 1.6 - tm * 0.30, 1.7) + so.zxy));
+    float n2 = abs(mf_gnoise(vec3(ts * 5.0 * 2.3, r2 * 1.6 * 2.1 - tm * 0.30 * 1.5, 5.3) + so.yzx));
+    float N1 = 1.0 - pow(min(2.5 * n1, 1.0), 0.6);
+    float N2 = 1.0 - pow(min(2.5 * n2, 1.0), 0.6);
+    float F = E - 0.10 * hv * (0.4 + 0.6 * up) + (0.22 * N1 + 0.08 * N2) * (0.45 + 0.55 * up);
+    F += (1.0 - intensity) * 0.6;
+    float din = -F;
+    vec3 col = mix(vec3(0.953, 0.600, 0.180), vec3(0.973, 0.780, 0.300), smoothstep(0.0, 0.05, din));
+    col = mix(col, cFill, smoothstep(0.05, 0.20, din));
+    // las pinceladas de dentro: manchas doradas blandas y alargadas, inclinadas hacia fuera, que suben
+    // (estiradas hacia arriba y un poco abiertas hacia los lados, como lenguas pequeñas)
+    vec2 qf = vec2(q.x * (1.0 - 0.20 * max(q.y + 0.5, 0.0)), q.y);
+    float nf = mf_gnoise(vec3(qf.x * 7.0, qf.y * 2.2 - tm * 0.6, 8.3) + so)
+             + 0.5 * mf_gnoise(vec3(qf.x * 7.0 * 2.1, qf.y * 2.2 * 2.1 - tm * 0.6 * 1.4, 2.9) + so.yzx);
+    float fl = smoothstep(0.22, 0.55, nf);
+    col = mix(col, vec3(0.960, 0.830, 0.480), 0.75 * fl * smoothstep(0.05, 0.20, din));
+    col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
+    float a = 1.0 - smoothstep(-0.02, 0.02, F);
+    float gl = exp(-max(F, 0.0) / 0.05) * gk.y * intensity;
+    float fade = smoothstep(0.0, 0.12, intensity) * mix(0.60, 1.0, smoothstep(0.4 * R, R, dC));
+    fade *= (t >= tFar) ? 0.55 * sil : mix(1.0, 0.55, sil);
+    vec4 o = vec4(col * a + vec3(1.0, 0.72, 0.30) * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a)) * fade;
+    return o + veil * (1.0 - o.a);
+}
+
 // El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
 // el ruido y devuelve en skip la distancia segura hasta ella (> 0).
 
@@ -1529,6 +1616,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (shape > 3.5 && shape < 4.5) return mf_wallDraw(ro, rd, tNear, tFar, prm, tm, so, intensity, flash, nearFade, pixAng);
     // y el aura del cuerpo, igual: un dibujo plano de cara a la cámara
     if (shape > 8.5) return mf_auraDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, nearFade, pixAng);
+    // y la hoguera pálida de Hidaruma (bola con la paleta 19)
+    if (shape < 0.5 && VolStyle.y > 18.5 && VolStyle.y < 19.5) return mf_hogDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, pixAng);
 
     // pegado a la cámara el fuego no se dibuja (no tapa la vista): el rayo empieza un poco más allá
     float t = max(tNear, 0.35 * nearFade);
