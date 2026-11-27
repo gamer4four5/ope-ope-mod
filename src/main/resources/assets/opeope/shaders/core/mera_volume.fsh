@@ -1160,7 +1160,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
         cGlow = vec3(1.0, 0.60, 0.20); k = vec4(0.18, 1.0e3, 0.0, 0.0); gk = vec2(0.20, 0.35);
     } else if (id > 20.5) {
         // 21 el estallido de Jūjika (2:23): brazos dorados de filo blando que se aclaran hacia dentro, sin línea
-        cRim = vec3(0.996, 0.796, 0.369); cVein = cRim; cFill = vec3(0.988, 0.922, 0.576); cCore = vec3(0.973, 0.949, 0.651);
+        cRim = vec3(0.976, 0.740, 0.300); cVein = cRim; cFill = vec3(0.976, 0.840, 0.470); cCore = vec3(0.973, 0.949, 0.651);
         cGlow = vec3(1.0, 0.80, 0.36); k = vec4(0.60, 1.00, 0.0, 0.0); gk = vec2(0.45, 0.60);
     } else if (id > 19.5) {
         // 20 las nubes de fuego al pie de la columna de Hibashira (1:16-1:18): rojo plano sin borde, con llamas amarillas
@@ -1477,6 +1477,15 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (nearFade > 0.0) gl *= smoothstep(0.35 * nearFade, nearFade + 0.15, tOut);
     // (el resplandor se apaga antes de llegar al borde de la esfera que envuelve la forma: sin corte a la vista)
     gl *= 1.0 - smoothstep(0.78 * B, 0.98 * B, sqrt(max(dot(ro, ro) - bb * bb, 0.0)));
+    // la columna de Hibashira se deshace arriba en el cielo (de lejos, con el tope a la vista, acababa en una bola):
+    // se apaga según la altura a la que el rayo pasa junto al eje
+    float colT = 1.0;
+    if (shape > 1.5 && shape < 2.5 && prm.z < 0.5) {
+        float dxz = dot(rd.xz, rd.xz);
+        float yAx = (dxz > 1.0e-5) ? ro.y - rd.y * dot(ro.xz, rd.xz) / dxz : 0.0;
+        colT = 1.0 - smoothstep(0.72, 0.97, yAx / max(prm.y, 0.5));
+        gl *= colT;
+    }
     // las cintas: trazos finos del color del borde, por delante o por detrás del cuerpo según dónde pasan
     float ribA = (ribMin < 1.0e4) ? (1.0 - mf_aastep(0.0, ribMin)) * intensity : 0.0;
     if (pen <= 0.0 || t0 < 0.0) {
@@ -1765,6 +1774,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // el humo del pie de la columna (paleta 22) solo se ve de lejos: con la cámara pegada a la columna (quien la
     // lanza) taparía todo el fuego de detrás
     if (pal > 21.5) { float skN = smoothstep(6.0, 7.5, length(ro.xz)); a *= skN; gl *= skN; }
+    a *= colT;
     vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
     // la hoguera pálida deja ver un poco lo que arde dentro (las siluetas del 1:54)
     // (solo con la cámara dentro o pegada: de lejos, por la base se veía el suelo y la hoguera parecía hueca)
