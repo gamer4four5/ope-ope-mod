@@ -91,6 +91,10 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   - **0,8 o más: la cruz de llamas** (2:22). La cruz latina de siempre (el palo de abajo, más largo), hecha de
     llamas pequeñas: una soga dorada de bultos con la orilla pálida y un resplandor ancho (paleta 18). Medidas: brazo
     1,8 a 2,2 y grosor un décimo del brazo.
+- **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada con el canto en olas, rayas
+  amarillo pálido onduladas que corren a lo largo y la punta redonda. `prm.z` (el grosor al salir, en partes del
+  final) decide la silueta: 0,35 para la llama que le sale del antebrazo (largo 3,2 y radio 0,9); 0,65 para la banda
+  ancha del barrido (largo 9 y radio 1,0 a 1,3), que es casi igual de gruesa de punta a punta.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
   lado. `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
   delante (las balas de Higan, 0:57). El grosor máximo es 1,25 veces `prm.y`. Para que se parezca a la serie: bala
@@ -158,7 +162,7 @@ En estilo anime:
 | Hotarubi | 5 | Bolas lisas y redondas (no llamas), de 0,2 a 0,45 de radio: verdes en la orilla, casi blancas en el centro y con un halo verde suave. Una bola (forma 0) con paleta 5 sale ya así. |
 | Hidaruma | 12 | Sobre el que arde, 12 a 16 cuchillas de fuego largas y afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12). |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
-| St. Elmo / Shiranui | 2, 3 y 11 | Arcos naranja rojizo con el centro amarillo al lanzarlas; la masa que sale de la mano, dorada (paleta 3, 2:09); las lanzas, trazos amarillo pálido muy largos, afilados por delante (paleta 11, 2:11). |
+| St. Elmo / Shiranui | 2, 3 y 11 | Shiranui: una bola de fuego en cada mano (bola con paleta 2, 1:59) y después los arcos naranja rojizo con el centro amarillo (2:00). St. Elmo: mientras carga, una llama dorada con rayas pálidas le sale del antebrazo hacia atrás (chorro con paleta 3, 2:09); al soltar, el brazo barre y deja una banda dorada ancha que cruza por delante de Ace (el mismo chorro, largo, siguiendo a la mano, 2:10); las lanzas, trazos amarillo pálido muy largos, afilados por delante (paleta 11, radio 0,45, 2:11), que se clavan en el blanco y dejan fuego bajo en el suelo (2:12). |
 | Jūjika | 7, 11, 15, 18 y 3 | Primero la cruz de los dedos: un «+» pequeño y gordo, amarillo limón, delante de las manos cruzadas (cruz con brazo 0,35, paleta 7, 2:14). De ella sale un haz fino amarillo pálido, casi transparente, que llega al blanco en medio segundo con la punta brillante (lanza con paleta 11 y radio 0,06, 2:15-2:16); después, por el haz corre desde las manos una llamarada roja con el filo naranja y amarillo, alargada, que suelta jirones rojos (chorro o bolas con paleta 15, 2:16-2:17). Donde llega, la cruz grande de llamas doradas (cruz con brazo 1,8 a 2,2, paleta 18, 2:22) y enseguida un estallido dorado con cuatro rayos en cruz (bola con paleta 3 y cuatro lanzas, 2:23). |
 | Cuerpo en llamas | 3 | Lenguas doradas con el filo amarillo pálido y el contorno ondulado; la piel se ve dentro. Un volumen AURA (forma 9) en vez de las llamas sueltas de hombros, brazos y espalda. |
 | Kyōkaen | 3 | Un muro dorado con venas amarillo pálido. El vapor, blanco plano. |

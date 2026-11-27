@@ -504,6 +504,8 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float s0 = (prm.z > 0.01) ? prm.z : 0.10;
         float rr = Re * (s0 + (0.80 - s0) * v + 0.20 * smoothstep(0.6, 1.0, v));
         d = length(q.xy) - rr;
+        if (mf_toon > 0.5 && VolStyle.y > 2.5 && VolStyle.y < 3.5)     // BANDA_PUNTA
+            d = length(vec3(q.xy, max(q.z - 0.74 * Lj, 0.0) * rr / (0.26 * Lj))) - rr;
         d = max(d, -q.z - 0.15 * Re);
         d = max(d, q.z - Lj);
         L = max(rr, 0.22) * 0.9;
@@ -514,6 +516,11 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nq = vec3(q.x / ns, q.y / ns - time * 1.2, q.z / (ns * 3.4) - time * 5.0);
         nb = vec3(q.x / (ns * 1.5), q.y / (ns * 1.5) - time * 0.5, q.z / (ns * 4.0) - time * 3.6);
         amp = L * (0.40 + 0.65 * v);
+        if (mf_toon > 0.5 && VolStyle.y > 2.5 && VolStyle.y < 3.5) {   // BANDA_DORADA
+            nq = vec3(q.x / ns, q.y / ns - time * 0.8, q.z / (ns * 1.6) - time * 3.0);
+            nb = vec3(q.x / (ns * 1.2), q.y / (ns * 1.2) - time * 0.4, q.z / (ns * 1.8) - time * 2.4);
+            amp = L * (0.60 + 0.30 * smoothstep(0.55, 0.95, v));
+        }
     }
     else if (shape < 6.5) {
         // ---------------- 6: CRUZ (Jujika) ----------------
@@ -1425,6 +1432,13 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
         float kr = (shape > 4.5 && shape < 5.5) ? 0.72 : 1.55;
         c = mix(c, cVein, bFill * (1.0 - mf_aastep(kr, vp + 1.5 * tn * min(pen, 1.2))));
+    }
+    if (pal > 2.5 && pal < 3.5 && shape > 4.5 && shape < 5.5) {
+        // el chorro dorado de St. Elmo (2:09): rayas pálidas onduladas que corren a lo largo
+        vec3 pt = p0 / (L0 * 0.90);
+        pt.z = pt.z * 0.28 - tm * 2.0;
+        float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
+        c = mix(c, cVein, bFill * (1.0 - mf_aastep(0.075, abs(tn - 0.08))));
     }
     if (pal > 16.5 && pal < 17.5) {
         // el sol naciendo (3:03-3:08): la orilla amarilla con picos naranjas que corren por ella; por fuera un filo
