@@ -1123,6 +1123,10 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 8.5 && id < 9.5) {
         cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
         cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 18.5) {
+        // 19 la hoguera pálida de Hidaruma (1:54): amarillo pálido casi entero, con la orilla dorada en llamitas
+        cRim = vec3(0.960, 0.760, 0.270); cVein = vec3(0.972, 0.800, 0.340); cFill = vec3(0.992, 0.945, 0.640); cCore = cFill;
+        cGlow = vec3(1.0, 0.85, 0.45); k = vec4(0.20, 1.0e3, 0.0, 0.0); gk = vec2(0.45, 0.70);
     } else if (id > 17.5) {
         // 18 la cruz de llamas de Jūjika (2:22,5): dorada y lisa por dentro, la orilla pálida y un resplandor ancho
         cRim = vec3(0.988, 0.870, 0.560); cVein = cRim; cFill = vec3(0.988, 0.800, 0.365); cCore = vec3(0.996, 0.830, 0.440);
@@ -1204,8 +1208,11 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float orb = (shape < 0.5 && VolStyle.y > 4.5 && VolStyle.y < 5.5) ? 1.0 : 0.0;
     sunM = max(sunM, orb);
     float nace = (sunM > 0.5 && VolStyle.y > 16.5 && VolStyle.y < 17.5) ? 1.0 : 0.0;
+    // la hoguera pálida de Hidaruma (paleta 19): la orilla, en llamitas pequeñas
+    float hog = (shape < 0.5 && sunM < 0.5 && VolStyle.y > 18.5 && VolStyle.y < 19.5) ? 1.0 : 0.0;
     amp *= mix(1.0, mix(0.15, 0.55, nace), sunM) * (1.0 - 0.8 * orb);
     if (shape < 0.5 && VolStyle.y > 15.5 && VolStyle.y < 16.5) amp *= 0.50;
+    amp *= 1.0 - 0.45 * hog;
     // la cruz de Jūjika son dos trazos casi rectos
     if (shape > 5.5 && shape < 6.5) amp *= mix(1.0, 0.40, 1.0 - smoothstep(0.6, 1.0, prm.x));
     // las lanzas y las balas, trazos limpios
@@ -1228,15 +1235,16 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     // las bolas y explosiones: lenguas que salen ya desde el borde de la masa (llamas en punta, no solo bolsas)
     if (shape < 0.5) w = max(w, smoothstep(0.25, 0.80, u) * (1.0 - cool) * (1.0 - sunM));
     if (nace > 0.5) w = smoothstep(0.30, 0.62, u);
+    if (hog > 0.5) w = max(w, smoothstep(0.20, 0.60, u) * (1.0 - cool));
     // el aura del cuerpo: casi todo lenguas
     w = mix(w, smoothstep(0.10, 0.50, u), aura);
     float nB = 0.0; float nT = 0.0;
     // lóbulos: una sola onda en valor absoluto (bolsas lisas y grandes con un surco limpio entre ellas)
-    if (w < 0.995) nB = 0.42 - 1.75 * abs(mf_gnoise(nb * 0.62 + so));
+    if (w < 0.995) nB = 0.42 - 1.75 * abs(mf_gnoise(nb * mix(0.62, 1.05, hog) + so));
     // lenguas: una onda estirada con el flujo
     // (en las explosiones, las lenguas más largas: acaban en punta)
     if (shape < 0.5 && sunM < 0.5) nq.y *= mix(0.62, 1.0, cool);
-    if (w > 0.005) nT = 1.15 * mf_gnoise(nq * 0.62 + so.zxy);
+    if (w > 0.005) nT = 1.15 * mf_gnoise(nq * mix(0.62, 1.50, hog) + so.zxy);
     return d + mix(ampB * nB, amp * nT, w);
 }
 
@@ -1320,6 +1328,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // lo que está metido en el fuego (el suelo bajo un aro, un bloque dentro de una explosión): donde el rayo choca
     // con el mundo dentro de la forma, cuenta como hondo según lo dentro que quede ese punto. Así un aro plano en el
     // suelo es masa por dentro y borde solo en su orilla, y la base de una llama no es toda borde
+    float veil = 0.0;
     float B = mfBound(shape, prm);
     float bb = dot(ro, rd);
     float hh = bb * bb - (dot(ro, ro) - B * B);
@@ -1327,7 +1336,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (tFar < tExit - 0.002 * B && t0 >= 0.0) {
         float Le; float ue; float se;
         float de = mf_toonField(ro + rd * tFar, shape, prm, tm, so, shrink, Le, ue, se);
-        if (se <= 0.0 && de < 0.0) pen = max(pen, -de / Le * 3.0);
+        if (se <= 0.0 && de < 0.0) { pen = max(pen, -de / Le * 3.0); veil = 1.0; }
     }
 
     vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k; vec2 gk;
@@ -1439,6 +1448,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         pt.z = pt.z * 0.28 - tm * 2.0;
         float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
         c = mix(c, cVein, bFill * (1.0 - mf_aastep(0.075, abs(tn - 0.08))));
+    }
+    if (pal > 18.5 && pal < 19.5) {
+        // la hoguera pálida: llamitas doradas sueltas por dentro, que suben
+        vec3 pk = p0 / max(L0 * 0.075, 0.22); pk.y = pk.y * 0.42 - tm * 1.3;
+        float tk = mf_gnoise(pk + so.zxy);
+        c = mix(c, mix(cFill, cVein, 0.55), bFill * mf_aastep(0.52, tk));
     }
     if (pal > 16.5 && pal < 17.5) {
         // el sol naciendo (3:03-3:08): la orilla amarilla con picos naranjas que corren por ella; por fuera un filo
@@ -1562,6 +1577,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     float nfk = (nearFade > 0.0) ? smoothstep(0.35 * nearFade, nearFade + 0.15, t0) : 1.0;
     float a = sil * nfk * smoothstep(0.0, 0.12, intensity);
     vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
+    // la hoguera pálida deja ver un poco lo que arde dentro (las siluetas del 1:54)
+    if (pal > 18.5 && pal < 19.5) outc *= 1.0 - 0.14 * veil;
     // la cinta que pasa por delante del cuerpo se pinta encima; la que pasa por detrás asoma por el borde
     float front = step(tRib, t0);
     float ra = ribA * mix(1.0 - a, 1.0, front);

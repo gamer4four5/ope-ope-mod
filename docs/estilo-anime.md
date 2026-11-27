@@ -49,6 +49,7 @@ resplandor). Sale premultiplicado, igual que el realista.
 | 16 | golpe | amarillo `#fdc82a`, ancho | rojo `#f55749` plano y limpio: sin venas ni manchas, y el contorno más liso | igual que la masa | 0:36, 1:17 |
 | 17 | sol naciendo | una orilla ancha de llamas: amarillo `#fed640` con picos naranjas `#f68f21` que corren por ella, filo naranja por fuera y más pálida hacia dentro | `#fefdd0` | igual que la masa | 3:03-3:08 |
 | 18 | cruz de llamas | pálido `#fcde8f` | dorado `#fccc5d`, liso, sin venas | `#fed470`, con un resplandor ancho | 2:22 |
+| 19 | hoguera pálida | dorado `#f5c245`, en llamitas pequeñas | amarillo pálido `#fdf1a3`, con llamitas doradas sueltas que suben | igual que la masa | 1:54-1:56 |
 
 Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, columna 9 (vista desde dentro, 2), anillos 2
 (el remolino, 10), muro 3, chorro 15, cruz 7 (la grande, con el brazo de 0,8 o más, 18), lanza 11, llama 3. Una explosión que se enfría pasa sola a la 8.
@@ -106,6 +107,11 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   alto), hasta 3,5 veces el ancho normal en el puño y 2,2 en las bolas. Con `VolStyle.z` > 0 manda ese valor.
 - **Ni engorda al acercarse**: en cualquier forma, el borde no pasa de un 6 % del alto de la pantalla (un chorro visto
   en primera persona es amarillo con el filo naranja, no una mancha naranja).
+- **Bola (0) con la paleta 19: la hoguera pálida de Hidaruma** (1:54). Una masa amarillo pálido con la orilla en
+  llamitas doradas y, por dentro, llamitas sueltas que suben. Lo que arde dentro (los que han prendido, el suelo) se
+  adivina a través del fuego, como las siluetas de la serie; el cielo y lo de detrás, no. Una sola bola que los
+  cubra a todos (centro en el medio del grupo, a 1,6 de alto; radio = lo que haga falta para taparlos más 2,5); con
+  varias bolas pequeñas se ven los bordes de unas sobre otras.
 - **Llama (8) con la paleta 12**: una cuchilla larga y afilada (las de Hidaruma, 1:42), ancha cerca de la raíz y en
   punta arriba. Radio 0,15 a 0,21 y alto 1,3 a 1,9; inclinadas unos 20 grados, todas hacia el mismo lado.
 
@@ -160,7 +166,7 @@ En estilo anime:
 | Hibashira | 10, 9 y 16 | Primero el remolino: un aro rojo que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2), que va creciendo hasta ser casi todo llama amarilla pálida (`prm.w` de 2 a 2,49). Al salir la columna, quien está dentro ve la pantalla roja con llamas amarillas (1:14). Después el haz recto amarillo pálido, fino y alto (columna), y a los lados nubes rojas con el filo amarillo, sin manchas negras (bolas con paleta 16, 1:17). |
 | Enkai | 3 | Dos brazos de fuego dorado que giran alrededor de Ace y se abren deprisa hasta llenar la pantalla (1:24-1:25): dos remolinos (anillo con `prm.w` de 2 a 2,49 y paleta 3), uno con `dir` al revés que el otro. |
 | Hotarubi | 5 | Bolas lisas y redondas (no llamas), de 0,2 a 0,45 de radio: verdes en la orilla, casi blancas en el centro y con un halo verde suave. Una bola (forma 0) con paleta 5 sale ya así. |
-| Hidaruma | 12 | Sobre el que arde, 12 a 16 cuchillas de fuego largas y afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12). |
+| Hidaruma | 12, 16, 3 y 19 | Sobre el que arde, 12 a 16 cuchillas de fuego largas y afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12, 1:42). Quien queda dentro ve la pantalla roja con llamas amarillas (`VolStyle.w` en una bola con paleta 16, 1:42-1:43). Cuando prenden varios a la vez: un fogonazo dorado (`VolStyle.w` en una bola con paleta 3, 1:53) y después una hoguera amarillo pálido enorme que los envuelve a todos y deja adivinar sus siluetas (una bola con paleta 19, 1:54-1:56). |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
 | St. Elmo / Shiranui | 2, 3 y 11 | Shiranui: una bola de fuego en cada mano (bola con paleta 2, 1:59) y después los arcos naranja rojizo con el centro amarillo (2:00). St. Elmo: mientras carga, una llama dorada con rayas pálidas le sale del antebrazo hacia atrás (chorro con paleta 3, 2:09); al soltar, el brazo barre y deja una banda dorada ancha que cruza por delante de Ace (el mismo chorro, largo, siguiendo a la mano, 2:10); las lanzas, trazos amarillo pálido muy largos, afilados por delante (paleta 11, radio 0,45, 2:11), que se clavan en el blanco y dejan fuego bajo en el suelo (2:12). |
 | Jūjika | 7, 11, 15, 18 y 3 | Primero la cruz de los dedos: un «+» pequeño y gordo, amarillo limón, delante de las manos cruzadas (cruz con brazo 0,35, paleta 7, 2:14). De ella sale un haz fino amarillo pálido, casi transparente, que llega al blanco en medio segundo con la punta brillante (lanza con paleta 11 y radio 0,06, 2:15-2:16); después, por el haz corre desde las manos una llamarada roja con el filo naranja y amarillo, alargada, que suelta jirones rojos (chorro o bolas con paleta 15, 2:16-2:17). Donde llega, la cruz grande de llamas doradas (cruz con brazo 1,8 a 2,2, paleta 18, 2:22) y enseguida un estallido dorado con cuatro rayos en cruz (bola con paleta 3 y cuatro lanzas, 2:23). |
