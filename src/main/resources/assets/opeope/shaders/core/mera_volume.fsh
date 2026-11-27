@@ -1194,7 +1194,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 12.5) {
         // 13 la cúpula roja del final de Entei (3:32): roja y plana, con el filo y unas grietas naranjas, y mucho resplandor
         cRim = vec3(1.0, 0.540, 0.140); cVein = cRim; cFill = vec3(0.945, 0.137, 0.086); cCore = cFill;
-        cGlow = vec3(1.0, 0.45, 0.15); k = vec4(0.07, 1.0e3, 0.0, 0.0); gk = vec2(2.6, 0.95);
+        cGlow = vec3(1.0, 0.45, 0.15); k = vec4(0.07, 1.0e3, 0.0, 0.0); gk = vec2(9.0, 0.95);
     } else if (id > 11.5) {
         // 12 Hidaruma (1:42): cuchillas con el filo naranja, amarillas y el centro pálido, sin línea de borde
         cRim = vec3(0.945, 0.506, 0.075); cVein = cRim; cFill = vec3(0.988, 0.812, 0.118); cCore = vec3(1.0, 0.945, 0.376);
@@ -1468,8 +1468,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         minOut = max(length(pcG - vec3(0.0, 0.0, zc)) - RG * 1.25 * prC, 0.0) / (RG * 1.2 * fat);
         tOut = tc; LOut = RG * 1.2;
     }
-    // (la cúpula del final de Entei, paleta 13: su resplandor llega mucho más lejos, hasta 0.7 del alto de la pantalla)
-    float gkx = min(gk.x, ((pal > 12.5 && pal < 13.5) ? 0.7 : 0.14) * pixAng * ViewSize.y * tOut / LOut);
+    // (la cúpula del final de Entei, paleta 13: su resplandor llega mucho más lejos, hasta 2.5 del alto de la pantalla)
+    float gkx = min(gk.x, ((pal > 12.5 && pal < 13.5) ? 2.5 : 0.14) * pixAng * ViewSize.y * tOut / LOut);
     float gl = (gkx > 1.0e-4) ? exp(-max(min(minOut, ribMin), 0.0) / gkx) * gk.y * intensity : 0.0;
     if (startIn) gl = 0.0;
     // con la cámara pegada a las llamas (a menos de un grosor de llama) el halo se apaga: si no, quedaba un velo
@@ -1477,7 +1477,10 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     gl *= smoothstep(0.0, 0.90, dStart);
     if (nearFade > 0.0) gl *= smoothstep(0.35 * nearFade, nearFade + 0.15, tOut);
     // (el resplandor se apaga antes de llegar al borde de la esfera que envuelve la forma: sin corte a la vista)
-    gl *= 1.0 - smoothstep(0.78 * B, 0.98 * B, sqrt(max(dot(ro, ro) - bb * bb, 0.0)));
+    // (la cúpula de Entei, paleta 13: sus rayos llegan hasta donde llegue la esfera que le dé el juego, VolMax.x)
+    bool domeG = (VolStyle.y > 12.5 && VolStyle.y < 13.5);
+    float Bg = domeG ? max(B, VolMax.x) : B;
+    gl *= 1.0 - smoothstep((domeG ? 0.35 : 0.78) * Bg, 0.98 * Bg, sqrt(max(dot(ro, ro) - bb * bb, 0.0)));
     // la cúpula del final de Entei: el resplandor sale en rayos alrededor, como en la serie (3:20-3:35). El ruido va
     // por el ángulo alrededor de la línea que une la cámara con el centro: en pantalla, rayos rectos que salen de él
     if (pal > 12.5 && pal < 13.5) {
@@ -1487,9 +1490,9 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         vec3 pgD = ro + rd * tOut;
         vec2 n2 = normalize(vec2(dot(pgD, e1), dot(pgD, e2)) + vec2(1.0e-5));
         float ray = mf_gnoise(vec3(n2 * 7.0, time * 0.12)) + 0.5 * mf_gnoise(vec3(n2 * 7.0 * 2.3 + 3.1, -time * 0.2));
-        gl *= 0.30 + 1.2 * smoothstep(-0.30, 0.45, ray);
+        gl *= 0.45 + 0.9 * smoothstep(-0.8, 1.0, ray);
         // solo hacia el cielo: por debajo de la base (el suelo de delante) no hay rayos
-        gl *= smoothstep(0.005, 0.005 + 0.10, pgD.y / max(prm.x, 0.5));
+        gl *= smoothstep(0.04, 0.04 + 0.10, pgD.y / max(prm.x, 0.5));
     }
     // la columna de Hibashira se deshace arriba en el cielo (de lejos, con el tope a la vista, acababa en una bola):
     // se apaga según la altura a la que el rayo pasa junto al eje
