@@ -519,13 +519,13 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // ---------------- 6: CRUZ (Jujika) ----------------
         float A  = max(prm.x, 0.3);
         float th = (prm.y > 0.01) ? prm.y : 0.3;
-        if (mf_toon > 0.5) th = max(th, 0.10 * A);        // (anime) dos trazos gruesos, un quinto del brazo
+        if (mf_toon > 0.5) th = max(th, ((A < 0.8) ? 0.27 : 0.10) * A);   // (anime) dos trazos gruesos; la cruz de los dedos, más gorda (2:14)
         float r  = th * 0.8;
         // el brazo de abajo baja 1,3 A, o hasta el suelo si z lo dice (antes se metía en él)
         float lo = (prm.z > 0.01) ? min(1.3 * A, prm.z) : 1.3 * A;
         float b1 = mf_sdRoundBox(p - vec3(0.0, 0.5 * (A - lo), 0.0), vec3(th, 0.5 * (A + lo), th), r);
         float b2 = mf_sdRoundBox(p - vec3(0.0, 0.25 * A, 0.0), vec3(A * 0.85, th, th), r);
-        if (mf_toon > 0.5) {   // CRUZ_TOON
+        if (mf_toon > 0.5 && A < 0.8) {   // CRUZ_TOON: la cruz pequeña de los dedos es un «+» de brazos iguales (2:14)
             b1 = mf_sdRoundBox(p - vec3(0.0, 0.25 * A, 0.0), vec3(th, A, th), r);
             b2 = mf_sdRoundBox(p - vec3(0.0, 0.25 * A, 0.0), vec3(A, th, th), r);
         }
@@ -535,8 +535,13 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nq = vec3(p.x / (L * 1.4), p.y / (L * 2.6) - time * 2.2, p.z / (L * 1.6) + time * 1.2);
         nb = vec3(p.x / (L * 2.0), p.y / (L * 2.0) - time * 0.9, p.z / (L * 2.0) + time * 0.8);
         float topA = smoothstep(0.0, th * 1.2, p.y - 0.25 * A) * smoothstep(th, th * 2.0, abs(p.x));
-        float topV = smoothstep(0.0, th * 1.2, p.y - ((mf_toon > 0.5) ? 1.25 * A : A));
+        float topV = smoothstep(0.0, th * 1.2, p.y - ((mf_toon > 0.5 && A < 0.8) ? 1.25 * A : A));
         amp = L * (0.30 + 1.1 * max(topA, topV));
+        if (mf_toon > 0.5 && A >= 0.8) {   // CRUZ_LLAMAS
+            nb = vec3(p.x + time * 0.35, p.y - time * 0.9, p.z + time * 0.4) / (L * 0.90);
+            nq = vec3(p.x / (L * 0.9), p.y / (L * 1.7) - time * 2.2, p.z / (L * 1.1) + time * 1.2);
+            amp = L * (0.42 + 0.25 * max(topA, topV));
+        }
     }
     else if (shape < 7.5) {
         // ---------------- 7: LANZA (Shiranui / Higan), centrada ----------------
@@ -1111,6 +1116,10 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 8.5 && id < 9.5) {
         cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
         cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 17.5) {
+        // 18 la cruz de llamas de Jūjika (2:22,5): dorada y lisa por dentro, la orilla pálida y un resplandor ancho
+        cRim = vec3(0.988, 0.870, 0.560); cVein = cRim; cFill = vec3(0.988, 0.800, 0.365); cCore = vec3(0.996, 0.830, 0.440);
+        cGlow = vec3(0.990, 0.800, 0.400); k = vec4(0.22, 0.75, 0.0, 0.0); gk = vec2(0.70, 0.80);
     } else if (id > 16.5) {
         // 17 el sol de Entei mientras nace (3:03-3:08): casi blanco, con una orilla ancha de llamas amarillas y naranjas
         cRim = vec3(0.996, 0.840, 0.250); cVein = vec3(0.965, 0.560, 0.130); cFill = vec3(0.996, 0.994, 0.815); cCore = cFill;
@@ -1143,8 +1152,8 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
         cRim = vec3(0.871, 0.208, 0.170); cVein = cRim; cFill = cRim; cCore = cRim;
         cGlow = vec3(0.95, 0.30, 0.10); k = vec4(0.0, 1.0e3, 0.0, 0.0); gk = vec2(0.22, 0.40);
     } else if (id > 7.5) {
-        cRim = vec3(0.560, 0.540, 0.560); cVein = vec3(0.620, 0.600, 0.620); cFill = vec3(0.860, 0.850, 0.860); cCore = vec3(0.960, 0.955, 0.960);
-        cGlow = vec3(0.0); k = vec4(0.45, 2.2, 1.0, 0.0); gk = vec2(0.30, 0.0);
+        cRim = vec3(0.700, 0.730, 0.830); cVein = vec3(0.660, 0.695, 0.810); cFill = vec3(0.905, 0.925, 0.965); cCore = cFill;
+        cGlow = vec3(0.0); k = vec4(0.22, 1.0e3, 0.85, 0.0); gk = vec2(0.30, 0.0);
     }
 }
 
@@ -1157,19 +1166,23 @@ float mf_toonDefault(float shape, vec4 prm)
     if (shape < 3.5) return (prm.w > 1.5) ? 10.0 : 2.0;    // el remolino de Hibashira · los anillos y el cerco
     if (shape < 4.5) return 3.0;                            // el muro (Kyōkaen)
     if (shape < 5.5) return 15.0;                           // Kagerō
-    if (shape < 6.5) return 7.0;                            // Jūjika
+    if (shape < 6.5) return (prm.x > 0.8) ? 18.0 : 7.0;      // Jūjika: la cruz grande de llamas (2:22) · la pequeña de los dedos (2:14)
     if (shape < 7.5) return 11.0;                           // las lanzas y las balas
     return 3.0;                                             // las llamas sueltas y las del cuerpo (y su aura)
 }
 
 // El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
 // el ruido y devuelve en skip la distancia segura hasta ella (> 0).
+// (la cruz de llamas) la distancia con la que se mide el resplandor: la de la forma sin bultos (1e9 = la de siempre)
+float mf_glowD;
+
 float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrink,
                    out float L, out float u, out float skip)
 {
     float d; vec3 nb; vec3 nq; float amp;
     mf_shape(p, shape, prm, tm, d, L, u, nb, nq, amp);
     d += shrink * L;
+    mf_glowD = 1.0e9;
     float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
     // (el haz de Hibashira y su remolino son lisos: sin bolsas)
     if ((shape > 1.5 && shape < 2.5 && prm.z < 0.5) || (shape > 2.5 && shape < 3.5 && prm.w > 1.5)) massy = 0.0;
@@ -1187,7 +1200,7 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     amp *= mix(1.0, mix(0.15, 0.55, nace), sunM) * (1.0 - 0.8 * orb);
     if (shape < 0.5 && VolStyle.y > 15.5 && VolStyle.y < 16.5) amp *= 0.50;
     // la cruz de Jūjika son dos trazos casi rectos
-    if (shape > 5.5 && shape < 6.5) amp *= 0.40;
+    if (shape > 5.5 && shape < 6.5) amp *= mix(1.0, 0.40, 1.0 - smoothstep(0.6, 1.0, prm.x));
     // las lanzas y las balas, trazos limpios
     if (shape > 6.5 && shape < 7.5) amp *= 0.45;
     // las bolas y explosiones: por arriba, lenguas más largas (la orilla de arriba, en llamas, como en el 3:02)
@@ -1195,6 +1208,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
     float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.05, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
+    // la cruz de llamas: sus bultos salen más, y el resplandor se mide desde el trazo liso (sin escalón en el borde)
+    if (shape > 5.5 && shape < 6.5 && prm.x >= 0.8) { envW = amp * 1.75; mf_glowD = d - 0.30 * amp; }
     skip = 0.0;
     if (d - envW > 0.0) {
         skip = max((d - envW) / mf_lip, mf_dFar + shrink * L - envW);
@@ -1265,7 +1280,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float stepIn = L * 0.13;
         if (shape > 4.5 && shape < 5.5) stepIn *= 1.0 + 1.4 * rd.z * rd.z;
         if (skip > 0.0) {
-            if (dd / L < minOut) { minOut = dd / L; tOut = t; LOut = L; }
+            float gd = (mf_glowD < 1.0e8) ? max(mf_glowD, 0.0) : dd;
+            if (gd / L < minOut) { minOut = gd / L; tOut = t; LOut = L; }
             Lr = L;
             // (cerca de una cinta, pasos cortos para no saltársela, pero nunca más cortos que dentro del fuego)
             t += max(min(skip, rib * L) * 0.85, stepIn);
@@ -1274,7 +1290,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         }
         float pp = -dd / L;
         if (mf_part < 1.0e4) penF = max(penF, -(mf_part + shrink * L) / L);
-        if (pp < 0.0 && -pp < minOut) { minOut = -pp; tOut = t; LOut = L; }
+        if (mf_glowD < 1.0e8) { float gd = max(mf_glowD, 0.0) / L; if (gd < minOut) { minOut = gd; tOut = t; LOut = L; } }
+        else if (pp < 0.0 && -pp < minOut) { minOut = -pp; tOut = t; LOut = L; }
         // la primera vez que entra: el punto justo, entre esta muestra y la anterior
         if (t0 < 0.0 && pp > 0.0) {
             t0 = (hasPrev && dPrev > 0.0) ? tPrev + (t - tPrev) * dPrev / (dPrev - dd) : t;
@@ -1435,14 +1452,20 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float edge = (R0 > th * 1.05) ? abs(eo) : eo;        // (un disco lleno no tiene orilla de dentro)
         float wr = mf_gnoise(vec3(p0.xz * 1.4, tm * 1.3) + so);
         float rimK = mf_aastep(0.80 + 0.16 * wr, edge);
-        // los aros: finos, casi redondos y a trozos
-        float ph = q * 3.4 - tm * 0.8;
-        float fr = abs(fract(ph) - 0.5);
+        // los aros: uno cada bloque más o menos (un disco grande lleva muchos, como en el 2:59,5), ondulados y casi
+        // seguidos, amarillos con el centro pálido, que corren hacia fuera
+        float nR = max(3.0, (R0 + th) / 0.95);
         float ang = atan(p0.z, p0.x);
-        float brk = mf_gnoise(vec3(cos(ang) * 2.2, sin(ang) * 2.2, floor(ph) * 3.7) + so.yzx);
-        float ring = (1.0 - mf_aastep(0.085, fr)) * mf_aastep(-0.20, brk) * step(0.30, q);
+        float wv = mf_gnoise(vec3(p0.xz * 1.9, tm * 1.1) + so.zxy) + 0.5 * mf_gnoise(vec3(p0.xz * 4.3, tm * 1.7) + so);
+        float ph = q * nR - tm * 1.5 + 0.22 * wv;
+        float fr = abs(fract(ph) - 0.5);
+        float brk = mf_gnoise(vec3(cos(ang) * 2.6, sin(ang) * 2.6, floor(ph) * 3.7) + so.yzx);
+        float gate = mf_aastep(-0.62, brk) * step(0.5, ph + tm * 1.5);
+        float ring = (1.0 - mf_aastep(0.21, fr)) * gate;
+        float ringC = (1.0 - mf_aastep(0.07, fr)) * gate;
         vec3 cBase = mix(cRim, cFill, 0.45);
         c = mix(cBase, cFill, ring);
+        c = mix(c, mix(cFill, cCore, 0.6), ringC);
         c = mix(c, mix(cRim, cBase, 0.25), rimK);
         bCore = 0.0;
     }
