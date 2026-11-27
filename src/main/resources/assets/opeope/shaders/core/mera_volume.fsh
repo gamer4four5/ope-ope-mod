@@ -287,7 +287,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nb = pr / (Rn * (0.62 - 0.22 * cl)) - flow * (time * 0.22);   // al enfriarse, bolsas más pequeñas (coliflor)
         // al enfriarse, el borde se deshilacha más (el humo no tiene borde liso)
         amp = R * (0.11 + 0.30 * cl * cl + 0.50 * smoothstep(R * 0.88, R * 1.5, r)) * (1.0 + 1.3 * max(dir.y, 0.0) * (1.0 - mv) + 1.2 * mv * back);
-        if (mf_toon > 0.5 && prm.w > 1.5) {
+        if (mf_toon > 0.5 && prm.w > 1.5 && 0.0 > 0.5) {
             for (int i = 0; i < 5; i++) {
                 float fi = float(i);
                 vec3 n = normalize(vec3(sin(fi * 2.4 + 0.6), 0.9 * cos(fi * 1.7 + 0.2), cos(fi * 2.4 + 0.6)));
@@ -1603,6 +1603,30 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         c = mix(c, cCore, mf_aastep(0.0, bv));
     } else {
         c = mix(c, cCore, bCore);
+    }
+    if (shape < 0.5 && prm.w > 1.5 && (pal < 12.5 || pal > 13.5) && (pal < 4.5 || pal > 5.5)) {
+        // el sol de Entei: unas pocas llamaradas finas tendidas sobre su cara, amarillo dorado, onduladas y afiladas
+        // por las dos puntas (3:06-3:12). Van pintadas en la superficie (antes eran cintas y salían rectas y a trozos)
+        vec3 pn = p0 / max(length(p0), 1.0e-4);
+        float lon = atan(pn.z, pn.x);
+        float lat = asin(clamp(pn.y, -1.0, 1.0));
+        float acc = 0.0; float accIn = 0.0;
+        for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float ph = lon + tm * (0.10 + 0.04 * fi) + fi * 2.3 + so.x;
+            float along = fract(ph / 6.2832);
+            float seg = smoothstep(0.0, 0.06, along) * (1.0 - smoothstep(0.10, 0.34, along));
+            float la = lat - (fi - 1.0) * 0.55 - 0.10 * sin(ph * 2.3 + fi * 1.7) - 0.05 * sin(ph * 5.1 + tm * 0.6);
+            float wdt = 0.030 * seg * (1.0 + 0.5 * mf_gnoise(vec3(ph * 4.0, fi * 3.1, tm * 0.4) + so));
+            float dv = abs(la) - wdt;
+            float fw = clamp(fwidth(la) * 0.75, 1.0e-4, 0.05);
+            if (seg > 0.01) {
+                acc = max(acc, 1.0 - smoothstep(-fw, fw, dv));
+                accIn = max(accIn, 1.0 - smoothstep(-fw, fw, dv + wdt * 0.55));
+            }
+        }
+        c = mix(c, vec3(0.972, 0.820, 0.420), acc * sil);
+        c = mix(c, vec3(0.984, 0.905, 0.450), accIn * sil);
     }
     // el destello del golpe: un dibujo casi blanco
     c = mix(c, vec3(1.0, 0.98, 0.90), flash * 0.75);
