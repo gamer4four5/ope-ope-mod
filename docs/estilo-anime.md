@@ -87,11 +87,11 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
 - **Cruz (6)**: en anime hay dos, según el brazo (`prm.x`):
   - **Menos de 0,8: la cruz de los dedos** (2:14). Un «+» de brazos iguales, gordo y liso, amarillo limón con el
     centro pálido y mucho resplandor (paleta 7). Centrado un cuarto de brazo por encima del origen: va de −0,75 a
-    1,25 brazos en vertical y de −1 a 1 en horizontal. El grosor no baja de 0,27 brazos. Medidas de la serie: brazo
+    1,25 brazos en vertical y de −1 a 1 en horizontal. El grosor queda siempre entre 0,27 y 0,32 brazos, pida lo que pida el emisor. Medidas de la serie: brazo
     0,35, justo delante de los dedos.
   - **0,8 o más: la cruz de llamas** (2:22). La cruz latina de siempre (el palo de abajo, más largo), hecha de
     llamas pequeñas: una soga dorada de bultos con la orilla pálida y un resplandor ancho (paleta 18). Medidas: brazo
-    1,8 a 2,2 y grosor un décimo del brazo.
+    1,8 a 2,2. El grosor queda siempre entre 0,10 y 0,13 brazos, pida lo que pida el emisor.
 - **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada con el canto en olas, rayas
   amarillo pálido onduladas que corren a lo largo y la punta redonda. `prm.z` (el grosor al salir, en partes del
   final) decide la silueta: 0,35 para la llama que le sale del antebrazo (largo 3,2 y radio 0,9); 0,65 para la banda

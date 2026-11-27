@@ -526,7 +526,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // ---------------- 6: CRUZ (Jujika) ----------------
         float A  = max(prm.x, 0.3);
         float th = (prm.y > 0.01) ? prm.y : 0.3;
-        if (mf_toon > 0.5) th = max(th, ((A < 0.8) ? 0.27 : 0.10) * A);   // (anime) dos trazos gruesos; la cruz de los dedos, más gorda (2:14)
+        if (mf_toon > 0.5) th = (A < 0.8) ? clamp(th, 0.27 * A, 0.32 * A) : clamp(th, 0.10 * A, 0.13 * A);   // (anime) el grosor de la serie: la cruz de los dedos, gorda (2:14); la de llamas, fina (2:22)
         float r  = th * 0.8;
         // el brazo de abajo baja 1,3 A, o hasta el suelo si z lo dice (antes se metía en él)
         float lo = (prm.z > 0.01) ? min(1.3 * A, prm.z) : 1.3 * A;
