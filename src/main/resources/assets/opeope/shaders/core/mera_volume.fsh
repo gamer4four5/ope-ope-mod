@@ -1632,6 +1632,14 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (k.z > 0.001) {
         float vn = (1.0 - mf_aastep(1.0 - 0.38 * k.z, open)) * bFill;
         c = mix(c, cVein, vn);
+        // el cuerpo de fuego del Hiken: bandas amarillas anchas que cruzan la masa roja (0:33)
+        if (isFist > 0.5 && 0.10 > 0.0) {
+            float Sb = max(prm.x, 0.2);
+            float tailB = smoothstep(0.1 * Sb, 1.2 * Sb, -0.45 * Sb - p0.z);
+            float bn = mf_gnoise(vec3(p0.xy / (Sb * 0.50), p0.z / (Sb * 0.50 * 3.2) + tm * 0.9) + so.zxy);
+            float bd = (1.0 - mf_aastep(0.10 * tailB, abs(bn))) * bFill * step(0.02, tailB);
+            c = mix(c, cVein, bd);
+        }
     }
     if (shape > 2.5 && shape < 3.5 && prm.w < 0.5) {
         // los anillos del suelo (no la cortina de Enjōmō): masa naranja con aros amarillos que corren hacia fuera,
