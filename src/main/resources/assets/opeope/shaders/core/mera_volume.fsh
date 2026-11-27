@@ -1338,6 +1338,97 @@ vec4 mf_wallDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float tm, 
     return o * smoothstep(0.0, 0.12, intensity);
 }
 
+// Un brazo de fuego del aura: una curva que nace en b, sale hacia el ángulo ph (0 = hacia arriba) y se va rizando
+// hacia la punta (curl, en radianes de principio a fin), gorda al nacer y afilada al acabar. Devuelve la distancia.
+float mf_armD(vec2 q, vec2 b, float ph, float len, float curl, float w0)
+{
+    float d = 1.0e5;
+    vec2 a = b;
+    float ds = len / 7.0;
+    float r0 = w0;
+    for (int j = 1; j <= 7; j++) {
+        float s = float(j) / 7.0;
+        float th = ph + curl * s * s;
+        vec2 e = a + ds * vec2(sin(th), cos(th));
+        float r1 = w0 * pow(max(1.0 - s, 0.0), 0.6) * (1.0 + 0.5 * s);
+        vec2 pa = q - a; vec2 ba = e - a;
+        float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1.0e-6), 0.0, 1.0);
+        d = min(d, length(pa - ba * h) - mix(r0, r1, h));
+        a = e; r0 = r1;
+    }
+    return d;
+}
+
+// El aura del cuerpo en llamas en dibujo (2:29-2:31, 2:53): no se recorre como un volumen. Es un dibujo plano en una
+// lámina que pasa por el eje del cuerpo y mira a la cámara: una masa dorada y lisa detrás del cuerpo de la que salen
+// brazos de fuego gordos que nacen, crecen hacia fuera y hacia arriba, se rizan en la punta como una ola y se apagan,
+// con huecos de cielo entre ellos; todo con una orilla pálida y blanda por dentro del contorno y un halo corto por
+// fuera. El cuerpo, que queda delante de la lámina, tapa el centro.
+vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time, vec3 so, float intensity, float flash,
+                 float nearFade, float pixAng)
+{
+    float sc = max(prm.x, 0.03) / 0.55;
+    float st = max(prm.y, 0.1) / (2.2 * sc);
+    float tm = floor((time + prm.w * 17.0) * 12.0 + 0.5) / 12.0;
+    vec3 c = vec3(0.0, 0.5 * max(prm.y, 0.1), 0.0);
+    vec3 toC = ro - c;
+    float hd = length(toC.xz);
+    // (en primera persona, con la cámara en el eje, no hay lámina que mirar)
+    float nearK = smoothstep(0.45 * sc, 1.1 * sc, hd);
+    if (nearK <= 0.0) return vec4(0.0);
+    vec3 n = normalize(vec3(toC.x, 0.6 * toC.y, toC.z));
+    float den = dot(rd, n);
+    if (abs(den) < 1.0e-4) return vec4(0.0);
+    float t = -dot(toC, n) / den;
+    if (t <= max(tNear, 0.0) || t >= tFar) return vec4(0.0);
+    vec3 p = ro + rd * t - c;
+    vec3 ex = normalize(vec3(n.z, 0.0, -n.x));
+    vec3 ey = cross(n, ex);
+    // en bloques de un cuerpo de tamaño normal, con la y desde los pies
+    vec2 q = vec2(dot(p, ex), dot(p, ey) + c.y) / sc;
+    q.y /= st;
+    if (abs(q.x) > 3.4 || q.y > 3.7 || q.y < -0.6) return vec4(0.0);
+    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k; vec2 gk;
+    mf_toonPal((VolStyle.y > 0.5) ? VolStyle.y : 3.0, cRim, cVein, cFill, cCore, cGlow, k, gk);
+    // las orillas ondulan
+    vec2 w = q + 0.10 * vec2(mf_gnoise(vec3(q * 2.2, tm * 1.3) + so), mf_gnoise(vec3(q * 2.2 + 7.3, tm * 1.3) + so.zxy));
+    float d = (length((w - vec2(0.0, 1.05)) / vec2(0.50, 1.15)) - 1.0) * 0.50;
+    for (int i = 0; i < 16; i++) {
+        float fi = float(i);
+        vec3 h0 = mf_hash33(vec3(fi, 3.0, 11.0) + floor(so));
+        // cada brazo vive su ciclo: nace, crece, se riza y se apaga; y el siguiente sale distinto
+        float cyc = tm / (1.2 + 0.8 * h0.x) + h0.y * 7.0;
+        float ci = floor(cyc); float u = cyc - ci;
+        vec3 h = mf_hash33(vec3(fi, ci, 5.0) + floor(so.yzx));
+        vec3 g = mf_hash33(vec3(fi, ci, 23.0) + floor(so.zxy));
+        float sd = (mod(fi, 2.0) < 0.5) ? -1.0 : 1.0;
+        float low = (i < 3) ? 1.0 : 0.0;                    // dos nacen a los pies; los demás, del tronco y la cabeza
+        vec2 b = vec2(sd * (0.08 + 0.22 * h.x), mix(0.55 + 1.35 * h.y, 0.05 + 0.25 * h.y, low) + 0.25 * u);
+        float ph = sd * radians(mix(12.0 + 78.0 * h.z, 40.0 + 40.0 * h.z, low));
+        float len = (1.2 + 1.1 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
+        // (los que nacen altos, más cortos: ninguno se sale de la esfera que envuelve el aura)
+        len *= mix(1.0, 0.7, smoothstep(1.2, 1.9, b.y));
+        float curl = -sd * (2.6 + 2.4 * g.y) * (0.45 + 0.55 * u) * ((g.z < 0.3) ? -1.0 : 1.0);
+        // (al apagarse se recoge hacia el cuerpo; si adelgazara, quedaría un hilo)
+        float out_ = smoothstep(0.70, 1.0, u);
+        len *= 1.0 - out_;
+        float w0 = (0.26 + 0.16 * g.z) * (1.0 - 0.4 * out_) * smoothstep(0.0, 0.10, u);
+        if (len > 0.12) d = mf_smin(d, mf_armD(w, b, ph, len, curl, w0), 0.10);
+    }
+    // la orilla, en bultos redondos con el surco afilado entre uno y otro (como nubes), que suben
+    float bn = abs(mf_gnoise(vec3(q.x * 1.9, q.y * 1.9 - tm * 1.1, tm * 0.6) + so.yzx));
+    d -= 0.09 * (min(2.5 * bn, 1.0) - 0.4);
+    d += (1.0 - intensity) * 0.5;
+    float a = 1.0 - mf_aastep(0.0, d);
+    float rim = 1.0 - smoothstep(0.03, 0.13, -d);
+    vec3 col = mix(cFill, cRim, rim * 0.9);
+    col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
+    float gl = exp(-max(d, 0.0) / 0.07) * gk.y * intensity;
+    float fade = nearK * smoothstep(0.0, 0.12, intensity);
+    if (nearFade > 0.0) fade *= smoothstep(0.35 * nearFade, nearFade + 0.15, t);
+    return vec4(col * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a)) * fade;
+}
+
 // El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
 // el ruido y devuelve en skip la distancia segura hasta ella (> 0).
 
@@ -1436,6 +1527,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     float shrink = (1.0 - intensity) * 0.9;
     // el muro va dibujado en láminas planas, no recorrido
     if (shape > 3.5 && shape < 4.5) return mf_wallDraw(ro, rd, tNear, tFar, prm, tm, so, intensity, flash, nearFade, pixAng);
+    // y el aura del cuerpo, igual: un dibujo plano de cara a la cámara
+    if (shape > 8.5) return mf_auraDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, nearFade, pixAng);
 
     // pegado a la cámara el fuego no se dibuja (no tapa la vista): el rayo empieza un poco más allá
     float t = max(tNear, 0.35 * nearFade);
