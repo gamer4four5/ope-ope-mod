@@ -464,7 +464,9 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             float hi = clamp(p.y / H0 - 0.8, 0.0, 2.5 + 2.0 * grow) * rise;
             u = max(u, 0.45 + 0.4 * hi);
             nq.y -= time * 2.4;
-            amp = L * (0.25 + 0.45 * min(lag, 1.0) + 1.3 * hi);
+            // (el de Hibashira, paleta por defecto: llamas más recogidas, una masa pálida y compacta sobre la falda roja,
+            // 1:13,5; con las de antes salían jirones sueltos)
+            amp = L * (0.25 + 0.45 * min(lag, 1.0) + mix(1.3, 0.6, (1.0 - arc) * (1.0 - step(0.5, VolStyle.y))) * hi);
             // (el arco: flecos de llama por el canto de fuera)
             if (arc > 0.5) amp = L * (0.20 + 1.1 * smoothstep(-0.2, 1.0, (length(p.xz) - Rc) / max(th, 0.01)));
         }
@@ -499,13 +501,22 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         float Re = max(prm.y, 0.3);
         vec3 q = p;
         float v = clamp(q.z / Lj, 0.0, 1.0);
-        q.y -= v * v * Lj * 0.06;                       // el calor lo levanta
+        float kag = (mf_toon > 0.5 && Re >= 2.0 && (VolStyle.y < 0.5 || (VolStyle.y > 14.5 && VolStyle.y < 15.5))) ? 1.0 : 0.0;
+        q.y -= v * v * Lj * mix(0.06, 0.015, kag);      // el calor lo levanta
         // fino al salir de la mano (z = grosor al salir, en partes del final), se abre y al final se hincha en una nube
         float s0 = (prm.z > 0.01) ? prm.z : 0.10;
         float rr = Re * (s0 + (0.80 - s0) * v + 0.20 * smoothstep(0.6, 1.0, v));
         d = length(q.xy) - rr;
         if (mf_toon > 0.5 && VolStyle.y > 2.5 && VolStyle.y < 3.5)     // BANDA_PUNTA
             d = length(vec3(q.xy, max(q.z - 0.74 * Lj, 0.0) * rr / (0.26 * Lj))) - rr;
+        if (kag > 0.5) {   // KAGERO_HAZ
+            rr = Re * 0.24 * sqrt(smoothstep(0.0, 0.15, v)) * pow(1.0 - v, 0.60) + 0.02;
+            // (z = 1, en primera persona: fino en la mano y abriéndose con la distancia, que visto desde los ojos es
+            // una franja de ancho parejo que va de la mano a donde apuntas; el haz en punta, visto a lo largo, era
+            // una semilla)
+            if (prm.z > 0.5) rr = Re * 0.34 * (0.12 + 0.88 * v) * (1.0 - 0.5 * smoothstep(0.8, 1.0, v)) + 0.02;
+            d = (length(q.xy) - rr) * 0.9;
+        }
         d = max(d, -q.z - 0.15 * Re);
         d = max(d, q.z - Lj);
         L = max(rr, 0.22) * 0.9;
@@ -516,9 +527,14 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nq = vec3(q.x / ns, q.y / ns - time * 1.2, q.z / (ns * 3.4) - time * 5.0);
         nb = vec3(q.x / (ns * 1.5), q.y / (ns * 1.5) - time * 0.5, q.z / (ns * 4.0) - time * 3.6);
         amp = L * (0.40 + 0.65 * v);
+        if (kag > 0.5) {
+            nq = vec3(q.x / ns, q.y / ns - time * 0.6, q.z / (ns * 5.0) - time * 6.0);
+            nb = nq;
+            amp = L * 0.30;
+        }
         if (mf_toon > 0.5 && VolStyle.y > 2.5 && VolStyle.y < 3.5) {   // BANDA_DORADA
             nq = vec3(q.x / ns, q.y / ns - time * 0.8, q.z / (ns * 1.6) - time * 3.0);
-            nb = vec3(q.x / (ns * 1.2), q.y / (ns * 1.2) - time * 0.4, q.z / (ns * 1.8) - time * 2.4);
+            nb = vec3(q.x / (ns * 0.75), q.y / (ns * 0.75) - time * 0.4, q.z / (ns * 1.2) - time * 2.4);
             amp = L * (0.60 + 0.30 * smoothstep(0.55, 0.95, v));
         }
     }
@@ -576,10 +592,15 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             float pr = pow(s, 0.85) * (1.0 - smoothstep(0.82, 1.0, s) * smoothstep(0.82, 1.0, s));
             // (las estelas del Hiken, paleta 14: el trazo va ondulado, como un chorro que se retuerce)
             float wav = (VolStyle.y > 13.5 && VolStyle.y < 14.5) ? 1.0 : 0.0;
+            // (el estallido de Jūjika, paleta 21: sin rayas sueltas)
+            float chis = (VolStyle.y > 20.5 && VolStyle.y < 21.5) ? 1.0 : 0.0;
+            // (los brazos del estallido acaban en punta por los dos lados: donde se juntan no se ven tapas redondas)
+            if (chis > 0.5) pr = pow(s, 0.85) * (1.0 - smoothstep(0.80, 1.0, s));
             vec2 bend = wav * R * 1.3 * s * vec2(sin(p.z * 0.75 / R + time * 2.0), cos(p.z * 0.55 / R - time * 1.4 + 1.0));
             d = length(p.xy - bend) - R * 1.25 * pr;
             // las rayas sueltas: dos trazos finos junto a la punta, que van resbalando
             for (int i = 0; i < 2; i++) {
+                if (chis > 0.5) break;
                 float fi = float(i);
                 float ph = fract(time * (0.55 + 0.25 * fi) + fi * 0.37);
                 float zc = sg * hl * (0.75 - 0.9 * ph);
@@ -595,6 +616,8 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             nq = vec3(p.x / L, p.y / L - time * 0.5, p.z / (L * 7.0) + sg * time * 4.0);
             nb = nq;
             amp = L * (0.15 + 1.5 * s * s);
+            // (y su filo va en llamitas cortas, no en ondas largas)
+            if (chis > 0.5) { nq = vec3(p.x / (L * 0.22), p.y / (L * 0.22) - time * 0.5, p.z / (L * 1.6) + sg * time * 4.0); nb = nq; amp = L * (0.30 + 0.50 * s); }
         }
     }
     else if (shape > 8.5) {
@@ -1123,6 +1146,15 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 8.5 && id < 9.5) {
         cRim = vec3(0.965, 0.690, 0.190); cVein = cRim; cFill = vec3(0.996, 0.900, 0.240); cCore = vec3(0.988, 0.945, 0.600);
         cGlow = vec3(1.0, 0.55, 0.12); k = vec4(0.16, 0.48, 0.0, 0.0); gk = vec2(0.50, 0.75);
+    } else if (id > 21.5) {
+        // 22 el humo encendido que rodea el pie de la columna de Hibashira (1:17): naranja pálido y plano, las bolsas
+        //    de arriba un poco más claras
+        cRim = vec3(0.980, 0.830, 0.690); cVein = cRim; cFill = vec3(0.960, 0.740, 0.520); cCore = cFill;
+        cGlow = vec3(1.0, 0.60, 0.20); k = vec4(0.18, 1.0e3, 0.0, 0.0); gk = vec2(0.20, 0.35);
+    } else if (id > 20.5) {
+        // 21 el estallido de Jūjika (2:23): brazos dorados de filo blando que se aclaran hacia dentro, sin línea
+        cRim = vec3(0.996, 0.796, 0.369); cVein = cRim; cFill = vec3(0.988, 0.922, 0.576); cCore = vec3(0.973, 0.949, 0.651);
+        cGlow = vec3(1.0, 0.80, 0.36); k = vec4(0.60, 1.00, 0.0, 0.0); gk = vec2(0.45, 0.60);
     } else if (id > 19.5) {
         // 20 las nubes de fuego al pie de la columna de Hibashira (1:16-1:18): rojo plano sin borde, con llamas amarillas
         //    (el filo naranja, el centro pálido) por arriba y por las orillas
@@ -1151,7 +1183,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 13.5) {
         // 14 las estelas que deja el Hiken (0:38-0:40): chorros rojos con un borde amarillo anaranjado ancho y sin manchas
         cRim = vec3(0.992, 0.700, 0.220); cVein = cRim; cFill = vec3(0.957, 0.365, 0.250); cCore = cFill;
-        cGlow = vec3(1.0, 0.72, 0.20); k = vec4(0.70, 1.0e3, 0.0, 0.0); gk = vec2(0.50, 0.80);
+        cGlow = vec3(1.0, 0.72, 0.20); k = vec4(0.35, 1.0e3, 0.0, 0.0); gk = vec2(0.18, 0.35);
     } else if (id > 12.5) {
         // 13 la cúpula roja del final de Entei (3:32): roja y plana, con el filo y unas grietas naranjas, y mucho resplandor
         cRim = vec3(1.0, 0.540, 0.140); cVein = cRim; cFill = vec3(0.945, 0.137, 0.086); cCore = cFill;
@@ -1159,7 +1191,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 11.5) {
         // 12 Hidaruma (1:42): cuchillas con el filo naranja, amarillas y el centro pálido, sin línea de borde
         cRim = vec3(0.945, 0.506, 0.075); cVein = cRim; cFill = vec3(0.988, 0.812, 0.118); cCore = vec3(1.0, 0.945, 0.376);
-        cGlow = vec3(1.0, 0.50, 0.08); k = vec4(0.20, 0.62, 0.0, 0.0); gk = vec2(0.55, 0.65);
+        cGlow = vec3(1.0, 0.50, 0.08); k = vec4(0.20, 0.62, 0.0, 0.0); gk = vec2(0.22, 0.35);
     } else if (id > 10.5) {
         // 11 los trazos: las lanzas de Shiranui (2:11) y las balas de Higan (0:57), amarillo pálido con el filo dorado
         cRim = vec3(0.961, 0.784, 0.353); cVein = cRim; cFill = vec3(0.992, 0.953, 0.651); cCore = cFill;
@@ -1202,6 +1234,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     float massy = (shape < 0.5 || (shape > 1.5 && shape < 5.5)) ? 1.0 : 0.0;
     // (el haz de Hibashira y su remolino son lisos: sin bolsas)
     if ((shape > 1.5 && shape < 2.5 && prm.z < 0.5) || (shape > 2.5 && shape < 3.5 && prm.w > 1.5)) massy = 0.0;
+    // (y el haz de Kagerō)
+    if (shape > 4.5 && shape < 5.5 && max(prm.y, 0.3) >= 2.0 && (VolStyle.y < 0.5 || (VolStyle.y > 14.5 && VolStyle.y < 15.5))) massy = 0.0;
     float isFist = (shape > 0.5 && shape < 1.5) ? 1.0 : 0.0;
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
     float selfPil = (shape > 1.5 && shape < 2.5) ? clamp(prm.z, 0.0, 1.0) : 0.0;
@@ -1221,7 +1255,7 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     // la cruz de Jūjika son dos trazos casi rectos
     if (shape > 5.5 && shape < 6.5) amp *= mix(1.0, 0.40, 1.0 - smoothstep(0.6, 1.0, prm.x));
     // las lanzas y las balas, trazos limpios
-    if (shape > 6.5 && shape < 7.5) amp *= 0.45;
+    if (shape > 6.5 && shape < 7.5) amp *= (VolStyle.y > 20.5 && VolStyle.y < 21.5) ? 1.00 : 0.45;
     // las bolas y explosiones: por arriba, lenguas más largas (la orilla de arriba, en llamas, como en el 3:02)
     if (shape < 0.5 && sunM < 0.5) amp *= 1.0 + 0.9 * smoothstep(0.0, 0.7, p.y / max(length(p), 1.0e-3)) * (1.0 - clamp(prm.z, 0.0, 1.0));
     // una bola enorme (la hoguera de Hidaruma, la cúpula) no lleva lenguas más largas que una de 2,6 bloques: las
@@ -1234,7 +1268,9 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
         amp *= 1.0 - smoothstep(0.80 * Bq, 0.98 * Bq, length(p));
     }
     // las nubes de la columna (paleta 20), más macizas
-    if (shape < 0.5 && VolStyle.y > 19.5) amp *= 0.60;
+    if (shape < 0.5 && VolStyle.y > 19.5 && VolStyle.y < 20.5) amp *= 0.60;
+    // el humo del pie de la columna (paleta 22): un muro de bolsas pequeñas, sin lenguas que suban
+    if (VolStyle.y > 21.5) amp = min(amp, L * 0.8);
     if (cool > 0.001) amp = min(amp, max(prm.x, 0.05) * mix(0.30, 0.20, cool));
     float ampB = mix(mix(amp * 1.1, max(amp, L * 0.55), massy), L * 0.05, sunM);
     float envW = max(amp * 1.25, ampB * 0.85);
@@ -1252,6 +1288,8 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     if (shape < 0.5) w = max(w, smoothstep(0.25, 0.80, u) * (1.0 - cool) * (1.0 - sunM));
     if (nace > 0.5) w = smoothstep(0.30, 0.62, u);
     if (hog > 0.5) w = max(w, smoothstep(0.45, 0.85, u) * (1.0 - cool));
+    // (el humo de la paleta 22: bolsas redondas, sin lenguas)
+    if (VolStyle.y > 21.5) w = 0.0;
     // el aura del cuerpo: casi todo lenguas
     w = mix(w, smoothstep(0.10, 0.50, u), aura);
     float nB = 0.0; float nT = 0.0;
@@ -1290,6 +1328,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         // de detrás y el que asoma por el contorno (el cuerpo, que está delante, se ve entero)
         float den = rd.x * rd.x + rd.z * rd.z;
         if (den > 1.0e-5) t = max(t, -(ro.x * rd.x + ro.z * rd.z) / den);
+    }
+    // la cortina de fuego (aro con w = 1,25) y el humo (paleta 22) que rodean la columna de Hibashira: solo se dibuja
+    // lo de detrás del eje, así nunca tapan la columna, se mire desde donde se mire (1:16-1:18)
+    if ((shape > 2.5 && shape < 3.5 && prm.w > 1.2 && prm.w < 1.3) || (VolStyle.y > 21.5 && shape < 3.5)) {
+        float denT = rd.x * rd.x + rd.z * rd.z;
+        if (denT > 1.0e-5) t = max(t, -(ro.x * rd.x + ro.z * rd.z) / denT);
     }
     float pen = -1.0e5; float tPen = t; float uPen = 0.0;
     float t0 = -1.0; float L0 = 1.0; float u0 = 0.0;
@@ -1367,7 +1411,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     float pal = (VolStyle.y > 0.5) ? VolStyle.y : mf_toonDefault(shape, prm);
     mf_toonPal(pal, cRim, cVein, cFill, cCore, cGlow, k, gk);
     float cool = (shape < 0.5) ? clamp(prm.y, 0.0, 1.0) : 0.0;
-    if (cool > 0.001) {
+    if (cool > 0.001 && pal < 21.5) {
         // la explosión que se apaga: humo plano, gris claro (primero el borde, luego todo)
         vec3 sR; vec3 sV; vec3 sF; vec3 sC; vec3 sG; vec4 sk; vec2 sg;
         mf_toonPal(8.0, sR, sV, sF, sC, sG, sk, sg);
@@ -1382,17 +1426,41 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // las cortinas (el cerco de Enjōmō, el muro): de frente son una lámina; el borde, solo en las puntas, y lo gordo
     // de abajo, con su corazón
     if ((shape > 2.5 && shape < 3.5 && prm.w > 0.5 && prm.w < 1.5) || (shape > 3.5 && shape < 4.5)) { k.x *= 0.45; k.y = min(k.y, 0.80); }
+    // (el chorro dorado de St. Elmo lleva sus propias líneas; sin venas en los surcos, que con bultos pequeños lo
+    // dejaban casi todo pálido)
+    if (pal > 2.5 && pal < 3.5 && shape > 4.5 && shape < 5.5) k.z *= 0.0;
+    // el haz de Kagerō (0:02): el filo fino y un resplandor amarillo por fuera
+    bool kagS = (pal > 14.5 && pal < 15.5 && shape > 4.5 && shape < 5.5 && max(prm.y, 0.3) >= 2.0);
+    if (kagS) { k.x = 0.12; cGlow = vec3(0.980, 0.925, 0.420); gk = vec2(0.55, 0.75); }
     if (VolStyle.z > 0.0) k.x = VolStyle.z;
     // el aura del cuerpo: su ruido va retorcido y el rayo pasa rozando muchas lenguas; el resplandor, pegado al borde
     if (shape > 8.5) gk = vec2(0.13, 0.60);
 
     // (los trazos y las cuchillas, de filo blando: dentro, el resplandor entero, sin aro)
-    if (pal > 10.5 && pal < 12.5 && pen > 0.0 && t0 >= 0.0) { minOut = 0.0; tOut = t0; LOut = L0; }
+    bool softP = (pal > 10.5 && pal < 12.5) || (pal > 20.5 && pal < 21.5);
+    if (softP && pen > 0.0 && t0 >= 0.0) { minOut = 0.0; tOut = t0; LOut = L0; }
     // el resplandor corto de fuera. Es un halo alrededor del dibujo visto desde fuera, no un velo: no llega más allá
     // de un 14 % del alto de la pantalla (pegado a la cámara se queda en nada), no sale si el rayo empieza ya dentro
     // del fuego y se aclara con el hueco de la cámara. Antes, con la cámara metida entre las llamas (las cuchillas de
     // Hidaruma, un estallido) cada volumen ponía su velo naranja y entre todos tapaban la pantalla
-    if (wSum > 1.0e-6 && !(pal > 10.5 && pal < 12.5 && pen > 0.0 && t0 >= 0.0)) tOut = tSum / wSum;
+    if (wSum > 1.0e-6 && !(softP && pen > 0.0 && t0 >= 0.0)) tOut = tSum / wSum;
+    // (los brazos del estallido, paleta 21: su resplandor es ancho y medido a saltos se le veían los cortes; se mide
+    // de una vez, por lo cerca que pasa el rayo del eje del brazo)
+    if (pal > 20.5 && pal < 21.5 && shape > 6.5 && shape < 7.5 && !(pen > 0.0 && t0 >= 0.0)) {
+        float hlG = 0.775 * max(prm.x, 0.5); float RG = max(prm.y, 0.05);
+        float sgG = (prm.z > 0.5) ? -1.0 : 1.0;
+        float denG = dot(rd.xy, rd.xy);
+        float tc = (denG > 1.0e-6) ? -dot(ro.xy, rd.xy) / denG : 0.0;
+        float zc = clamp(ro.z + tc * rd.z, -hlG, hlG);
+        tc = clamp(dot(vec3(0.0, 0.0, zc) - ro, rd), 0.0, tFar);
+        vec3 pcG = ro + rd * tc;
+        zc = clamp(pcG.z, -hlG, hlG);
+        float sC = clamp(0.5 - 0.5 * sgG * zc / hlG, 0.0, 1.0);
+        float prC = pow(sC, 0.85) * (1.0 - smoothstep(0.80, 1.0, sC));
+        float fat = mix(0.30, 1.0, clamp(prC / 0.6, 0.0, 1.0));     // en la punta, el resplandor también afila
+        minOut = max(length(pcG - vec3(0.0, 0.0, zc)) - RG * 1.25 * prC, 0.0) / (RG * 1.2 * fat);
+        tOut = tc; LOut = RG * 1.2;
+    }
     float gkx = min(gk.x, 0.14 * pixAng * ViewSize.y * tOut / LOut);
     float gl = (gkx > 1.0e-4) ? exp(-max(min(minOut, ribMin), 0.0) / gkx) * gk.y * intensity : 0.0;
     if (startIn) gl = 0.0;
@@ -1445,7 +1513,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         vp = mix(vp, min(vp, penF * 1.15), onF);
     }
     // los trazos y las cuchillas de Hidaruma no llevan línea: el filo se funde con el aire
-    float soft = (pal > 10.5 && pal < 12.5) ? 1.0 : 0.0;
+    float soft = softP ? 1.0 : 0.0;
     // la línea del dibujo no adelgaza con la distancia: de lejos el borde ocupa lo mismo en pantalla (como en el
     // 0:34, donde el borde amarillo del cometa es tan gordo como en el primer plano del 0:32). Solo en las masas
     if (shape < 1.5 && soft < 0.5 && VolStyle.z <= 0.0 && k.x > 0.0) {
@@ -1464,7 +1532,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         k.x = mix(k.x, max(k.x, kBody), tailK);
     }
     float sil = mf_aastep(0.0, pen);
-    if (soft > 0.5) sil = smoothstep(0.0, (pal < 11.5) ? 0.10 : 0.22, pen);
+    if (soft > 0.5) sil = smoothstep(0.0, (pal < 11.5) ? 0.10 : ((pal > 20.5) ? 0.12 : 0.22), pen);
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
     vec3 c = mix(cRim, cFill, bFill);
@@ -1477,13 +1545,25 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
         float kr = (shape > 4.5 && shape < 5.5) ? 0.72 : 1.55;
         c = mix(c, cVein, bFill * (1.0 - mf_aastep(kr, vp + 1.5 * tn * min(pen, 1.2))));
+        if (kagS) {
+            // el haz: rayas rojas y naranjas a lo largo, de borde quebrado (0:02,5)
+            float ths = atan(p0.y, p0.x);
+            vec3 ps = vec3(cos(ths) * 2.6, sin(ths) * 2.6, p0.z * 0.10 - tm * 1.5);
+            float sn = mf_gnoise(ps + so.zxy) + 0.35 * mf_gnoise(ps * vec3(2.1, 2.1, 3.0) + so);
+            c = mix(cRim, mix(cFill, cVein, mf_aastep(0.0, sn)), bFill);
+        }
     }
     if (pal > 2.5 && pal < 3.5 && shape > 4.5 && shape < 5.5) {
         // el chorro dorado de St. Elmo (2:09): rayas pálidas onduladas que corren a lo largo
-        vec3 pt = p0 / (L0 * 0.90);
-        pt.z = pt.z * 0.28 - tm * 2.0;
+        // (son líneas finas y onduladas, como el contorno de las llamas de dentro; antes, manchas anchas)
+        vec3 pt = p0 / (L0 * 0.8);
+        pt.z = pt.z * 0.35 - tm * 2.0;
         float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
-        c = mix(c, vec3(0.992, 0.902, 0.560), bFill * mf_aastep(0.22, tn));
+        float gt = mf_aastep(-0.40, mf_gnoise(pt * 0.7 + so.yzx + 9.0));
+        // (el grosor de la línea, parejo: se mide con lo deprisa que cambia el ruido en ese punto)
+        float gN = length(vec2(dFdx(tn), dFdy(tn))) * (L0 * 0.8) / max(pixAng * t0, 1.0e-5);
+        float lw = 0.14 * clamp(gN, 0.35, 2.5);
+        c = mix(c, vec3(0.992, 0.902, 0.560), bFill * mix(mf_aastep(0.10, tn), (1.0 - mf_aastep(lw, abs(tn - 0.10))) * gt, 1.0));
     }
     if (pal > 18.5 && pal < 19.5) {
         // la hoguera pálida: llamitas doradas sueltas por dentro, que suben
@@ -1501,7 +1581,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         band = mix(band, vec3(0.988, 0.900, 0.560), mf_aastep(k.x * 0.78, vp));
         c = mix(band, cFill, bFill);
     }
-    if (pal > 19.5) {
+    if (pal > 19.5 && pal < 20.5) {
         // las nubes de la columna: sobre el rojo, llamas amarillas en lo que mira hacia arriba y cerca del contorno
         vec3 pc = p0 / (L0 * 1.9); pc.y = pc.y * 0.50 - tm * 0.9;
         float fn = mf_gnoise(pc + so.zxy) + 0.5 * mf_gnoise(pc * 2.3 + so);
@@ -1559,6 +1639,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         // (los trazos, paleta 11: el filo dorado se ve, como en las cuñas del 0:57; no un foco de luz)
         if (pal < 11.5) c = mix(cRim, cFill, smoothstep(0.10, 0.42, pen));
         c = mix(c, cCore, smoothstep(k.y * 0.65, k.y * 1.25, pen));
+        // (el estallido: donde se juntan los brazos, todo pálido)
+        if (pal > 20.5 && pal < 21.5 && shape > 6.5 && shape < 7.5) {
+            float hl = 0.775 * max(prm.x, 0.5);
+            float sE = clamp(0.5 - 0.5 * ((prm.z > 0.5) ? -1.0 : 1.0) * p0.z / hl, 0.0, 1.0);
+            c = mix(c, cCore, smoothstep(0.55, 0.90, sE));
+        }
         bCore = 0.0;
     }
     if (pal > 4.5 && pal < 5.5) {
@@ -1629,10 +1715,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         // redondo. Y solo donde el fuego es hondo de verdad: antes el suelo y lo que quedaba dentro de la bola
         // contaban como hondo y salían pintados de negro)
         float vq = penRaw + 0.10 * wob * min(penRaw, 1.5);
-        vec3 pb = p0 / (L0 * 2.2) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0);
+        vec3 pb = p0 / (L0 * 1.4) + so.zxy * 1.7 + vec3(tm * 0.5, 0.0, 0.0);
         pb.x *= 0.55;
         float bn = mf_gnoise(pb) + 0.55 * mf_gnoise(pb * 2.7 + 5.1) + 0.40 * abs(mf_gnoise(pb * 5.3 + 1.7));
-        float bv = 1.0 * (vq - k.y) + 1.3 * bn - 0.28;
+        // (la hondura solo abre la puerta: de frente, con toda la bola detrás, lo negro seguía siendo unas manchas
+        // rotas y no un agujero redondo)
+        float bv = 1.0 * min(vq - k.y, 0.0) + 1.3 * bn - 0.45;
         c = mix(c, vec3(0.50, 0.08, 0.09), mf_aastep(-0.07, bv));
         c = mix(c, cCore, mf_aastep(0.0, bv));
     } else {
@@ -1667,6 +1755,9 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // lo que cruza el hueco de la cámara se desvanece
     float nfk = (nearFade > 0.0) ? smoothstep(0.35 * nearFade, nearFade + 0.15, t0) : 1.0;
     float a = sil * nfk * smoothstep(0.0, 0.12, intensity);
+    // el humo del pie de la columna (paleta 22) solo se ve de lejos: con la cámara pegada a la columna (quien la
+    // lanza) taparía todo el fuego de detrás
+    if (pal > 21.5) { float skN = smoothstep(6.0, 7.5, length(ro.xz)); a *= skN; gl *= skN; }
     vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
     // la hoguera pálida deja ver un poco lo que arde dentro (las siluetas del 1:54)
     // (solo con la cámara dentro o pegada: de lejos, por la base se veía el suelo y la hoguera parecía hueca)

@@ -42,15 +42,17 @@ resplandor). Sale premultiplicado, igual que el realista.
 | 9 | columna | filo naranja `#f6b030` | banda amarilla `#fee63d` | amarillo pálido `#fcf199` (casi todo el haz) | 1:16-1:17 |
 | 10 | remolino | no tiene | rojo plano `#de352b` | llamas amarillas `#fdcc2e` con el centro `#fdf68f` y el filo naranja | 1:12-1:13 |
 | 11 | trazo | filo dorado `#f5c85a`, blando (sin línea) pero ancho y bien visible: casi un tercio del grosor por cada lado | amarillo pálido `#fdf3a6` | igual que la masa; casi sin resplandor (es un dibujo, no un foco) | 0:57, 2:11 |
-| 12 | Hidaruma | filo naranja `#f18113`, blando (sin línea) | amarillo `#fccf1e` | amarillo pálido `#fff160` | 1:42 |
+| 12 | Hidaruma | filo naranja `#f18113`, blando (sin línea) | amarillo `#fccf1e` | amarillo pálido `#fff160`; poco resplandor, para que cada cuchilla se vea suelta | 1:42 |
 | 13 | cúpula | filo naranja fino `#ff8a23` y grietas del mismo color | rojo plano `#f12316` | igual que la masa, con mucho resplandor rojo | 3:20-3:32 |
-| 14 | estela | amarillo anaranjado `#fdb238`, ancho | rojo `#f45d40` (solo en lo gordo del chorro) | igual que la masa, sin manchas | 0:38-0:40 |
+| 14 | estela | amarillo anaranjado `#fdb238`, un tercio del grosor por cada lado | rojo `#f45d40` por todo el centro del chorro | igual que la masa, sin manchas y casi sin resplandor (un dibujo nítido sobre el cielo) | 0:38-0:40 |
 | 15 | Kagerō | amarillo `#febd38` | una banda naranja `#fe852b` y, más adentro, rojo `#de3429` que entra en lenguas | igual que la masa | 0:02-0:05 |
 | 16 | golpe | amarillo `#fdc82a`, ancho | rojo `#f55749` plano y limpio: sin venas ni manchas, y el contorno más liso | igual que la masa | 0:36, 1:17 |
 | 17 | sol naciendo | una orilla ancha de llamas: amarillo `#fed640` con picos naranjas `#f68f21` que corren por ella, filo naranja por fuera y más pálida hacia dentro | `#fefdd0` | igual que la masa | 3:03-3:08 |
 | 18 | cruz de llamas | pálido `#fcde8f` | dorado `#fccc5d`, liso, sin venas | `#fed470`, con un resplandor ancho | 2:22 |
 | 19 | hoguera pálida | dorado `#f5c245`, en llamitas pequeñas | amarillo pálido `#fdf1a3`, con llamitas doradas sueltas que suben | igual que la masa | 1:54-1:56 |
 | 20 | nubes de la columna | no tiene | rojo plano `#eb3c1e` | llamas amarillas `#fedc33` con el filo naranja `#f58c1e` y el centro pálido `#fff48f`, en lo que mira hacia arriba y cerca del contorno | 1:16-1:18 |
+| 21 | estallido de Jūjika | dorado `#fecb5e`, de filo blando (sin línea) | amarillo pálido `#fceb93` | casi blanco `#f8f2a6` hacia el centro de la estrella, con un resplandor dorado ancho y suave | 2:23 |
+| 22 | humo encendido | melocotón claro `#fad4b0` | melocotón `#f5bd85`, plano, en bolsas pequeñas y sin lenguas | igual que la masa | 1:16-1:18 |
 
 Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, columna 9 (vista desde dentro, 2), anillos 2
 (el remolino, 10), muro 3, chorro 15, cruz 7 (la grande, con el brazo de 0,8 o más, 18), lanza 11, llama 3. Una explosión que se enfría pasa sola a la 8.
@@ -59,22 +61,32 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
 
 - **Columna (2)** vista desde fuera (`prm.z` = 0): un haz recto y liso, sin hueco, que se abre en el pie y arriba
   (1:16). El haz ocupa la mitad del radio pedido (en la serie mide algo más de un bloque de ancho: radio pedido 1,3) y
-  el pie se abre hasta 1,3 veces ese radio. La nube roja de alrededor son bolas aparte con la paleta 20: de 6 a 8,
-  de 2 a 2,8 de radio, montadas unas en otras en un corro de 3 a 4 bloques, para que se vea una sola masa roja con
-  llamas amarillas por arriba y no globos sueltos.
+  el pie se abre hasta 1,3 veces ese radio. Con el radio pedido en 2,1 el haz mide unos dos bloques, como en la
+  serie, y sigue macizo con la cámara a 4,5 bloques (con 3,0 la cámara quedaba dentro del pie y se veía hueco).
+  Lo de alrededor (1:16-1:18) son dos anillos con `prm.w` = 1,25, con el mismo centro que la columna (el pie) y
+  añadidos **antes** que ella, en este orden: la cortina de fuego (paleta 20, radio 9, alto 12, medio grosor 1,2) y
+  el humo encendido (paleta 22, radio 3,2, alto 8, medio grosor 0,6). De los dos solo se dibuja la mitad de detrás
+  del eje, así que nunca tapan la columna: se ve el haz, pegado a él un muro de humo melocotón con la orilla de
+  arriba en bolsas, y detrás la masa roja con racimos de llamas amarillas. Las bolas con paleta 20 de antes ya no
+  hacen falta (de frente eran globos rojos con una gorra amarilla).
 - **Anillo (3)** según `prm.w`:
   - 0: fuego a ras de suelo. Naranja con aros amarillos y la orilla más roja (el disco del Dai Enkai, 2:59). Los
     aros van a uno por bloque más o menos (da igual el tamaño del disco), ondulados, con el centro pálido y algún
     corte, y corren hacia fuera. Con el grosor igual al radio es un disco lleno.
   - 1: la cortina de lenguas de siempre (Enjōmō).
+  - 1,25: la misma cortina, pero solo se dibuja lo que queda detrás del eje del anillo visto desde la cámara (la
+    cortina de fuego y el humo que rodean la columna de Hibashira). Con la paleta 22 el anillo es un muro de bolsas
+    pequeñas, sin lenguas, que además se desvanece cuando la cámara está a menos de 6 a 7,5 bloques del eje: quien
+    lanza la columna ve el haz y el fuego rojo de detrás, no una pared melocotón pegada a la cara.
   - 2: el remolino de Hibashira (1:12). Una media luna roja plana que gira sola alrededor del centro (casi una
     vuelta entera, gruesa en el medio y en punta en los extremos), con llamas amarillas que suben por la cabeza.
-    `prm`: x = radio (1,9), y = alto de la banda (1,0), z = medio ancho de la banda (0,6). Origen a la altura de la
-    cintura menos medio alto. Con esas medidas se lee un aro alrededor de Ace, como en la serie; más ancho y más bajo
-    parece un charco.
+    `prm`: x = radio (2,6, y hasta 3,5 al crecer), y = alto de la banda (0,55), z = medio ancho de la banda (1,1).
+    Origen a 0,3 del suelo. Con esas medidas es la media luna roja ancha y baja de la serie, de unos seis bloques
+    de lado a lado; con radio 1,9, alto 1,2 y medio ancho 0,6 salía un aro estrecho con un penacho de cinco bloques.
   - 2 a 2,49: el mismo remolino, creciendo. La parte decimal dividida por 0,49 es cuánto ha crecido, de 0 a 1: las
     llamas amarillas de la cabeza van ganando el aro entero y suben hasta casi siete veces el alto de la banda, hasta
-    taparlo casi todo de amarillo pálido justo antes de que salga la columna (1:12 → 1:13). Con otra paleta ya no
+    taparlo casi todo de amarillo pálido justo antes de que salga la columna (1:12 → 1:13): una masa pálida y
+    compacta, de unos siete bloques de ancho y tres y medio de alto, sobre la falda roja (1:13,5). Con otra paleta ya no
     es rojo con llamas encima sino una sola masa del color de la paleta, casi lisa, con rayas largas un poco más
     claras tendidas a lo largo del giro y sin filo claro: con la 3 es el abanico dorado del Enkai de Marineford
     (1:24-1:25), dorado `#fbcb5a` casi entero.
@@ -98,16 +110,25 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   - **0,8 o más: la cruz de llamas** (2:22). La cruz latina de siempre (el palo de abajo, más largo), hecha de
     llamas pequeñas: una soga dorada de bultos con la orilla pálida y un resplandor ancho (paleta 18). Medidas: brazo
     1,8 a 2,2. El grosor queda siempre entre 0,10 y 0,13 brazos, pida lo que pida el emisor.
-- **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada con el canto en olas, franjas
-  amarillo pálido `#fde68f` anchas y tendidas que corren a lo largo (un cuarto de la masa, no una red de líneas) y la
-  punta redonda. `prm.z` (el grosor al salir, en partes del
+- **Chorro (5) con la paleta 15 (o sin paleta) y radio pedido de 2,0 o más: el haz de Kagerō** (0:02). Un huso
+  estrecho y liso, de un cuarto del radio pedido en lo más gordo (cerca de la mano), que acaba en punta: naranja con
+  rayas rojas largas que corren por él, el filo amarillo y un resplandor amarillo. Con el radio por debajo de 2,0 es
+  el chorro que se abre de siempre (las llamas pequeñas). Con `prm.z` = 1 es el de primera persona: fino en la mano
+  y abriéndose con la distancia, que visto desde los ojos es una franja rayada de la mano a donde se apunta (el huso,
+  visto a lo largo, era una semilla); va con `nearFade` 0,45.
+- **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada lisa con el canto en olas,
+  unas pocas líneas amarillo pálido `#fde68f` finas y largas tendidas a lo largo, a trechos (ni franjas anchas ni
+  manchas), y la punta redonda. `prm.z` (el grosor al salir, en partes del
   final) decide la silueta: 0,35 para la llama que le sale del antebrazo (largo 3,2 y radio 0,9); 0,65 para la banda
   ancha del barrido (largo 9 y radio 1,0 a 1,3), que es casi igual de gruesa de punta a punta.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
   lado. `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
   delante (las balas de Higan, 0:57). El grosor máximo es 1,25 veces `prm.y`. Para que se parezca a la serie: bala
   de Higan, largo 2,6 y radio 0,45; lanza de Shiranui, largo 9 o más y radio 0,5. Con la paleta 14 el trazo va
-  ondulado: son los chorros rojos que quedan cruzando el aire después de un Hiken (0:38), largo 6 a 8 y radio 0,6 a 1.
+  ondulado: son los chorros rojos que quedan cruzando el aire después de un Hiken (0:38), largo 15 a 24 y radio
+  0,27 a 0,42 (finos y largos: con 0,45 a 0,7 eran mangueras). Con la paleta 21 es un brazo del estallido de Jūjika
+  (2:23): afilado por las dos puntas, sin rayas sueltas, de filo blando y con el centro de la estrella casi blanco;
+  con `prm.z` = 1 lo ancho queda hacia el centro.
 - **Puño (1)**: la cabeza es casi una bola y se junta con su cuerpo de fuego por un cuello marcado, así que de lado se
   ve una bola con su aro amarillo y el cometa detrás (0:34). El cometa lleva el amarillo tres veces más ancho que el puño (hasta
   un 16 % del alto de la pantalla): de lado se ve casi tanto amarillo como rojo.
@@ -128,9 +149,12 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   cortadas en arco).
 - **Las manchas negras de la paleta 1** salen solo donde el fuego es hondo de verdad. Antes el suelo y lo que
   quedaba dentro de la bola contaban como hondo y salían pintados de negro (un óvalo negro en el suelo y un hueco
-  negro alrededor de Ace al lanzar el Hiken).
+  negro alrededor de Ace al lanzar el Hiken). La hondura solo abre la puerta: de frente, con toda la bola detrás,
+  siguen siendo esquirlas pequeñas y rotas (antes, un agujero negro redondo en medio del rojo, 0:33).
 - **Llama (8) con la paleta 12**: una cuchilla larga y afilada (las de Hidaruma, 1:42), ancha cerca de la raíz y en
-  punta arriba. Radio 0,15 a 0,21 y alto 1,3 a 1,9; inclinadas unos 20 grados, todas hacia el mismo lado.
+  punta arriba. Radio 0,22 a 0,30 y alto 0,9 a 1,5; inclinadas unos 20 grados, todas hacia el mismo lado, de 16 a
+  18 repartidas por todo el alto del cuerpo y saliéndose de su silueta (finas, altas y juntas se fundían en una bola
+  naranja).
 
 ### Con la cámara dentro del fuego
 
@@ -184,17 +208,17 @@ En estilo anime:
 
 | Técnica | Paleta | Cómo es en el vídeo |
 | --- | --- | --- |
-| Hiken | 1, 16 y 14 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con vetas amarillas y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). El golpe es una media bola roja y limpia con el filo amarillo (bola con paleta 16, 0:36) y, para quien queda dentro, la pantalla roja con cuñas amarillas y esquirlas negras (otra bola en el mismo sitio con paleta 1 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 0:37). Después quedan dos segundos y medio de chorros rojos con el borde amarillo cruzando el aire en todas direcciones: de 10 a 12 lanzas con paleta 14, de 10 a 16 de largo y 0,45 a 0,7 de radio (0:38-0:40). Mientras duran no hay bola de humo en el golpe: los taparía. |
-| Kagerō | 15 | Un chorro naranja con el filo amarillo y vetas rojas por el centro (0:02); al dar en el blanco, masas rojas y naranjas con el filo amarillo que lo envuelven (bolas con paleta 15, 0:03-0:05). |
+| Hiken | 1, 16 y 14 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con vetas amarillas y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). El golpe es una media bola roja y limpia con el filo amarillo (bola con paleta 16, 0:36) y, para quien queda dentro, la pantalla roja con cuñas amarillas y esquirlas negras (otra bola en el mismo sitio con paleta 1 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 0:37). Después quedan dos segundos y medio de chorros rojos con el borde amarillo cruzando el aire en todas direcciones: de 10 a 12 lanzas con paleta 14, de 15 a 24 de largo y 0,27 a 0,42 de radio, que no nacen todas en el golpe sino repartidas a su alrededor (0:38-0:40). El golpe del Hiken no se enfría en humo blanco: la bola sigue siendo fuego y se apaga encogiéndose. |
+| Kagerō | 15 y 2 | Un haz estrecho que acaba en punta, naranja con rayas rojas y el filo amarillo (chorro con radio pedido 2,2 o más, 0:02); al dar en el blanco, una nube blanca y, el primer medio segundo, bolas amarillas con el borde rojo anaranjado (bolas con paleta 2, de 1,6 a 2,4 de radio, 0:17). |
 | Higan | 11 | Cuñas amarillo pálido con el filo dorado blando: nacen en punta junto a Ace y se abren hacia delante (lanza con `prm.z` = 1, sin bola en la cabeza). |
-| Hibashira | 10, 9 y 20 | Primero el remolino: un aro rojo que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2), que va creciendo hasta ser casi todo llama amarilla pálida (`prm.w` de 2 a 2,49). Al salir la columna, quien está dentro ve la pantalla roja con llamas amarillas (1:14). Después el haz recto amarillo pálido, fino y alto (columna), y a los lados una masa roja plana con llamas amarillas por arriba (bolas con paleta 20 montadas unas en otras, 1:16-1:18). |
+| Hibashira | 10, 9, 20 y 22 | Primero el remolino: un aro rojo que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2), que va creciendo hasta ser casi todo llama amarilla pálida (`prm.w` de 2 a 2,49). Al salir la columna, quien está dentro ve la pantalla roja con llamas amarillas (1:14). Después el haz recto amarillo pálido, fino y alto (columna con radio pedido 2,1), pegado a él un muro de humo melocotón (anillo con `prm.w` = 1,25 y paleta 22) y detrás una masa roja con racimos de llamas amarillas (anillo con `prm.w` = 1,25 y paleta 20, 1:16-1:18). |
 | Enkai | 3 | Dos brazos de fuego dorado que giran alrededor de Ace y se abren deprisa hasta llenar la pantalla (1:24-1:25): dos remolinos (anillo con `prm.w` de 2 a 2,49 y paleta 3), uno con `dir` al revés que el otro. |
 | Hotarubi | 5 | Bolas lisas y redondas (no llamas), de 0,2 a 0,45 de radio: verdes en la orilla, casi blancas en el centro y con un halo verde suave. Una bola (forma 0) con paleta 5 sale ya así. |
-| Hidaruma | 12, 16, 3 y 19 | Sobre el que arde, 12 a 16 cuchillas de fuego largas y afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12, 1:42). No hay bola roja a la vista: quien queda dentro ve la pantalla roja con llamas amarillas (una bola con paleta 16 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 1:42-1:43). Cuando prenden varios a la vez: un fogonazo dorado (`VolStyle.w` en una bola con paleta 3, 1:53) y después una hoguera amarillo pálido enorme que los envuelve a todos y deja adivinar sus siluetas (una bola con paleta 19, 1:54-1:56). |
+| Hidaruma | 12, 16, 3 y 19 | Sobre el que arde, 16 a 18 cuchillas de fuego afiladas, amarillas con el filo naranja y el centro pálido, inclinadas hacia el mismo lado y tapándole el cuerpo (llamas con paleta 12, 1:42). No hay bola roja a la vista: quien queda dentro ve la pantalla roja con llamas amarillas (una bola con paleta 16 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 1:42-1:43). Cuando prenden varios a la vez: un fogonazo dorado (`VolStyle.w` en una bola con paleta 3, 1:53) y después una hoguera amarillo pálido enorme que los envuelve a todos y deja adivinar sus siluetas (una bola con paleta 19, 1:54-1:56). Dentro de la hoguera no se dibujan las cuchillas de cada víctima: se veían como un garabato naranja en medio del fuego pálido. |
 | Enjōmō | 3 | Un muro amarillo pálido que llena la pantalla. |
 | St. Elmo / Shiranui | 2, 3, 12 y 11 | Shiranui: una bola de fuego en cada mano (bola con paleta 2, 1:59), después los arcos naranja rojizo con el centro amarillo (2:00) y las lanzas, cometas amarillo vivo con el filo y el halo naranjas, anchos en la cabeza y en punta por detrás (lanza con `prm.z` = 1 y paleta 12, largo 4,5 y radio 0,45 a 0,55, 2:00,5-2:02). St. Elmo: mientras carga, una llama dorada con rayas pálidas le sale del antebrazo hacia atrás (chorro con paleta 3, 2:09); al soltar, el brazo barre y deja una banda dorada ancha que cruza por delante de Ace (el mismo chorro, largo, siguiendo a la mano, 2:10); las lanzas, trazos amarillo pálido muy largos, afilados por delante (paleta 11, radio 0,45, 2:11), que se clavan en el blanco y dejan fuego bajo en el suelo (2:12). |
-| Jūjika | 7, 11, 15, 18 y 3 | Primero la cruz de los dedos: un «+» pequeño y gordo, amarillo limón, delante de las manos cruzadas (cruz con brazo 0,35, paleta 7, 2:14). De ella sale un haz fino amarillo pálido, casi transparente, que llega al blanco en medio segundo con la punta brillante (lanza con paleta 11 y radio 0,06, 2:15-2:16); después, por el haz corre desde las manos una llamarada roja con el filo naranja y amarillo, alargada, que suelta jirones rojos (chorro o bolas con paleta 15, 2:16-2:17). Donde llega, la cruz grande de llamas doradas (cruz con brazo 1,8 a 2,2, paleta 18, 2:22) y enseguida un estallido dorado en estrella: una bola de 1,2 a 1,6 y de 6 a 8 rayos anchos en el centro y en punta hacia fuera (lanzas con `prm.z` = 1, largo 5 a 6, radio 0,9 a 1,1), todo con la paleta 18, casi en el plano de cara a quien la lanzó (2:23). No es una cúpula ni lleva el fotograma del golpe. |
+| Jūjika | 7, 11, 15, 18, 21 y 3 | Primero la cruz de los dedos: un «+» pequeño y gordo, amarillo limón, delante de las manos cruzadas (cruz con brazo 0,35, paleta 7, 2:14). De ella sale un haz fino amarillo pálido, casi transparente, que llega al blanco en medio segundo con la punta brillante (lanza con paleta 11 y radio 0,06, 2:15-2:16); después, por el haz corre desde las manos una llamarada roja con el filo naranja y amarillo, alargada, que suelta jirones rojos (chorro o bolas con paleta 15, 2:16-2:17). Donde llega, la cruz grande de llamas doradas (cruz con brazo 1,8 a 2,2, paleta 18, 2:22) y enseguida un estallido dorado en estrella, sin bola en el centro: cuatro brazos grandes en línea con los de la cruz (lanzas con `prm.z` = 1, largo 6 a 7, radio 1,1) y cuatro menores entre ellos (largo 3,6, radio 0,7), todos con la paleta 21 y casi en el plano de cara a quien la lanzó, con no más de 5 grados de inclinación (2:23). No es una cúpula ni lleva el fotograma del golpe. |
 | Cuerpo en llamas | 3 | Lenguas doradas con el filo amarillo pálido y el contorno ondulado; la piel se ve dentro. Un volumen AURA (forma 9) en vez de las llamas sueltas de hombros, brazos y espalda. |
 | Kyōkaen | 3 | Un muro dorado con venas amarillo pálido. El vapor, blanco plano. |
-| Dai Enkai | 2 | Primero un aro fino de fuego alrededor de Ace, de bloque y medio de radio (2:58); enseguida un disco naranja con aros amarillos ondulados a ras de suelo, de unos 4 bloques de radio, con Ace en el centro (anillo con `prm.w` = 0, grosor = radio, alto 0,35, 2:59). Después crece y se levantan las llamas rojas y amarillas con el centro pálido. |
+| Dai Enkai | 2 | Primero un aro fino de fuego alrededor de Ace, de bloque y medio de radio (2:58); enseguida un disco naranja con dos o tres aros amarillos ondulados a ras de suelo, de unos dos bloques y medio de radio, con Ace de pie en el centro y sin hueco a sus pies (anillo con `prm.w` = 0, radio 1,0, medio grosor 1,5 y alto 0,35, 2:59; con el grosor igual al radio quedaba un agujero en el centro). Después crece y se levantan las llamas rojas y amarillas con el centro pálido. |
 | Entei | 17, 6 y 13 | Mientras crece, un sol casi blanco con una orilla ancha de llamas amarillas y naranjas (paleta 17, 3:03-3:08). Ya formado, liso, con un filo amarillo muy fino, un resplandor naranja ancho y unas pocas llamaradas finas, amarillo dorado, onduladas y afiladas por las dos puntas, tendidas sobre su cara (las pinta el sombreador en la superficie; paleta 6, 3:09). En anime el sol no lleva llamas sueltas ni la lengua de la mano al sol. Al estallar, una cúpula roja con grietas naranjas (bola lisa con paleta 13, 3:32); desde dentro todo se ve teñido de rojo. |
