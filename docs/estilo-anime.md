@@ -41,7 +41,7 @@ resplandor). Sale premultiplicado, igual que el realista.
 | 8 | humo | gris azulado `#b3bad4` (fino, y los surcos `#a8b1cf`) | blanco `#e7ecf6` | igual que la masa | lo que queda de una explosión (0:02) |
 | 9 | columna | filo naranja `#f6b030` | banda amarilla `#fee63d` | amarillo pálido `#fcf199` (casi todo el haz) | 1:16-1:17 |
 | 10 | remolino | no tiene | rojo plano `#de352b` | llamas amarillas `#fdcc2e` con el centro `#fdf68f` y el filo naranja | 1:12-1:13 |
-| 11 | trazo | filo dorado `#f5c85a`, blando (sin línea) | amarillo pálido `#fdf3a6` | igual que la masa | 0:57, 2:11 |
+| 11 | trazo | filo dorado `#f5c85a`, blando (sin línea) pero ancho y bien visible: casi un tercio del grosor por cada lado | amarillo pálido `#fdf3a6` | igual que la masa; casi sin resplandor (es un dibujo, no un foco) | 0:57, 2:11 |
 | 12 | Hidaruma | filo naranja `#f18113`, blando (sin línea) | amarillo `#fccf1e` | amarillo pálido `#fff160` | 1:42 |
 | 13 | cúpula | filo naranja fino `#ff8a23` y grietas del mismo color | rojo plano `#f12316` | igual que la masa, con mucho resplandor rojo | 3:20-3:32 |
 | 14 | estela | amarillo anaranjado `#fdb238`, ancho | rojo `#f45d40` (solo en lo gordo del chorro) | igual que la masa, sin manchas | 0:38-0:40 |
@@ -70,8 +70,10 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
     parece un charco.
   - 2 a 2,49: el mismo remolino, creciendo. La parte decimal dividida por 0,49 es cuánto ha crecido, de 0 a 1: las
     llamas amarillas de la cabeza van ganando el aro entero y suben hasta casi siete veces el alto de la banda, hasta
-    taparlo casi todo de amarillo pálido justo antes de que salga la columna (1:12 → 1:13). Con otra paleta las
-    llamas van en sus colores: con la 3 es el remolino dorado del Enkai de Marineford (1:24).
+    taparlo casi todo de amarillo pálido justo antes de que salga la columna (1:12 → 1:13). Con otra paleta ya no
+    es rojo con llamas encima sino una sola masa del color de la paleta, casi lisa, con rayas largas un poco más
+    claras tendidas a lo largo del giro y sin filo claro: con la 3 es el abanico dorado del Enkai de Marineford
+    (1:24-1:25), dorado `#fbcb5a` casi entero.
     **Su esfera envolvente es mayor** que la de los demás anillos y tiene que ser la misma en `MeraVolumes.bound`:
     `hypot(1,25·radio + medio ancho + 1,5 ; alto·(4,4 + 2,8·crecido) + 0,5)`. Solo en anime; en realista, la de siempre.
   - 3 a 3,99: un tajo de fuego (los arcos de Shiranui, 2:00). Un arco de 144 grados: el canto de fuera rojo y con
@@ -92,8 +94,9 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   - **0,8 o más: la cruz de llamas** (2:22). La cruz latina de siempre (el palo de abajo, más largo), hecha de
     llamas pequeñas: una soga dorada de bultos con la orilla pálida y un resplandor ancho (paleta 18). Medidas: brazo
     1,8 a 2,2. El grosor queda siempre entre 0,10 y 0,13 brazos, pida lo que pida el emisor.
-- **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada con el canto en olas, rayas
-  amarillo pálido onduladas que corren a lo largo y la punta redonda. `prm.z` (el grosor al salir, en partes del
+- **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:09-2:10). Una masa dorada con el canto en olas, franjas
+  amarillo pálido `#fde68f` anchas y tendidas que corren a lo largo (un cuarto de la masa, no una red de líneas) y la
+  punta redonda. `prm.z` (el grosor al salir, en partes del
   final) decide la silueta: 0,35 para la llama que le sale del antebrazo (largo 3,2 y radio 0,9); 0,65 para la banda
   ancha del barrido (largo 9 y radio 1,0 a 1,3), que es casi igual de gruesa de punta a punta.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
@@ -122,6 +125,9 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   rayo empieza ya dentro del fuego y se aclara con el hueco de la cámara. Antes, con la cámara metida entre las
   llamas (las cuchillas de Hidaruma, un estallido, las nubes de la columna), cada volumen ponía su velo naranja y entre
   todos tapaban la pantalla.
+- **Con la cámara pegada a las llamas el halo se apaga** (a menos de un grosor de llama de la superficie). Antes
+  quedaba un velo naranja con rayas y el borde cortado justo donde la cámara entraba en el fuego (se veía al quedar
+  dentro de una hoguera o de un estallido).
 - **Dentro de una bola o explosión se ve el mundo**, sin nada pegado a la cara.
 - **El fotograma del golpe (`VolStyle.w`)**: en la serie, quien queda dentro de un estallido ve la pantalla roja con
   llamas amarillas que salen del centro del golpe (0:37, 1:14, 1:42). Con `VolStyle.w` > 0 en una bola (forma 0) y la

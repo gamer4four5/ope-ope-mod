@@ -1158,7 +1158,7 @@ void mf_toonPal(float id, out vec3 cRim, out vec3 cVein, out vec3 cFill, out vec
     } else if (id > 10.5) {
         // 11 los trazos: las lanzas de Shiranui (2:11) y las balas de Higan (0:57), amarillo pálido con el filo dorado
         cRim = vec3(0.961, 0.784, 0.353); cVein = cRim; cFill = vec3(0.992, 0.953, 0.651); cCore = cFill;
-        cGlow = vec3(1.0, 0.80, 0.36); k = vec4(0.30, 1.0e3, 0.0, 0.0); gk = vec2(0.32, 0.55);
+        cGlow = vec3(1.0, 0.80, 0.36); k = vec4(0.30, 1.0e3, 0.0, 0.0); gk = vec2(0.20, 0.30);
     } else if (id > 9.5) {
         cRim = vec3(0.871, 0.208, 0.170); cVein = cRim; cFill = cRim; cCore = cRim;
         cGlow = vec3(0.95, 0.30, 0.10); k = vec4(0.0, 1.0e3, 0.0, 0.0); gk = vec2(0.22, 0.40);
@@ -1284,6 +1284,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     bool startIn = false;                     // el rayo empezó ya dentro del fuego (no hay superficie que mirar)
     float ribMin = 1.0e5; float tRib = t;     // las cintas: lo más cerca que pasa el rayo de una, y dónde
     float penF = -1.0e5;                      // lo que se mete el rayo en la capa de encima (el puño)
+    float tSum = 0.0; float wSum = 0.0;       // por dónde pasa cerca el rayo, promediado (sin saltos de un píxel a otro)
+    float dStart = 1.0e5;                     // lo lejos del fuego que empieza el rayo (en L)
 
     for (int i = 0; i < 72; i++) {
         if (t >= tFar) break;
@@ -1297,16 +1299,21 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         if (skip > 0.0) {
             float gd = (mf_glowD < 1.0e8) ? max(mf_glowD, 0.0) : dd;
             if (gd / L < minOut) { minOut = gd / L; tOut = t; LOut = L; }
+            if (i == 0) dStart = gd / L;
             Lr = L;
             // (cerca de una cinta, pasos cortos para no saltársela, pero nunca más cortos que dentro del fuego)
-            t += max(min(skip, rib * L) * 0.85, stepIn);
+            float stp = max(min(skip, rib * L) * 0.85, stepIn);
+            float wS = exp(-max(gd, 0.0) / (L * 0.25)) * stp; tSum += wS * (t + 0.5 * stp); wSum += wS;
+            t += stp;
             hasPrev = false; pA = -1.0e5; pB = -1.0e5;
             continue;
         }
         float pp = -dd / L;
+        if (i == 0) dStart = max(-pp, 0.0);
         if (mf_part < 1.0e4) penF = max(penF, -(mf_part + shrink * L) / L);
         if (mf_glowD < 1.0e8) { float gd = max(mf_glowD, 0.0) / L; if (gd < minOut) { minOut = gd; tOut = t; LOut = L; } }
         else if (pp < 0.0 && -pp < minOut) { minOut = -pp; tOut = t; LOut = L; }
+        { float wS = exp(-max(-pp, 0.0) / 0.25) * stepIn; tSum += wS * (t + 0.5 * stepIn); wSum += wS; }
         // la primera vez que entra: el punto justo, entre esta muestra y la anterior
         if (t0 < 0.0 && pp > 0.0) {
             t0 = (hasPrev && dPrev > 0.0) ? tPrev + (t - tPrev) * dPrev / (dPrev - dd) : t;
@@ -1363,14 +1370,18 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (shape > 8.5) gk = vec2(0.13, 0.60);
 
     // (los trazos y las cuchillas, de filo blando: dentro, el resplandor entero, sin aro)
-    if (pal > 10.5 && pal < 12.5 && pen > 0.0) { minOut = 0.0; tOut = max(t0, 0.0); LOut = L0; }
+    if (pal > 10.5 && pal < 12.5 && pen > 0.0 && t0 >= 0.0) { minOut = 0.0; tOut = t0; LOut = L0; }
     // el resplandor corto de fuera. Es un halo alrededor del dibujo visto desde fuera, no un velo: no llega más allá
     // de un 14 % del alto de la pantalla (pegado a la cámara se queda en nada), no sale si el rayo empieza ya dentro
     // del fuego y se aclara con el hueco de la cámara. Antes, con la cámara metida entre las llamas (las cuchillas de
     // Hidaruma, un estallido) cada volumen ponía su velo naranja y entre todos tapaban la pantalla
+    if (wSum > 1.0e-6 && !(pal > 10.5 && pal < 12.5 && pen > 0.0 && t0 >= 0.0)) tOut = tSum / wSum;
     float gkx = min(gk.x, 0.14 * pixAng * ViewSize.y * tOut / LOut);
     float gl = (gkx > 1.0e-4) ? exp(-max(min(minOut, ribMin), 0.0) / gkx) * gk.y * intensity : 0.0;
     if (startIn) gl = 0.0;
+    // con la cámara pegada a las llamas (a menos de un grosor de llama) el halo se apaga: si no, quedaba un velo
+    // naranja con el borde cortado justo donde la cámara entra en el fuego
+    gl *= smoothstep(0.0, 0.90, dStart);
     if (nearFade > 0.0) gl *= smoothstep(0.35 * nearFade, nearFade + 0.15, tOut);
     // (el resplandor se apaga antes de llegar al borde de la esfera que envuelve la forma: sin corte a la vista)
     gl *= 1.0 - smoothstep(0.78 * B, 0.98 * B, sqrt(max(dot(ro, ro) - bb * bb, 0.0)));
@@ -1436,7 +1447,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         k.x = mix(k.x, max(k.x, kBody), tailK);
     }
     float sil = mf_aastep(0.0, pen);
-    if (soft > 0.5) sil = smoothstep(0.0, 0.22, pen);
+    if (soft > 0.5) sil = smoothstep(0.0, (pal < 11.5) ? 0.10 : 0.22, pen);
     float bFill = mf_aastep(k.x, vp);
     float bCore = mf_aastep(k.y, vp);
     vec3 c = mix(cRim, cFill, bFill);
@@ -1455,7 +1466,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         vec3 pt = p0 / (L0 * 0.90);
         pt.z = pt.z * 0.28 - tm * 2.0;
         float tn = mf_gnoise(pt + so.zxy) + 0.5 * mf_gnoise(pt * 2.2 + so);
-        c = mix(c, cVein, bFill * (1.0 - mf_aastep(0.075, abs(tn - 0.08))));
+        c = mix(c, vec3(0.992, 0.902, 0.560), bFill * mf_aastep(0.22, tn));
     }
     if (pal > 18.5 && pal < 19.5) {
         // la hoguera pálida: llamitas doradas sueltas por dentro, que suben
@@ -1516,6 +1527,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (soft > 0.5) {
         // sin bandas: del filo al centro, poco a poco
         c = mix(cRim, cFill, smoothstep(0.04, k.x * 2.0, pen));
+        // (los trazos, paleta 11: el filo dorado se ve, como en las cuñas del 0:57; no un foco de luz)
+        if (pal < 11.5) c = mix(cRim, cFill, smoothstep(0.10, 0.42, pen));
         c = mix(c, cCore, smoothstep(k.y * 0.65, k.y * 1.25, pen));
         bCore = 0.0;
     }
@@ -1551,7 +1564,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float headK = 1.0 - smoothstep(0.05 + 0.80 * grow, 0.60 + 1.30 * grow, lag);
         // (con otra paleta, por ejemplo la 3 de Marineford para el Enkai del 1:24, las llamas van en sus colores)
         vec3 f1 = vec3(0.930, 0.400, 0.110); vec3 f2 = vec3(0.992, 0.800, 0.180); vec3 f3 = vec3(0.992, 0.965, 0.560);
-        if (pal < 9.5 || pal > 10.5) { f1 = cFill; f2 = mix(cFill, cRim, 0.55); f3 = cRim; }
+        float gold = (pal < 9.5 || pal > 10.5) ? 1.0 : 0.0;
+        if (gold > 0.5) {
+            // (1:25: un abanico dorado casi liso, con rayas un poco más claras y muy pocas pálidas; sin filo claro)
+            f1 = cFill; f2 = mix(cFill, cRim, 0.30); f3 = mix(cFill, cRim, 0.60);
+            c = mix(mix(cFill, cRim, 0.35), cFill, mf_aastep(k.x * 0.6, vp));
+        }
         float H0 = max(prm.y, 0.3);
         vec2 pr = mf_rot(p0.xz, -tm * 4.5);
         float yn = mf_gnoise(vec3(pr * 1.3, p0.y * 1.3 + tm * 0.8) + so);
@@ -1560,6 +1578,12 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         // (lenguas sueltas, alargadas a lo largo del remolino)
         float lick = mf_gnoise(vec3(lag * 9.0, length(p0.xz) / th * 1.7, tm * 1.1) + so.zxy);
         yv = max(yv, 0.10 + 1.15 * lick);
+        if (gold > 0.5) {
+            // rayas largas, tendidas a lo largo del giro
+            float st = mf_gnoise(vec3(lag * 5.0, length(p0.xz) / th * 2.3 + p0.y / th * 1.9, tm * 0.9) + so.yzx);
+            c = mix(c, f2, mf_aastep(0.18, st) * bFill);
+            c = mix(c, f3, mf_aastep(0.50, st) * bFill);
+        } else {
         c = mix(c, f1, mf_aastep(0.50, yv));
         c = mix(c, f2, mf_aastep(0.57, yv));
         c = mix(c, f3, mf_aastep(1.08 - 0.25 * grow, yv));
@@ -1567,6 +1591,7 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float fl = smoothstep(0.15, 0.55, up);
         c = mix(c, f3, fl * mf_aastep(1.5, vp));
         c = mix(c, f1, fl * (1.0 - mf_aastep(0.24, vp)));
+        }
         bCore = 0.0;
     }
     if (k.w > 0.5) {
