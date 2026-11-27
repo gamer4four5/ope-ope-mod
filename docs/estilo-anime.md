@@ -116,8 +116,10 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   centro del tramo del centro del muro entero, a lo largo y con signo. `VolStyle.z` (el segundo número de
   `MeraVolumes.palette(3, …)`) aquí no es el ancho del borde: es el medio largo del muro entero. Con esos dos
   datos y la misma semilla, varios tramos seguidos dibujan una sola cortina sin costuras, y los extremos del muro
-  bajan hasta el suelo en llamas: en los 4 últimos bloques de cada lado la altura cae en rampa hasta casi nada, así el
-  lado se ve inclinado y en llamas, como el filo del muro en el 2:46 (con 2,2 bloques se veía un corte vertical). Si `VolStyle.z` es 0, el tramo se dibuja como un muro entero él solo. No hace
+  bajan hasta el suelo en llamas: en los 2,5 últimos bloques de cada lado (y nunca más de 0,45 del medio largo del
+  muro entero) la altura cae en rampa recta hasta casi nada, así el lado se ve inclinado y en llamas, como el filo del
+  muro en el 2:46 (con la rampa curva, que caía de golpe al final, el lado de un muro alto se veía como un corte
+  vertical; y con una rampa larga en un muro corto, el muro entero era un triángulo). Si `VolStyle.z` es 0, el tramo se dibuja como un muro entero él solo. No hace
   falta que los tramos se monten: cada uno llega justo hasta su vecino. Visto de cerca (2:44, con cada vuelta de
   0,9 bloques ocupando más de 0,16 radianes desde la cámara, es decir a menos de unos 5 bloques), las láminas de
   fuera llevan además otra tanda de contornos más menudos y quebrados, como rayos pálidos sobre el dorado, y las
@@ -149,21 +151,24 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   visto a lo largo, era una semilla); va con `nearFade` 0,45.
 - **Chorro (5) con la paleta 3: la banda dorada de St. Elmo** (2:08,5-2:10,5). En anime no se recorre como un
   volumen: es un dibujo plano en una lámina que contiene el eje del chorro y mira a la cámara. Una cuña dorada que
-  sale de la mano con el grosor `prm.z` (en partes del final), se abre hasta un radio entero y acaba redonda; por
+  sale de la mano con el grosor `prm.z` (en partes del final), se abre deprisa al principio y luego casi igual hasta un
+radio entero (1 − (1 − v)^2,2) y acaba redonda; el ancho ondula despacio a lo largo (±18 %); por
   los cantos de arriba y de abajo, olas: brazos gordos que salen del canto inclinados hacia fuera de la mano y se
   rizan hacia delante como una ola que rompe, con el hueco de cielo entre una y otra, que nacen cerca de la mano y
   corren hacia fuera creciendo (una cada 0,5 radios de largo, entre 3 y 12 por canto, de tamaños muy distintos y más
   finas que largas: crestas que se rizan, no bolitas de nube; las del final, más pequeñas, para que no parezca una
   pinza). En la mano no acaba en un corte: acaba redonda (la mano la tapa). Dorada por dentro, pálida `#fdeaa3` junto
-  al contorno y en vetas largas y onduladas que corren a lo largo del chorro, se rizan en gancho como agua revuelta,
-  van a trozos y se arrastran hacia fuera (antes las vetas seguían el contorno y de cerca dibujaban una lágrima). 0,65 para la banda ancha del
+  al contorno y en vetas largas y onduladas que corren a lo largo del chorro, se rizan en gancho como agua revuelta
+  (como mármol: muy torcidas, no franjas paralelas de tigre), van a trozos y se arrastran hacia fuera (antes las vetas seguían el contorno y de cerca dibujaban una lágrima). 0,65 para la banda ancha del
   barrido (largo 9 y radio 1,15 a 1,5), que es casi igual de gruesa de punta a punta. La llama del antebrazo
   mientras carga (2:09) es este mismo chorro, corto, que sale de la mano hacia atrás y hacia fuera del cuerpo (largo
-  3,4, radio 1,1 y `prm.z` 0,55: en el 2:09 ya sale ancha de la mano; nunca hacia el hombro: entonces cruzaba el cuerpo y se veía una salchicha dorada
+  3,4, radio 1,1 y `prm.z` 0,30, y el origen un cuarto de bloque detrás de la mano: con 0,55 salía tan ancha
+  junto al cuerpo que tapaba a Ace; nunca hacia el hombro: entonces cruzaba el cuerpo y se veía una salchicha dorada
   alrededor de Ace). Antes era el chorro recorrido, una salchicha lisa con cuatro líneas; una fila de bolas con la
   paleta 18 se veía como una oruga de discos. Referencia del banco: `docs/banco/st-elmo.jpg`.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
-  lado. (Las estelas del Hiken, paleta 14, van sin ellas.) `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
+  lado. (Las estelas del Hiken, paleta 14, van sin ellas y apenas onduladas: 0,6 radios de vaivén con ondas largas, de
+  unos 17 radios; con 1,3 radios y ondas de 8 se retorcían como espaguetis y desde abajo se veía una maraña.) `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
   delante (las balas de Higan, 0:57). `prm.z` = 2: la columna de St. Elmo (2:11-2:12), afilada por delante pero que
   se abre enseguida (en el primer 30 % del largo) y sigue del mismo ancho hasta atrás; de lado es una raya gorda en
   punta y desde arriba una columna pálida de ancho parejo. El grosor máximo es 1,25 veces `prm.y` y, de punta a punta, la lanza mide 1,55 veces
@@ -242,7 +247,8 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
 El fuego que envuelve a Ace cuando arde (2:29-2:31 y 2:53-2:55). En anime no se recorre como un volumen: es un dibujo
 plano en una lámina que pasa por el eje del cuerpo y mira siempre a la cámara. Una masa dorada y lisa detrás del cuerpo
 (de 0,62 de medio ancho, más ancha que el cuerpo) de la que salen dieciséis brazos de fuego gordos (tres de ellos, de
-los pies), de 1,7 a 3,2 bloques de largo, que nacen, crecen hacia fuera y hacia arriba, se rizan en la punta como una ola y se recogen, cada uno con su ciclo de 1,2 a 2 segundos; la orilla va en
+los pies), de 1,7 a 3,2 bloques de largo, que nacen, crecen hacia fuera y hacia arriba (rizándose poco: 1,6 a 3
+radianes de principio a fin; con más, al ser largos, se doblaban hacia abajo como brazos colgando), se rizan en la punta como una ola y se recogen, cada uno con su ciclo de 1,2 a 2 segundos; la orilla va en
 bultos redondos con el surco afilado entre uno y otro, hay huecos de cielo entre los brazos, y todo el contorno lleva
 por dentro una orilla pálida y blanda y por fuera un halo corto. Por dentro, unas pocas vetas pálidas onduladas que
 suben con las llamas y se rizan, a trozos (2:29-2:30; muy juntas parecían rayas de tigre). El cuerpo, que queda delante de la lámina, tapa el

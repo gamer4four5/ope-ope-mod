@@ -617,7 +617,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             float chis = (VolStyle.y > 20.5 && VolStyle.y < 21.5) ? 1.0 : 0.0;
             // (los brazos del estallido acaban en punta por los dos lados: donde se juntan no se ven tapas redondas)
             if (chis > 0.5) pr = pow(s, 0.85) * (1.0 - smoothstep(0.80, 1.0, s));
-            vec2 bend = wav * R * 1.3 * s * vec2(sin(p.z * 0.75 / R + time * 2.0), cos(p.z * 0.55 / R - time * 1.4 + 1.0));
+            vec2 bend = wav * R * 0.6 * s * vec2(sin(p.z * 0.75 * 0.5 / R + time * 2.0), cos(p.z * 0.55 * 0.5 / R - time * 1.4 + 1.0));
             d = length(p.xy - bend) - R * 1.25 * pr;
             // las rayas sueltas: dos trazos finos junto a la punta, que van resbalando
             for (int i = 0; i < 2; i++) {
@@ -1251,8 +1251,9 @@ float mf_wallF(float xa, float y, float H0, float hlf, float tm, vec3 so)
 {
     // la altura cambia despacio a lo largo; en los extremos del muro baja hasta el suelo
     float hv = mf_gnoise(vec3(xa * 0.22, tm * 0.5, 2.7) + so);
-    float e = clamp((hlf - abs(xa)) / 4.0, 0.0, 1.0);
-    float H = H0 * (0.86 + 0.22 * hv) * mix(0.03, 1.0, e * (2.0 - e));
+    // (la rampa de los extremos: recta e inclinada, como el filo del muro en el 2:46, sin pasar de casi la mitad del muro)
+    float e = clamp((hlf - abs(xa)) / min(max(2.5, 0.0 * H0), 0.45 * hlf), 0.0, 1.0);
+    float H = H0 * (0.86 + 0.22 * hv) * mix(0.03, 1.0, mix(e * (2.0 - e), e, 1.0));
     // las llamas: las crestas afiladas de un ruido estirado hacia arriba (cada cresta, una punta), en dos tamaños
     // (se mecen a los lados según suben: llamas curvas, no agujas)
     float xs = xa + 0.15 * y + 0.6 * mf_gnoise(vec3(xa * 0.33, y * 0.45 - tm * 0.7, 9.1) + so);
@@ -1424,7 +1425,7 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         float len = (1.7 + 1.5 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
         // (los que nacen altos, más cortos: ninguno se sale de la esfera que envuelve el aura)
         len *= mix(1.0, 0.7, smoothstep(1.2, 1.9, b.y));
-        float curl = -sd * (2.6 + 2.4 * g.y) * (0.45 + 0.55 * u) * ((g.z < 0.3) ? -1.0 : 1.0);
+        float curl = -sd * (1.6 + 1.4 * g.y) * (0.45 + 0.55 * u) * ((g.z < 0.3) ? -1.0 : 1.0);
         // (al apagarse se recoge hacia el cuerpo; si adelgazara, quedaría un hilo)
         float out_ = smoothstep(0.70, 1.0, u);
         len *= 1.0 - out_;
@@ -1444,7 +1445,7 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     float fl = fract(sl);
     float str = smoothstep(0.10 - 0.06, 0.10 + 0.06, fl) * (1.0 - smoothstep(0.45 - 0.06, 0.45 + 0.06, fl)) * smoothstep(0.06, 0.16, -d)
               * smoothstep(0.05 - 0.15, 0.05 + 0.15, mf_gnoise(vec3(qw * vec2(1.2, 0.6), floor(sl) * 3.1) + so));
-    vec3 col = mix(cFill, cRim, max(rim * 0.9, str * 0.6));
+    vec3 col = mix(cFill, cRim, max(rim * 0.9, str * 0.85));
     col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
     float gl = exp(-max(d, 0.0) / 0.07) * gk.y * intensity;
     float fade = nearK * smoothstep(0.0, 0.12, intensity);
@@ -1482,7 +1483,9 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     vec2 w = q + 0.04 * Re * vec2(mf_gnoise(vec3(q / Re * 1.5, tm * 1.3) + so), mf_gnoise(vec3(q / Re * 1.5 + 7.3, tm * 1.3) + so.zxy));
     // la cuña: fina en la mano, se abre y acaba redonda
     float v = clamp(w.x / Lj, 0.0, 1.0);
-    float hw = Re * (s0 + (1.0 - s0) * v + 0.20 * smoothstep(0.6, 1.0, v));
+    // (se abre deprisa al salir de la mano y luego casi igual; el ancho ondula despacio a lo largo, como en el barrido)
+    float ve = 1.0 - pow(1.0 - v, 2.2);
+    float hw = Re * (s0 + (1.0 - s0) * ve + 0.20 * smoothstep(0.6, 1.0, v)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, v) * mf_gnoise(vec3(w.x / Re * 0.35, tm * 0.5, 3.3) + so));
     float zc = max(w.x - 0.78 * Lj, 0.0) * hw / ((1.0 - 0.78) * Lj);
     // (en la mano no acaba cortado: redondo, y la mano lo tapa)
     float d = length(vec2(w.y, zc + max(-w.x, 0.0) * 1.0)) - hw * (1.0 - 0.35);
@@ -1497,7 +1500,8 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         if (kw >= nW) continue;
         vec3 h = mf_hash33(vec3(fi, 7.0, 3.0) + floor(so));
         float x = fract((kw + 0.5 * (1.0 - sd) * 0.5 + 0.25 * h.x) / nW + tm * 0.45 * 3.2 / Lj);
-        float hwi = Re * (s0 + (1.0 - s0) * x + 0.20 * smoothstep(0.6, 1.0, x));
+        float xe = 1.0 - pow(1.0 - x, 2.2);
+        float hwi = Re * (s0 + (1.0 - s0) * xe + 0.20 * smoothstep(0.6, 1.0, x)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, x) * mf_gnoise(vec3(x * Lj / Re * 0.35, tm * 0.5, 3.3) + so));
         float grow = smoothstep(0.0, 0.22, x) * (1.0 - smoothstep(0.62, 1.0, x));
         float rho = 0.55 * hwi * (1.0 - 0.5 * 0.8 + 0.8 * h.y) * grow;
         if (rho < 0.03 * Re) continue;
@@ -1514,13 +1518,13 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     float a = 1.0 - mf_aastep(0.0, d);
     // dorado por dentro, con vetas pálidas largas y onduladas que corren a lo largo del chorro y se rizan en gancho
     // (como agua revuelta), cortadas a trozos y arrastradas hacia fuera; pálido también junto al contorno
-    vec2 qs = vec2((q.x - tm * 0.45 * 3.2) / Re * 0.40, q.y / Re);
-    vec2 qw = qs + 0.6 * vec2(mf_gnoise(vec3(qs * 0.9, tm * 0.6) + so), mf_gnoise(vec3(qs * 0.9 + 4.7, tm * 0.6) + so.zxy));
+    vec2 qs = vec2((q.x - tm * 0.45 * 3.2) / Re * 0.32, q.y / Re);
+    vec2 qw = qs + 0.9 * vec2(mf_gnoise(vec3(qs * 1.1, tm * 0.6) + so), mf_gnoise(vec3(qs * 1.1 + 4.7, tm * 0.6) + so.zxy));
     float sl = qw.y * 3.0 + 0.6 * sin(qw.x * 2.1 + so.x);
     float pale = 1.0 - smoothstep(0.06 * Re, 0.20 * Re, -d);
     float fl = fract(sl);
     float str = smoothstep(0.10 - 0.06, 0.10 + 0.06, fl) * (1.0 - smoothstep(0.50 - 0.06, 0.50 + 0.06, fl)) * smoothstep(0.5 * 0.30 * Re, 0.30 * Re, -d)
-              * smoothstep(-0.6 - 0.15, -0.6 + 0.15, mf_gnoise(vec3(qw * vec2(0.6, 1.2), floor(sl) * 3.1) + so));
+              * smoothstep(-0.3 - 0.15, -0.3 + 0.15, mf_gnoise(vec3(qw * vec2(0.6, 1.2), floor(sl) * 3.1) + so));
     vec3 col = mix(cFill, vec3(0.992, 0.918, 0.640), max(pale * 0.85, str * 0.90));
     col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
     float gl = exp(-max(d, 0.0) / (0.10 * Re)) * gk.y * intensity;
