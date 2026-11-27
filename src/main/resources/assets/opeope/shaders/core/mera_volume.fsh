@@ -1240,8 +1240,107 @@ float mf_toonDefault(float shape, vec4 prm)
     return 3.0;                                             // las llamas sueltas y las del cuerpo (y su aura)
 }
 
+// El muro de Kyōkaen en dibujo (2:43-2:46): una cortina plana y alta, no una fila de bolsas. Va dibujado en tres
+// láminas paralelas (la del medio, más alta y un punto más oscura, asoma por detrás de la de delante), cada una un
+// dibujo plano: dorada, sin línea de borde, que arriba y en los dos extremos acaba en muchas llamas en punta, un poco
+// inclinadas, que suben; por dentro, franjas pálidas y difusas (2:46) y líneas pálidas quebradas (2:44).
+// mf_wallF: lo que le falta al punto para llegar a la orilla de la silueta, hacia arriba y en bloques (negativo
+// dentro). xa es la posición a lo largo del muro entero (un muro puede ir en varios tramos: todos dibujan la misma
+// cortina) y hlf su medio largo.
+float mf_wallF(float xa, float y, float H0, float hlf, float tm, vec3 so)
+{
+    // la altura cambia despacio a lo largo; en los extremos del muro baja hasta el suelo
+    float hv = mf_gnoise(vec3(xa * 0.22, tm * 0.5, 2.7) + so);
+    float e = clamp((hlf - abs(xa)) / 2.2, 0.0, 1.0);
+    float H = H0 * (0.86 + 0.22 * hv) * mix(0.10, 1.0, e * (2.0 - e));
+    // las llamas: las crestas afiladas de un ruido estirado hacia arriba (cada cresta, una punta), en dos tamaños
+    // (se mecen a los lados según suben: llamas curvas, no agujas)
+    float xs = xa + 0.15 * y + 0.6 * mf_gnoise(vec3(xa * 0.33, y * 0.45 - tm * 0.7, 9.1) + so);
+    float n1 = abs(mf_gnoise(vec3(xs / 1.5, y / 4.5 - tm * 0.9, 1.7) + so.zxy));
+    float n2 = abs(mf_gnoise(vec3(xs / (1.5 * 0.40), y / (4.5 * 0.40) - tm * 0.9 * 1.6, 5.3) + so.yzx));
+    // (la falda de cada llama, ancha; la punta, afilada)
+    return y - H * (1.0 - 0.30 * pow(min(2.5 * n1, 1.0), 0.7) - 0.12 * pow(min(2.5 * n2, 1.0), 0.7));
+}
+
+float mf_aastep(float th, float v)
+{
+    float fw = clamp(fwidth(v) * 0.75, 1e-4, 0.35);
+    return smoothstep(th - fw, th + fw, v);
+}
+
+vec4 mf_wallDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float tm, vec3 so, float intensity, float flash,
+                 float nearFade, float pixAng)
+{
+    float W = max(prm.x, 0.5);
+    float H0 = max(prm.y, 0.5);
+    float T = max(prm.z, 0.1);
+    float hlf = (VolStyle.z > 0.5) ? VolStyle.z : W;
+    vec3 cRim; vec3 cVein; vec3 cFill; vec3 cCore; vec3 cGlow; vec4 k; vec2 gk;
+    mf_toonPal((VolStyle.y > 0.5) ? VolStyle.y : 3.0, cRim, cVein, cFill, cCore, cGlow, k, gk);
+    // (mientras nace o se apaga, la orilla baja un poco; la altura ya la da quien lo emite)
+    float sink = (1.0 - intensity) * 0.9;
+    float zs = (rd.z >= 0.0) ? 1.0 : -1.0;
+    vec4 acc = vec4(0.0);
+    float glow = 0.0;
+    for (int j = 0; j < 3; j++) {
+        // las láminas, de la más cercana a la más lejana a lo largo del rayo
+        float fj = float(j) - 1.0;
+        float zL = fj * zs * T * 1.0;
+        if (abs(rd.z) < 1.0e-4) break;
+        float t = (zL - ro.z) / rd.z;
+        if (t <= max(tNear, 0.0) || t >= tFar) continue;
+        vec3 p = ro + rd * t;
+        float dx = abs(p.x) - W;
+        if (dx > 0.03 || p.y < -0.25) continue;
+        bool mid = (j == 1);
+        vec3 sj = so + (mid ? vec3(17.3, 5.1, 9.7) : ((zL > 0.0) ? vec3(3.7, 31.3, 12.9) : vec3(0.0)));
+        float Hj = H0 * (mid ? 1.10 : 1.0);
+        float xa = p.x + prm.w;
+        float F = mf_wallF(xa, p.y, Hj, hlf, tm, sj) + sink;
+        float a = 1.0 - mf_aastep(0.0, F);
+        if (F > 0.0 && F < 1.2 && dx <= 0.0) {
+            // el resplandor, por la distancia de verdad hasta la orilla (por los lados de una llama la silueta cambia
+            // mucho más deprisa que hacia arriba)
+            float Fx = (mf_wallF(xa + 0.06, p.y, Hj, hlf, tm, sj) + sink - F) / 0.06;
+            glow = max(glow, exp(-F / (sqrt(1.0 + Fx * Fx) * 0.12)));
+        }
+        if (a < 0.004) continue;
+        vec3 c = mix(cFill, vec3(0.980, 0.745, 0.300), mid ? 1.0 : 0.0);
+        if (!mid) {
+            float dIn = -F;
+            float xs = xa + 0.15 * p.y;
+            vec3 ps = vec3(xs / 1.1, p.y / 4.5 - tm * 0.6, 7.7) + sj.yzx;
+            float sn = mf_gnoise(ps) + 0.5 * mf_gnoise(ps * vec3(2.3, 1.7, 1.0) + 3.3);
+            c = mix(c, vec3(0.992, 0.918, 0.600), smoothstep(-0.25, 0.20, sn) * smoothstep(0.10, 0.55, dIn) * 0.85);
+            // las líneas pálidas quebradas (2:44): el contorno de las llamas de dentro. Son la misma clase de silueta en
+            // punta, repetida hacia arriba cada 2.2 bloques y subiendo; cada contorno sale a trozos
+            vec3 pl = vec3(xs / 1.0, p.y / 3.0 - tm * 0.5, 3.9) + sj;
+            float m1 = abs(mf_gnoise(pl));
+            float m2 = abs(mf_gnoise(pl * vec3(2.6, 2.2, 1.0) + 5.0));
+            float G = p.y + 1.6 * min(2.5 * m1, 1.0) + 0.5 * min(2.5 * m2, 1.0);
+            float ph = G / 2.2 - tm * 0.6;
+            float gN = length(vec2(dFdx(G), dFdy(G))) / (2.2 * max(pixAng * t, 1.0e-5));
+            float lw = 0.5 * 0.24 * clamp(gN, 0.3, 4.0);
+            float fr = abs(fract(ph + 0.5) - 0.5);
+            float gate = smoothstep(-0.20, 0.10, mf_gnoise(vec3(xs * 0.5, floor(ph + 0.5) * 7.3, tm * 0.4) + sj.yzx));
+            float line = 1.0 - smoothstep(lw * 0.2, lw, fr);
+            // (donde los contornos se apiñan no se pintan, y junto al suelo tampoco: ahí serían rayas tendidas)
+            line *= (1.0 - smoothstep(3.0, 3.0 * 1.6, gN)) * smoothstep(0.5, 0.5 + 0.8, p.y);
+            c = mix(c, vec3(0.992, 0.918, 0.600), line * gate * 0.9 * smoothstep(0.0, 0.10 + 0.05, dIn));
+        }
+        if (nearFade > 0.0) a *= smoothstep(0.35 * nearFade, nearFade + 0.15, t);
+        acc += (1.0 - acc.a) * vec4(c * a, a);
+        if (acc.a > 0.996) break;
+    }
+    acc.rgb = mix(acc.rgb, vec3(1.0, 0.98, 0.90) * acc.a, flash * 0.75);
+    float gl = glow * gk.y * intensity;
+    vec4 o = vec4(acc.rgb + cGlow * gl * (1.0 - acc.a), acc.a + gl * 0.75 * (1.0 - acc.a));
+    return o * smoothstep(0.0, 0.12, intensity);
+}
+
 // El campo del dibujo: la forma con sus lóbulos y lenguas grandes, sin detalle fino. Fuera de la envoltura no calcula
 // el ruido y devuelve en skip la distancia segura hasta ella (> 0).
+
 // (la cruz de llamas) la distancia con la que se mide el resplandor: la de la forma sin bultos (1e9 = la de siempre)
 float mf_glowD;
 
@@ -1323,12 +1422,6 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     return d + mix(ampB * nB, amp * nT, w);
 }
 
-float mf_aastep(float th, float v)
-{
-    float fw = clamp(fwidth(v) * 0.75, 1e-4, 0.35);
-    return smoothstep(th - fw, th + fw, v);
-}
-
 vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
                   float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float pixAng)
 {
@@ -1341,6 +1434,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // animado «a doses», como el dibujo: la forma cambia 12 veces por segundo
     float tm = floor(time * 12.0 + 0.5) / 12.0;
     float shrink = (1.0 - intensity) * 0.9;
+    // el muro va dibujado en láminas planas, no recorrido
+    if (shape > 3.5 && shape < 4.5) return mf_wallDraw(ro, rd, tNear, tFar, prm, tm, so, intensity, flash, nearFade, pixAng);
 
     // pegado a la cámara el fuego no se dibuja (no tapa la vista): el rayo empieza un poco más allá
     float t = max(tNear, 0.35 * nearFade);
