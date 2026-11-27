@@ -1427,6 +1427,14 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     // y tampoco engorda al acercarse: pegado a la cámara (un chorro visto en primera persona) el borde no pasa de
     // un 6 % del alto de la pantalla
     if (soft < 0.5 && VolStyle.z <= 0.0) k.x = min(k.x, 0.065 * pixAng * ViewSize.y * t0 / L0);
+    // el cuerpo de fuego del Hiken (el cometa de detrás del puño) lleva el amarillo mucho más ancho que el puño: de
+    // lado se ve casi tanto amarillo como rojo (0:34)
+    if (isFist > 0.5 && VolStyle.z <= 0.0) {
+        float Sf = max(prm.x, 0.2);
+        float tailK = smoothstep(0.1 * Sf, 1.5 * Sf, -0.45 * Sf - p0.z);
+        float kBody = min(k.x * 3.0, 0.16 * pixAng * ViewSize.y * t0 / L0);
+        k.x = mix(k.x, max(k.x, kBody), tailK);
+    }
     float sil = mf_aastep(0.0, pen);
     if (soft > 0.5) sil = smoothstep(0.0, 0.22, pen);
     float bFill = mf_aastep(k.x, vp);

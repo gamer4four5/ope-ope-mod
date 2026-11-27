@@ -102,7 +102,8 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   de Higan, largo 2,6 y radio 0,45; lanza de Shiranui, largo 9 o más y radio 0,5. Con la paleta 14 el trazo va
   ondulado: son los chorros rojos que quedan cruzando el aire después de un Hiken (0:38), largo 6 a 8 y radio 0,6 a 1.
 - **Puño (1)**: la cabeza es casi una bola y se junta con su cuerpo de fuego por un cuello marcado, así que de lado se
-  ve una bola con su aro amarillo y el cometa detrás (0:34).
+  ve una bola con su aro amarillo y el cometa detrás (0:34). El cometa lleva el amarillo tres veces más ancho que el puño (hasta
+  un 16 % del alto de la pantalla): de lado se ve casi tanto amarillo como rojo.
 - **El borde de las masas (bolas y puño) no adelgaza con la distancia**: de lejos ocupa lo mismo en pantalla (un 3 % del
   alto), hasta 3,5 veces el ancho normal en el puño y 2,2 en las bolas. Con `VolStyle.z` > 0 manda ese valor.
 - **Ni engorda al acercarse**: en cualquier forma, el borde no pasa de un 6 % del alto de la pantalla (un chorro visto
