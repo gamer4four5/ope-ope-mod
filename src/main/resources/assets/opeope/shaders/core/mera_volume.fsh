@@ -621,7 +621,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
             d = length(p.xy - bend) - R * 1.25 * pr;
             // las rayas sueltas: dos trazos finos junto a la punta, que van resbalando
             for (int i = 0; i < 2; i++) {
-                if (chis > 0.5) break;
+                if (chis > 0.5 || wav * 1.0 > 0.5) break;
                 float fi = float(i);
                 float ph = fract(time * (0.55 + 0.25 * fi) + fi * 0.37);
                 float zc = sg * hl * (0.75 - 0.9 * ph);
@@ -1251,8 +1251,8 @@ float mf_wallF(float xa, float y, float H0, float hlf, float tm, vec3 so)
 {
     // la altura cambia despacio a lo largo; en los extremos del muro baja hasta el suelo
     float hv = mf_gnoise(vec3(xa * 0.22, tm * 0.5, 2.7) + so);
-    float e = clamp((hlf - abs(xa)) / 2.2, 0.0, 1.0);
-    float H = H0 * (0.86 + 0.22 * hv) * mix(0.10, 1.0, e * (2.0 - e));
+    float e = clamp((hlf - abs(xa)) / 4.0, 0.0, 1.0);
+    float H = H0 * (0.86 + 0.22 * hv) * mix(0.03, 1.0, e * (2.0 - e));
     // las llamas: las crestas afiladas de un ruido estirado hacia arriba (cada cresta, una punta), en dos tamaños
     // (se mecen a los lados según suben: llamas curvas, no agujas)
     float xs = xa + 0.15 * y + 0.6 * mf_gnoise(vec3(xa * 0.33, y * 0.45 - tm * 0.7, 9.1) + so);
@@ -1408,7 +1408,7 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     mf_toonPal((VolStyle.y > 0.5) ? VolStyle.y : 3.0, cRim, cVein, cFill, cCore, cGlow, k, gk);
     // las orillas ondulan
     vec2 w = q + 0.10 * vec2(mf_gnoise(vec3(q * 2.2, tm * 1.3) + so), mf_gnoise(vec3(q * 2.2 + 7.3, tm * 1.3) + so.zxy));
-    float d = (length((w - vec2(0.0, 1.05)) / vec2(0.50, 1.15)) - 1.0) * 0.50;
+    float d = (length((w - vec2(0.0, 1.05)) / vec2(0.62, 1.15)) - 1.0) * 0.62;
     for (int i = 0; i < 16; i++) {
         float fi = float(i);
         vec3 h0 = mf_hash33(vec3(fi, 3.0, 11.0) + floor(so));
@@ -1421,14 +1421,14 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         float low = (i < 3) ? 1.0 : 0.0;                    // dos nacen a los pies; los demás, del tronco y la cabeza
         vec2 b = vec2(sd * (0.08 + 0.22 * h.x), mix(0.55 + 1.35 * h.y, 0.05 + 0.25 * h.y, low) + 0.25 * u);
         float ph = sd * radians(mix(12.0 + 78.0 * h.z, 40.0 + 40.0 * h.z, low));
-        float len = (1.2 + 1.1 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
+        float len = (1.7 + 1.5 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
         // (los que nacen altos, más cortos: ninguno se sale de la esfera que envuelve el aura)
         len *= mix(1.0, 0.7, smoothstep(1.2, 1.9, b.y));
         float curl = -sd * (2.6 + 2.4 * g.y) * (0.45 + 0.55 * u) * ((g.z < 0.3) ? -1.0 : 1.0);
         // (al apagarse se recoge hacia el cuerpo; si adelgazara, quedaría un hilo)
         float out_ = smoothstep(0.70, 1.0, u);
         len *= 1.0 - out_;
-        float w0 = (0.26 + 0.16 * g.z) * (1.0 - 0.4 * out_) * smoothstep(0.0, 0.10, u);
+        float w0 = (0.30 + 0.16 * g.z) * (1.0 - 0.4 * out_) * smoothstep(0.0, 0.10, u);
         if (len > 0.12) d = mf_smin(d, mf_armD(w, b, ph, len, curl, w0), 0.10);
     }
     // la orilla, en bultos redondos con el surco afilado entre uno y otro (como nubes), que suben
@@ -1437,7 +1437,14 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     d += (1.0 - intensity) * 0.5;
     float a = 1.0 - mf_aastep(0.0, d);
     float rim = 1.0 - smoothstep(0.03, 0.13, -d);
-    vec3 col = mix(cFill, cRim, rim * 0.9);
+    // por dentro, vetas pálidas onduladas que suben con las llamas y se rizan, cortadas a trozos (2:29-2:30)
+    vec2 qs = vec2(q.x, (q.y - tm * 0.9) * 0.45);
+    vec2 qw = qs + 1.0 * vec2(mf_gnoise(vec3(qs * 0.7, tm * 0.6) + so), mf_gnoise(vec3(qs * 0.7 + 4.7, tm * 0.6) + so.zxy));
+    float sl = qw.x * 1.5 + 0.6 * sin(qw.y * 2.1 + so.x);
+    float fl = fract(sl);
+    float str = smoothstep(0.10 - 0.06, 0.10 + 0.06, fl) * (1.0 - smoothstep(0.45 - 0.06, 0.45 + 0.06, fl)) * smoothstep(0.06, 0.16, -d)
+              * smoothstep(0.05 - 0.15, 0.05 + 0.15, mf_gnoise(vec3(qw * vec2(1.2, 0.6), floor(sl) * 3.1) + so));
+    vec3 col = mix(cFill, cRim, max(rim * 0.9, str * 0.6));
     col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
     float gl = exp(-max(d, 0.0) / 0.07) * gk.y * intensity;
     float fade = nearK * smoothstep(0.0, 0.12, intensity);
@@ -1477,12 +1484,12 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     float v = clamp(w.x / Lj, 0.0, 1.0);
     float hw = Re * (s0 + (1.0 - s0) * v + 0.20 * smoothstep(0.6, 1.0, v));
     float zc = max(w.x - 0.78 * Lj, 0.0) * hw / ((1.0 - 0.78) * Lj);
-    float d = length(vec2(w.y, zc)) - hw * (1.0 - 0.35);
-    d = max(d, -w.x - 0.10 * Re);
+    // (en la mano no acaba cortado: redondo, y la mano lo tapa)
+    float d = length(vec2(w.y, zc + max(-w.x, 0.0) * 1.0)) - hw * (1.0 - 0.35);
     // las olas de los cantos: bultos redondos en fila, con una muesca entre uno y otro que se riza como el hueco de
     // una ola; nacen cerca de la mano y corren hacia fuera creciendo
-    // (cuantas más largo, más olas: una cada 0.60 radios, entre 3 y 12 por canto)
-    float nW = clamp(floor(Lj / (0.60 * Re) + 0.5), 3.0, float(12));
+    // (cuantas más largo, más olas: una cada 0.5 radios, entre 3 y 12 por canto)
+    float nW = clamp(floor(Lj / (0.5 * Re) + 0.5), 3.0, float(12));
     for (int i = 0; i < 2 * 12; i++) {
         float fi = float(i);
         float sd = (i < 12) ? 1.0 : -1.0;
@@ -1491,32 +1498,77 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         vec3 h = mf_hash33(vec3(fi, 7.0, 3.0) + floor(so));
         float x = fract((kw + 0.5 * (1.0 - sd) * 0.5 + 0.25 * h.x) / nW + tm * 0.45 * 3.2 / Lj);
         float hwi = Re * (s0 + (1.0 - s0) * x + 0.20 * smoothstep(0.6, 1.0, x));
-        float grow = smoothstep(0.0, 0.22, x) * (1.0 - smoothstep(0.78, 1.0, x));
-        float rho = 0.55 * hwi * (0.85 + 0.3 * h.y) * grow;
+        float grow = smoothstep(0.0, 0.22, x) * (1.0 - smoothstep(0.62, 1.0, x));
+        float rho = 0.55 * hwi * (1.0 - 0.5 * 0.8 + 0.8 * h.y) * grow;
         if (rho < 0.03 * Re) continue;
         vec2 ci = vec2(x * Lj, sd * hwi * (1.0 - 0.35) * 0.85);
         // cada ola es un brazo gordo que sale del canto inclinado hacia fuera de la mano y se riza hacia delante
         float ph = (sd > 0.0) ? 0.55 : 3.14159265 - 0.55;
-        float curl = sd * 3.8 * (0.75 + 0.5 * h.z);
-        d = mf_smin(d, mf_armD(w, ci, ph, 1.7 * rho, curl, 0.60 * rho), 0.12 * rho);
+        float curl = sd * 2.6 * (0.75 + 0.5 * h.z);
+        d = mf_smin(d, mf_armD(w, ci, ph, 2.2 * rho, curl, 0.42 * rho), 0.12 * rho);
     }
     // la orilla, en bultos pequeños
     float bn = abs(mf_gnoise(vec3(q / Re * 3.0, tm * 0.8) + so.yzx));
     d -= 0.02 * Re * (min(2.5 * bn, 1.0) - 0.4);
     d += (1.0 - intensity) * 0.5 * Re;
     float a = 1.0 - mf_aastep(0.0, d);
-    // dorado por dentro; pálido junto al contorno de cada ola y en franjas onduladas que siguen las olas
-    float ln = -d / (0.30 * Re) + 0.30 * mf_gnoise(vec3(q / Re * 1.1, tm * 0.5) + so.zxy);
+    // dorado por dentro, con vetas pálidas largas y onduladas que corren a lo largo del chorro y se rizan en gancho
+    // (como agua revuelta), cortadas a trozos y arrastradas hacia fuera; pálido también junto al contorno
+    vec2 qs = vec2((q.x - tm * 0.45 * 3.2) / Re * 0.40, q.y / Re);
+    vec2 qw = qs + 0.6 * vec2(mf_gnoise(vec3(qs * 0.9, tm * 0.6) + so), mf_gnoise(vec3(qs * 0.9 + 4.7, tm * 0.6) + so.zxy));
+    float sl = qw.y * 3.0 + 0.6 * sin(qw.x * 2.1 + so.x);
     float pale = 1.0 - smoothstep(0.06 * Re, 0.20 * Re, -d);
-    float fl = fract(ln);
-    float str = mf_aastep(0.15, fl) * (1.0 - mf_aastep(0.45, fl)) * mf_aastep(1.0, ln)
-              * smoothstep(-0.2, 0.2, mf_gnoise(vec3(q / Re * 0.8, floor(ln) * 3.1) + so));
+    float fl = fract(sl);
+    float str = smoothstep(0.10 - 0.06, 0.10 + 0.06, fl) * (1.0 - smoothstep(0.50 - 0.06, 0.50 + 0.06, fl)) * smoothstep(0.5 * 0.30 * Re, 0.30 * Re, -d)
+              * smoothstep(-0.6 - 0.15, -0.6 + 0.15, mf_gnoise(vec3(qw * vec2(0.6, 1.2), floor(sl) * 3.1) + so));
     vec3 col = mix(cFill, vec3(0.992, 0.918, 0.640), max(pale * 0.85, str * 0.90));
     col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
     float gl = exp(-max(d, 0.0) / (0.10 * Re)) * gk.y * intensity;
     float fade = nearK * smoothstep(0.0, 0.12, intensity);
     if (nearFade > 0.0) fade *= smoothstep(0.35 * nearFade, nearFade + 0.15, t);
     return vec4(col * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a)) * fade;
+}
+
+// La cruz de los dedos de Jūjika en dibujo (2:13,5-2:14,5): tampoco se recorre. Es una cruz de luz plana, en el
+// plano de la cruz: cada brazo es un trazo que se afina hacia la punta, blanco amarillento por el centro, dorado hacia
+// el borde, que es blando y tiembla, y acaba en naranja en la punta; alrededor, un halo ancho. De canto se apaga.
+vec4 mf_crossDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time, vec3 so, float intensity, float flash,
+                  float nearFade)
+{
+    float A = max(prm.x, 0.3);
+    float th = (prm.y > 0.01) ? prm.y : 0.3;
+    th = clamp(th, 0.15 * A, 0.18 * A) * 1.45;
+    float lo = (prm.z > 0.01) ? min(1.3 * A, prm.z) : 1.3 * A;
+    float tm = floor(time * 12.0 + 0.5) / 12.0;
+    if (abs(rd.z) < 1.0e-4) return vec4(0.0);
+    float t = -ro.z / rd.z;
+    if (t <= max(tNear, 0.0) || t >= tFar) return vec4(0.0);
+    vec2 p = (ro + rd * t).xy;
+    float cy = 0.25 * A;
+    // el brazo de arriba y el de abajo
+    float av = p.y - cy;
+    float Lv = (av > 0.0) ? A * 1.35 - cy : lo + cy;
+    float sv = clamp(abs(av) / Lv, 0.0, 1.0);
+    float dv = length(vec2(p.x, max(abs(av) - Lv, 0.0))) - th * mix(1.0, 0.75, pow(sv, 1.5));
+    // los de los lados
+    float Lh = 0.85 * A * 1.0;
+    float sh = clamp(abs(p.x) / Lh, 0.0, 1.0);
+    float dh = length(vec2(p.y - cy, max(abs(p.x) - Lh, 0.0))) - th * mix(1.0, 0.75, pow(sh, 1.5));
+    float sx = (dv < dh) ? sv : sh;
+    float d = mf_smin(dv, dh, 0.5 * th);
+    // el borde tiembla, a doses
+    d += 0.10 * th * mf_gnoise(vec3(p / th * 0.7, tm * 2.0) + so);
+    d += (1.0 - intensity) * 1.2 * th;
+    float dn = d / th;
+    vec3 col = mix(vec3(1.0, 0.86, 0.34), vec3(1.0, 0.96, 0.70), smoothstep(-0.15, -0.65, dn));
+    col = mix(col, vec3(0.98, 0.50, 0.16), smoothstep(0.55, 1.0, sx) * 0.3 * (1.0 - smoothstep(-0.2, -0.7, dn) * 0.5));
+    col = mix(col, vec3(1.0, 0.98, 0.90), flash * 0.75);
+    float a = 1.0 - smoothstep(-0.18, 0.12, dn);
+    float gl = exp(-max(dn, 0.0) / 1.1) * 0.85 * intensity;
+    vec3 gc = mix(vec3(1.0, 0.88, 0.40), vec3(0.98, 0.50, 0.16), smoothstep(0.6, 1.0, sx) * 0.6);
+    float fade = smoothstep(0.08, 0.35, abs(rd.z)) * smoothstep(0.0, 0.12, intensity);
+    if (nearFade > 0.0) fade *= smoothstep(0.35 * nearFade, nearFade + 0.15, t);
+    return vec4(col * a + gc * gl * (1.0 - a), a + gl * (1.0 - a)) * fade;
 }
 
 // La hoguera de Hidaruma en dibujo (1:54-1:56): tampoco se recorre. Es un dibujo plano en una lámina que pasa por el
@@ -1700,6 +1752,8 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (shape > 8.5) return mf_auraDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, nearFade, pixAng);
     // y el chorro dorado de St. Elmo (chorro con la paleta 3)
     if (shape > 4.5 && shape < 5.5 && VolStyle.y > 2.5 && VolStyle.y < 3.5) return mf_bandDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, nearFade, pixAng);
+    // y la cruz de luz de los dedos de Jūjika (cruz pequeña)
+    if (shape > 5.5 && shape < 6.5 && prm.x < 0.8) return mf_crossDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, nearFade);
     // y la hoguera pálida de Hidaruma (bola con la paleta 19)
     if (shape < 0.5 && VolStyle.y > 18.5 && VolStyle.y < 19.5) return mf_hogDraw(ro, rd, tNear, tFar, prm, time, so, intensity, flash, pixAng);
 

@@ -116,7 +116,8 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   centro del tramo del centro del muro entero, a lo largo y con signo. `VolStyle.z` (el segundo número de
   `MeraVolumes.palette(3, …)`) aquí no es el ancho del borde: es el medio largo del muro entero. Con esos dos
   datos y la misma semilla, varios tramos seguidos dibujan una sola cortina sin costuras, y los extremos del muro
-  bajan hasta el suelo en llamas. Si `VolStyle.z` es 0, el tramo se dibuja como un muro entero él solo. No hace
+  bajan hasta el suelo en llamas: en los 4 últimos bloques de cada lado la altura cae en rampa hasta casi nada, así el
+  lado se ve inclinado y en llamas, como el filo del muro en el 2:46 (con 2,2 bloques se veía un corte vertical). Si `VolStyle.z` es 0, el tramo se dibuja como un muro entero él solo. No hace
   falta que los tramos se monten: cada uno llega justo hasta su vecino. Visto de cerca (2:44, con cada vuelta de
   0,9 bloques ocupando más de 0,16 radianes desde la cámara, es decir a menos de unos 5 bloques), las láminas de
   fuera llevan además otra tanda de contornos más menudos y quebrados, como rayos pálidos sobre el dorado, y las
@@ -128,9 +129,12 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   paleta 13 es la cúpula roja del final de Entei: el centro en el suelo, para que se vea media esfera. Con la paleta
   17 es el sol mientras nace: la misma esfera con una orilla ancha de llamas pequeñas (3:03-3:08).
 - **Cruz (6)**: en anime hay dos, según el brazo (`prm.x`):
-  - **Menos de 0,8: la cruz de los dedos** (2:14). Un «+» de brazos iguales, finos y lisos, amarillo limón con el
-    centro pálido y mucho resplandor (paleta 7). Centrado un cuarto de brazo por encima del origen: va de −0,75 a
-    1,25 brazos en vertical y de −1 a 1 en horizontal. El grosor (medio ancho del brazo) queda siempre entre 0,15 y
+  - **Menos de 0,8: la cruz de los dedos** (2:13,5-2:14,5). No se recorre: es una cruz de luz plana en el plano de
+    la cruz, sin línea de borde. Cada brazo es un trazo que se afina un poco hacia la punta, amarillo pálido
+    `#fff5b3` por el centro y dorado hacia el borde, que es blando y tiembla; las puntas tiran un poco a naranja y
+    alrededor hay un halo dorado ancho. De canto se apaga (antes era un sólido con filo naranja y puntas de hueso).
+    Centrado un cuarto de brazo por encima del origen: va de −1,3 a 1,35 brazos en vertical y de −0,85 a 0,85 en
+    horizontal. El grosor (medio ancho del brazo) queda siempre entre 0,15 y
     0,18 brazos, pida lo que pida el emisor: cada brazo es unas seis veces más largo que ancho, como en el 2:14 (con
     0,27 a 0,32, de cerca era un «+» gordo de botiquín). Medidas de la serie: brazo 0,35 a 0,45, justo delante de
     los dedos. Referencia del banco: `docs/banco/cruz-dedos.jpg`.
@@ -148,15 +152,18 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
   sale de la mano con el grosor `prm.z` (en partes del final), se abre hasta un radio entero y acaba redonda; por
   los cantos de arriba y de abajo, olas: brazos gordos que salen del canto inclinados hacia fuera de la mano y se
   rizan hacia delante como una ola que rompe, con el hueco de cielo entre una y otra, que nacen cerca de la mano y
-  corren hacia fuera creciendo (una cada 0,6 radios de largo, entre 3 y 12 por canto). Dorada por dentro, pálida
-  `#fdeaa3` junto al contorno de cada ola y en franjas onduladas que siguen las olas. 0,65 para la banda ancha del
-  barrido (largo 9 y radio 1,0 a 1,3), que es casi igual de gruesa de punta a punta. La llama del antebrazo
+  corren hacia fuera creciendo (una cada 0,5 radios de largo, entre 3 y 12 por canto, de tamaños muy distintos y más
+  finas que largas: crestas que se rizan, no bolitas de nube; las del final, más pequeñas, para que no parezca una
+  pinza). En la mano no acaba en un corte: acaba redonda (la mano la tapa). Dorada por dentro, pálida `#fdeaa3` junto
+  al contorno y en vetas largas y onduladas que corren a lo largo del chorro, se rizan en gancho como agua revuelta,
+  van a trozos y se arrastran hacia fuera (antes las vetas seguían el contorno y de cerca dibujaban una lágrima). 0,65 para la banda ancha del
+  barrido (largo 9 y radio 1,15 a 1,5), que es casi igual de gruesa de punta a punta. La llama del antebrazo
   mientras carga (2:09) es este mismo chorro, corto, que sale de la mano hacia atrás y hacia fuera del cuerpo (largo
-  3,2, radio 1,1 y `prm.z` 0,35; nunca hacia el hombro: entonces cruzaba el cuerpo y se veía una salchicha dorada
+  3,4, radio 1,1 y `prm.z` 0,55: en el 2:09 ya sale ancha de la mano; nunca hacia el hombro: entonces cruzaba el cuerpo y se veía una salchicha dorada
   alrededor de Ace). Antes era el chorro recorrido, una salchicha lisa con cuatro líneas; una fila de bolas con la
   paleta 18 se veía como una oruga de discos. Referencia del banco: `docs/banco/st-elmo.jpg`.
 - **Lanza (7)**: un trazo largo y limpio que se abre poco a poco desde una punta afilada, con dos rayas sueltas al
-  lado. `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
+  lado. (Las estelas del Hiken, paleta 14, van sin ellas.) `prm.z` = 0: afilada por delante (las lanzas de Shiranui, 2:11). `prm.z` = 1: afilada por detrás y ancha por
   delante (las balas de Higan, 0:57). `prm.z` = 2: la columna de St. Elmo (2:11-2:12), afilada por delante pero que
   se abre enseguida (en el primer 30 % del largo) y sigue del mismo ancho hasta atrás; de lado es una raya gorda en
   punta y desde arriba una columna pálida de ancho parejo. El grosor máximo es 1,25 veces `prm.y` y, de punta a punta, la lanza mide 1,55 veces
@@ -234,17 +241,19 @@ Paleta de cada forma cuando `VolStyle.y` es 0: bola 2 (el sol, 6), puño 1, colu
 
 El fuego que envuelve a Ace cuando arde (2:29-2:31 y 2:53-2:55). En anime no se recorre como un volumen: es un dibujo
 plano en una lámina que pasa por el eje del cuerpo y mira siempre a la cámara. Una masa dorada y lisa detrás del cuerpo
-de la que salen dieciséis brazos de fuego gordos (tres de ellos, de los pies) que nacen, crecen hacia fuera y hacia
-arriba, se rizan en la punta como una ola y se recogen, cada uno con su ciclo de 1,2 a 2 segundos; la orilla va en
+(de 0,62 de medio ancho, más ancha que el cuerpo) de la que salen dieciséis brazos de fuego gordos (tres de ellos, de
+los pies), de 1,7 a 3,2 bloques de largo, que nacen, crecen hacia fuera y hacia arriba, se rizan en la punta como una ola y se recogen, cada uno con su ciclo de 1,2 a 2 segundos; la orilla va en
 bultos redondos con el surco afilado entre uno y otro, hay huecos de cielo entre los brazos, y todo el contorno lleva
-por dentro una orilla pálida y blanda y por fuera un halo corto. El cuerpo, que queda delante de la lámina, tapa el
+por dentro una orilla pálida y blanda y por fuera un halo corto. Por dentro, unas pocas vetas pálidas onduladas que
+suben con las llamas y se rizan, a trozos (2:29-2:30; muy juntas parecían rayas de tigre). El cuerpo, que queda delante de la lámina, tapa el
 centro: se ve entero y el fuego asoma por su contorno. Antes era una funda recorrida con lenguas rotas, agujeros y
 manchas pálidas por dentro. Lo hace el sombreador solo: el Java manda el mismo volumen. En primera persona (la cámara a
 menos de medio bloque del eje) no se dibuja. Referencia del banco: `docs/banco/cuerpo-en-llamas.jpg`.
 
 - Origen en los pies, `dir` horizontal (hacia donde mira el cuerpo), +Y arriba.
 - `prm`: x = radio del cuerpo (0,45), y = alto (1,9), z = fuerza de las llamas de 0 a 1, w = fase de 0 a 1.
-- Su esfera envolvente es la de la llama (la rama `default` de `MeraVolumes.bound`): no hay que tocar nada.
+- Su esfera envolvente es la de la llama (la rama `default` de `MeraVolumes.bound`) multiplicada por 1,3 en anime (los
+  brazos largos se salían y quedaban cortados en redondo); en realista, la de siempre.
 - Solo para el estilo anime y solo para quien se ve desde fuera. En realista se sigue usando lo de siempre.
 
 ## Lo que no es volumen (Java)
@@ -265,7 +274,7 @@ En estilo anime:
 
 | Técnica | Paleta | Cómo es en el vídeo |
 | --- | --- | --- |
-| Hiken | 1, 16 y 14 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con el amarillo muy ancho (de lado se ve casi tanto amarillo como rojo) y el borde de dentro subiendo y bajando como las llamas, bandas amarillas anchas que cruzan la masa roja a lo largo y la parten en dos o tres manchas (0:33; las pinta el sombreador, solo en el cuerpo de fuego y no en el puño) y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). El golpe es una media bola roja y limpia con el filo amarillo (bola con paleta 16, 0:36) y, para quien queda dentro, la pantalla roja con cuñas amarillas y esquirlas negras (otra bola en el mismo sitio con paleta 1 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 0:37; ese fotograma se dibuja el último de todos los volúmenes, para que ningún otro fuego lo tape). Después quedan tres segundos y medio de lo que deja el golpe (0:38-0:41, referencia del banco en `docs/banco/final-hiken.jpg`), colocado cada fotograma de cara a quien mira: con `v` la dirección horizontal de la cámara al golpe, `r` su derecha, `g` el suelo bajo el golpe y `s` la distancia horizontal de la cámara al golpe partida por 19 (entre 0,7 y 1,2), que multiplica todas las medidas. Un tronco rojo vertical que sube del golpe (lanza con paleta 14, ancho del borde 0,30 y `prm.z` = 2, largo 30, radio 1,4, centro a 15,25 sobre el suelo, apenas inclinada); siete estelas largas que atraviesan todo el cielo casi tendidas, a distintas alturas, y se cruzan lejos del tronco (lanzas con paleta 14, ancho del borde 0,30 y `prm.z` = 2, largo 40 a 54, radio 0,60 a 0,90, altura de 2 a 24, con el centro hasta 13 bloques a cada lado y de 1 por delante a 6 por detrás del golpe, con 7 grados de inclinación y 8 de giro como mucho, y dos en diagonal, la segunda y la quinta, a 12-18 grados); un aro fino y pálido, inclinado, a media altura del tronco (anillo con paleta 11, radio 6, alto 0,3 y medio grosor 0,14, a 10 sobre el suelo, con el eje girado 65 grados respecto a la cámara y levantado 0,2 radianes); y nueve bolas de polvo blanco a ras de suelo a los lados del tronco (bolas con `prm.y` = 1, radio 1,8 a 3). Antes eran 10 chorros con rumbo al azar, tres llamas finas y un tronco por donde pasó el puño, y desde atrás se veía un revoltijo; después siete chorros gordos y rojos, apiñados en una franja, con un tronco demasiado grueso; después nueve estelas finas casi paralelas, que no se cruzaban como en el 0:38; y después siete con el centro a menos de 5 bloques del tronco y tres diagonales empinadas, que en el juego salían en estrella desde el tronco. El golpe del Hiken no se enfría en humo blanco: la bola sigue siendo fuego y se apaga pronto (ya no está cuando se ven los chorros). |
+| Hiken | 1, 16 y 14 | Un puño enorme y redondo: masa roja, borde amarillo, líneas amarillas entre los dedos. Va dibujado encima de su cuerpo de fuego, con su propio contorno (0:32). Detrás, un cuerpo de fuego que se ensancha hasta el doble del puño (un cometa, 0:34), con el amarillo muy ancho (de lado se ve casi tanto amarillo como rojo) y el borde de dentro subiendo y bajando como las llamas, bandas amarillas anchas que cruzan la masa roja a lo largo y la parten en dos o tres manchas (0:33; las pinta el sombreador, solo en el cuerpo de fuego y no en el puño) y cintas amarillas finas que se rizan alrededor. Al salir del brazo, masas rojas con manchas negras (bolas con paleta 1, 0:24). El golpe es una media bola roja y limpia con el filo amarillo (bola con paleta 16, 0:36) y, para quien queda dentro, la pantalla roja con cuñas amarillas y esquirlas negras (otra bola en el mismo sitio con paleta 1 y `VolStyle.w` de 2 a 3, que solo pone el fotograma, 0:37; ese fotograma se dibuja el último de todos los volúmenes, para que ningún otro fuego lo tape). Después quedan tres segundos y medio de lo que deja el golpe (0:38-0:41, referencia del banco en `docs/banco/final-hiken.jpg`), colocado cada fotograma de cara a quien mira: con `v` la dirección horizontal de la cámara al golpe, `r` su derecha, `g` el suelo bajo el golpe y `s` la distancia horizontal de la cámara al golpe partida por 19 (entre 0,7 y 1,2), que multiplica todas las medidas. Un tronco rojo vertical que sube del golpe (lanza con paleta 14, ancho del borde 0,30 y `prm.z` = 2, largo 30, radio 1,4, centro a 15,25 sobre el suelo, apenas inclinada); seis estelas gordas que atraviesan todo el cielo y se cruzan en X lejos del tronco, sin rayitas sueltas al lado (lanzas con paleta 14, ancho del borde 0,30 y `prm.z` = 2, todas de lado respecto a la cámara, sin giro, en este orden, dando a lo largo `r`, a lo hondo `v`, altura sobre el suelo, inclinación hacia la derecha de la cámara, largo y radio: 0, 3, 3,5, +3°, 50, 1,15 · −9, 1, 19, +26°, 44, 1,0 · −9, 4, 19, −20°, 46, 1,05 · 6, 2, 10, −6°, 48, 1,1 · 10, 5, 23, +12°, 42, 0,95 · −2, 0, 27, −4°, 52, 1,0; la segunda y la tercera forman la X de arriba a la izquierda del 0:38); un aro fino y pálido, inclinado, a media altura del tronco (anillo con paleta 11, radio 6, alto 0,3 y medio grosor 0,14, a 10 sobre el suelo, con el eje girado 65 grados respecto a la cámara y levantado 0,2 radianes); y nueve bolas de polvo blanco a ras de suelo a los lados del tronco (bolas con `prm.y` = 1, radio 1,8 a 3). Antes eran 10 chorros con rumbo al azar, tres llamas finas y un tronco por donde pasó el puño, y desde atrás se veía un revoltijo; después siete chorros gordos y rojos, apiñados en una franja, con un tronco demasiado grueso; después nueve estelas finas casi paralelas, que no se cruzaban como en el 0:38; y después siete con el centro a menos de 5 bloques del tronco y tres diagonales empinadas, que en el juego salían en estrella desde el tronco; y después siete casi tendidas con dos diagonales suaves, que con sus rayitas sueltas se veían como un fajo de espaguetis paralelos. El golpe del Hiken no se enfría en humo blanco: la bola sigue siendo fuego y se apaga pronto (ya no está cuando se ven los chorros). |
 | Kagerō | 15 y 2 | Un haz estrecho que acaba en punta, naranja con rayas rojas y el filo amarillo (chorro con radio pedido 2,2 o más, 0:02); al dar en el blanco, una nube blanca y, el primer medio segundo, bolas amarillas con el borde rojo anaranjado (bolas con paleta 2, de 1,6 a 2,4 de radio, 0:17). |
 | Higan | 11 | Cuñas amarillo pálido con el filo dorado blando: nacen en punta junto a Ace y se abren hacia delante (lanza con `prm.z` = 1, sin bola en la cabeza). |
 | Hibashira | 10, 9, 20 y 22 | Primero el remolino: un aro rojo que gira alrededor de Ace a la altura de la cintura, con llamas amarillas en el brazo (anillo con `prm.w` = 2), que va creciendo hasta ser casi todo llama amarilla pálida (`prm.w` de 2 a 2,49). Al salir la columna, quien está dentro ve la pantalla roja con llamas amarillas (1:14). Después el haz recto amarillo pálido, fino y alto (columna con radio pedido 2,1), pegado a él un muro de humo melocotón (anillo con `prm.w` = 1,25 y paleta 22) y detrás una masa roja con racimos de llamas amarillas (anillo con `prm.w` = 1,25 y paleta 20, 1:16-1:18). |
