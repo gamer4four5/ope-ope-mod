@@ -434,6 +434,20 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         nb = vec3(p.x / (L * mix(1.5, 1.1, cur)), p.y / (L * mix(1.5, 3.6, cur)) - time * mix(1.2, 1.9, cur), p.z / (L * mix(1.5, 1.1, cur)));
         // y abajo casi sin huecos: la masa se abre en lenguas sobre todo en la mitad de arriba
         amp = mix(L * mix(0.55, 0.45, cur), H * mix(0.45, 0.34, cur), mix(v, v * v, cur));
+        if (mf_toon > 0.5 && prm.w < 0.5 && R <= th * 1.05 && VolStyle.y > 1.5 && VolStyle.y < 2.5) {
+            // DISCO_PLANO (anime, 2:59) el disco del Dai Enkai: antes era una torta gorda con el borde caído; en la
+            // serie es una lámina plana en el suelo con la orilla en llamitas pequeñas
+            float ang = atan(p.z, p.x);
+            vec2 cs = vec2(cos(ang), sin(ang));
+            float en = mf_gnoise(vec3(cs * 3.0, time * 1.6)) + 0.5 * mf_gnoise(vec3(cs * 3.0 * 2.4, time * 2.7 + 5.0));
+            float Ro = (R + th) * (1.0 + 0.06 * en);
+            vec2 e = vec2(length(p.xz) - Ro, abs(p.y - 0.5 * (0.10 - 0.2)) - 0.5 * (0.10 + 0.2));
+            d = min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
+            mf_lip = 1.0;
+            L = 0.20;
+            u = 0.0;
+            amp = L * 0.20;
+        }
         if (mf_toon > 0.5 && prm.w > 1.5) {
             // (anime) el remolino de Hibashira (1:12): una media luna plana que gira alrededor de Ace, gruesa en el
             // medio y en punta en los extremos, con la cola más abierta
@@ -1651,18 +1665,21 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
         float eo = (lr - R0) / th;                           // -1 la orilla de dentro, +1 la de fuera
         float edge = (R0 > th * 1.05) ? abs(eo) : eo;        // (un disco lleno no tiene orilla de dentro)
         float wr = mf_gnoise(vec3(p0.xz * 1.4, tm * 1.3) + so);
-        float rimK = mf_aastep(0.80 + 0.16 * wr, edge);
+        float rimK = mf_aastep(((R0 <= th * 1.05) ? 0.90 : 0.80) + 0.16 * wr, edge);
         // los aros: uno cada bloque más o menos (un disco grande lleva muchos, como en el 2:59,5), ondulados y casi
         // seguidos, amarillos con el centro pálido, que corren hacia fuera
-        float nR = max(3.0, (R0 + th) / 0.65);
+        // (el disco lleno del Dai Enkai, 2:59: el centro liso y dos aros dobles cerca de la orilla)
+        float full = (R0 <= th * 1.05) ? 1.0 : 0.0;
+        float nR = (full > 0.5) ? 4.2 : max(3.0, (R0 + th) / 0.65);
         float ang = atan(p0.z, p0.x);
         float wv = mf_gnoise(vec3(p0.xz * 1.9, tm * 1.1) + so.zxy) + 0.5 * mf_gnoise(vec3(p0.xz * 4.3, tm * 1.7) + so);
-        float ph = q * nR - tm * 1.5 + 0.22 * wv;
+        float ph = q * nR - tm * 1.5 + ((full > 0.5) ? 0.10 : 0.22) * wv;
         float fr = abs(fract(ph) - 0.5);
         float brk = mf_gnoise(vec3(cos(ang) * 2.6, sin(ang) * 2.6, floor(ph) * 3.7) + so.yzx);
         float gate = mf_aastep(-0.62, brk) * step(0.5, ph + tm * 1.5);
-        float ring = (1.0 - mf_aastep(0.18, fr)) * gate;
-        float ringC = (1.0 - mf_aastep(0.07, fr)) * gate;
+        if (full > 0.5) gate *= mf_aastep(0.52, q);
+        float ring = (1.0 - mf_aastep((full > 0.5) ? 0.26 : 0.18, fr)) * gate;
+        float ringC = (1.0 - mf_aastep((full > 0.5) ? 0.08 : 0.07, fr)) * gate;
         vec3 cBase = mix(cRim, cFill, 0.45);
         c = mix(cBase, cFill, ring);
         c = mix(c, mix(cFill, cCore, 0.6), ringC);
