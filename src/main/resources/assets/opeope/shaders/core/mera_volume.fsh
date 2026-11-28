@@ -2250,6 +2250,15 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     } else {
         c = mix(c, cCore, bCore);
     }
+    if (pal > 2.5 && pal < 3.5 && shape > 2.5 && shape < 3.5 && prm.w > 1.5 && prm.w < 2.5 && 1.0 > 0.5) {
+        // el remolino dorado del Enkai (1:25): trazos pálidos cortos y finos, tendidos a lo largo del giro y un poco
+        // en espiral, que giran con él (liso, de lejos o desde arriba, era una masa amarilla sin dibujo)
+        float rq = length(p0.xz);
+        float aq = atan(p0.z, p0.x) - tm * 4.5 + 0.6 * rq / max(prm.x, 0.5);
+        vec3 pq = vec3(cos(aq) * 1.0, sin(aq) * 1.0, rq / 0.15 + p0.y / 0.25);
+        float tq = mf_gnoise(pq + so.zxy) + 0.5 * mf_gnoise(pq * 2.1 + so);
+        c = mix(c, vec3(0.996, 0.925, 0.660), bFill * mf_aastep(0.45, tq));
+    }
     if (shape < 0.5 && prm.w > 1.5 && (pal < 12.5 || pal > 13.5) && (pal < 4.5 || pal > 5.5)) {
         // el sol de Entei: unas pocas llamaradas finas tendidas sobre su cara, amarillo dorado, onduladas y afiladas
         // por las dos puntas (3:06-3:12). Van pintadas en la superficie (antes eran cintas y salían rectas y a trozos)
