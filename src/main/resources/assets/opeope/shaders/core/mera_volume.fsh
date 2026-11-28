@@ -1501,7 +1501,7 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     // las olas de los cantos: bultos redondos en fila, con una muesca entre uno y otro que se riza como el hueco de
     // una ola; nacen cerca de la mano y corren hacia fuera creciendo
     // (cuantas más largo, más olas: una cada 0.9 radios, entre 3 y 12 por canto)
-    float nW = clamp(floor(Lj / (0.9 * Re) + 0.5), 3.0, float(12));
+    float nW = clamp(floor(Lj / (mix(0.9, 1.5, step(0.5, s0)) * Re) + 0.5), 3.0, float(12));
     for (int i = 0; i < 2 * 12; i++) {
         float fi = float(i);
         float sd = (i < 12) ? 1.0 : -1.0;

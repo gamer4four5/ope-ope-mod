@@ -157,7 +157,9 @@ radio entero (1 − (1 − v)^2,2) y acaba redonda; el ancho ondula despacio a l
   atrás (lejos de la mano) y se curvan un poco, fundidas con el cuerpo, con un hueco de cielo entre una y otra, que
   nacen cerca de la mano y corren hacia fuera creciendo (una cada 0,9 radios de largo, entre 3 y 12 por canto, de
   tamaños distintos; si la banda sale ancha de la mano, `prm.z` 0,5 o más, ya tienen casi todo su tamaño al 6 % del
-  largo, así que hay olas desde la muñeca como en el 2:09 y el 2:10, y si sale fina, al 22 %), como las llamas del 2:09-2:10 (antes eran brazos finos y largos rizados en gancho: con el chorro
+  largo, así que hay olas desde la muñeca como en el 2:09 y el 2:10, y si sale fina, al 22 %; en la banda ancha van
+  más separadas, una cada 1,5 radios, y salen pocas olas grandes y redondas como en el video: con una cada 0,9 radios
+  eran muchos bultos pequeños y de lejos la llama parecía una nube grumosa), como las llamas del 2:09-2:10 (antes eran brazos finos y largos rizados en gancho: con el chorro
   fino parecían una espina de pescado o una oruga). El final ya no se hincha: acaba redondo con el mismo ancho. En la mano no acaba en un corte: acaba redonda (la mano la tapa). Dorada por dentro, pálida `#fdeaa3` junto
   al contorno y en vetas largas y onduladas que corren a lo largo del chorro, se rizan en gancho como agua revuelta
   (como mármol: muy torcidas, no franjas paralelas de tigre), van a trozos y se arrastran hacia fuera (antes las vetas seguían el contorno y de cerca dibujaban una lágrima). 0,65 para la banda del
