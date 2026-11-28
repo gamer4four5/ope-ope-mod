@@ -1511,7 +1511,7 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         float x = fract((kw + 0.5 * (1.0 - sd) * 0.5 + 0.25 * h.x) / nW + tm * 0.45 * 3.2 / Lj);
         float xe = 1.0 - pow(1.0 - x, 2.2);
         float hwi = Re * (s0 + (1.0 - s0) * xe + 0.0 * smoothstep(0.6, 1.0, x)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, x) * mf_gnoise(vec3(x * Lj / Re * 0.35, tm * 0.5, 3.3) + so));
-        float grow = smoothstep(0.0, 0.22, x) * (1.0 - smoothstep(0.62, 1.0, x));
+        float grow = smoothstep(0.0, mix(0.22, 0.06, step(0.5, s0)), x) * (1.0 - smoothstep(0.62, 1.0, x));
         float rho = 0.75 * hwi * (1.0 - 0.5 * 0.8 + 0.8 * h.y) * grow;
         if (rho < 0.03 * Re) continue;
         vec2 ci = vec2(x * Lj, sd * hwi * (1.0 - 0.2) * 0.85);
