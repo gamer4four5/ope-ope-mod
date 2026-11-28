@@ -435,7 +435,7 @@ void mf_shape(vec3 p, float shape, vec4 prm, float time,
         // y abajo casi sin huecos: la masa se abre en lenguas sobre todo en la mitad de arriba
         amp = mix(L * mix(0.55, 0.45, cur), H * mix(0.45, 0.34, cur), mix(v, v * v, cur));
         if (mf_toon > 0.5 && prm.w < 0.5 && R <= th * 1.05 && VolStyle.y > 1.5 && VolStyle.y < 2.5) {
-            // DISCO_PLANO (anime, 2:59) el disco del Dai Enkai: antes era una torta gorda con el borde caído; en la
+            // DIS1.8LANO (anime, 2:59) el disco del Dai Enkai: antes era una torta gorda con el borde caído; en la
             // serie es una lámina plana en el suelo con la orilla en llamitas pequeñas
             float ang = atan(p.z, p.x);
             vec2 cs = vec2(cos(ang), sin(ang));
@@ -1747,6 +1747,34 @@ float mf_toonField(vec3 p, float shape, vec4 prm, float tm, vec3 so, float shrin
     return d + mix(ampB * nB, amp * nT, w);
 }
 
+// La corona del sol de Entei mientras nace (3:06): un fleco ancho de llamas en punta que salen del borde, amarillas
+// pegadas al sol, después naranjas y rojas hacia fuera. Se dibuja plana, en el plano que pasa por el centro de cara a
+// la cámara, por fuera del contorno del sol (el sol, delante, la tapa por dentro). Devuelve el color y la opacidad.
+vec4 mf_sunCorona(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float tm, vec3 so)
+{
+    float R = max(prm.x, 0.05);
+    if (length(ro) < R * 1.05) return vec4(0.0);
+    float tc = -dot(ro, rd);
+    if (tc <= max(tNear, 0.0) || tc >= tFar) return vec4(0.0);
+    vec3 pc = ro + rd * tc;
+    float rr = length(pc) / R;
+    if (rr < 0.9 || rr > 1.0 + 2.0 * 0.35) return vec4(0.0);
+    vec3 ax = normalize(-ro);
+    vec3 e1 = normalize(cross(ax, vec3(0.0, 1.0, 0.0)) + vec3(1.0e-4, 0.0, 0.0));
+    vec3 e2 = cross(ax, e1);
+    vec2 n2 = normalize(vec2(dot(pc, e1), dot(pc, e2)) + vec2(1.0e-5));
+    // el largo de cada lengua: una onda lenta y, encima, picos afilados (el surco de una onda en valor absoluto)
+    float f1 = 0.5 + 0.5 * mf_gnoise(vec3(n2 * 3.5, tm * 0.9) + so);
+    float f2 = abs(mf_gnoise(vec3(n2 * 3.5 * 2.2, tm * 1.6) + so.yzx));
+    float ro_ = 1.0 + 0.35 * (0.25 + 0.75 * f1) * (0.45 + 0.55 * (1.0 - min(1.8 * f2, 1.0)));
+    float a = 1.0 - mf_aastep(ro_, rr);
+    float x = clamp((rr - 1.0) / max(ro_ - 1.0, 1.0e-3), 0.0, 1.0);
+    vec3 col = vec3(0.996, 0.840, 0.290);
+    col = mix(col, vec3(0.965, 0.560, 0.150), mf_aastep(0.40, x));
+    col = mix(col, vec3(0.910, 0.330, 0.240), mf_aastep(0.75, x));
+    return vec4(col, a);
+}
+
 vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
                   float shape, vec4 prm, float time, float seed, float intensity, float nearFade, float pixAng)
 {
@@ -1947,11 +1975,16 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     }
     // las cintas: trazos finos del color del borde, por delante o por detrás del cuerpo según dónde pasan
     float ribA = (ribMin < 1.0e4) ? (1.0 - mf_aastep(0.0, ribMin)) * intensity : 0.0;
+    // (el sol naciendo, paleta 17: su corona de llamas, plana, por fuera del contorno)
+    bool corS = (pal > 16.5 && pal < 17.5 && shape < 0.5 && 1.0 > 0.5);
+    vec4 cor = corS ? mf_sunCorona(ro, rd, tNear, tFar, prm, tm, so) * vec4(1.0, 1.0, 1.0, smoothstep(0.0, 0.12, intensity)) : vec4(0.0);
     if (pen <= 0.0 || t0 < 0.0) {
         float a0 = ribA;
-        float g0 = gl * (1.0 - a0);
-        if (a0 + g0 < 0.004) return vec4(0.0);
-        return vec4(cRim * a0 + cGlow * g0, a0 + g0 * 0.75);
+        vec3 cc = cRim * a0 + cor.rgb * cor.a * (1.0 - a0);
+        float aa = a0 + cor.a * (1.0 - a0);
+        float g0 = gl * (1.0 - aa);
+        if (aa + g0 < 0.004) return vec4(0.0);
+        return vec4(cc + cGlow * g0, aa + g0 * 0.75);
     }
 
     // dónde toca primero el rayo: la normal y los surcos (un punto un poco hacia fuera está cerca de otra pared)
@@ -2248,6 +2281,11 @@ vec4 mfRenderToon0(vec3 ro, vec3 rd, float tNear, float tFar,
     if (pal > 21.5) { float skN = smoothstep(6.0, 7.5, length(ro.xz)); a *= skN; gl *= skN; }
     a *= colT;
     vec4 outc = vec4(c * a + cGlow * gl * (1.0 - a), a + gl * 0.75 * (1.0 - a));
+    if (corS) {
+        vec3 cc = c * a + cor.rgb * cor.a * (1.0 - a);
+        float aa = a + cor.a * (1.0 - a);
+        outc = vec4(cc + cGlow * gl * (1.0 - aa), aa + gl * 0.75 * (1.0 - aa));
+    }
     // la hoguera pálida deja ver un poco lo que arde dentro (las siluetas del 1:54)
     // (solo con la cámara dentro o pegada: de lejos, por la base se veía el suelo y la hoguera parecía hueca)
     if (pal > 18.5 && pal < 19.5) outc *= 1.0 - 0.14 * veil * (1.0 - smoothstep(1.0, 1.5, length(ro) / max(prm.x, 0.05)));
