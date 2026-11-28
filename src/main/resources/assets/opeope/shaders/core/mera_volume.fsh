@@ -1252,8 +1252,12 @@ float mf_wallF(float xa, float y, float H0, float hlf, float tm, vec3 so)
     // la altura cambia despacio a lo largo; en los extremos del muro baja hasta el suelo
     float hv = mf_gnoise(vec3(xa * 0.22, tm * 0.5, 2.7) + so);
     // (la rampa de los extremos: recta e inclinada, como el filo del muro en el 2:46, sin pasar de casi la mitad del muro)
-    float e = clamp((hlf - abs(xa)) / min(max(2.5, 0.0 * H0), 0.45 * hlf), 0.0, 1.0);
-    float H = H0 * (0.86 + 0.22 * hv) * mix(0.03, 1.0, mix(e * (2.0 - e), e, 1.0));
+    // (y el filo no es una raya: se va un poco hacia fuera al subir y saca lenguas de lado que suben)
+    // (las puntas de las lenguas llegan al extremo; entre una y otra, y abajo, el filo queda más adentro)
+    // (en un muro corto, menos: no se vuelve una hoguera)
+    float ej = min(1.6, 0.18 * hlf) * min(2.5 * abs(mf_gnoise(vec3(y / 2.0 - tm * 0.9, xa * 0.05, 4.1) + so.zyx)), 1.0);
+    float e = clamp((hlf - ej - min(0.08 * max(0.85 * H0 - y, 0.0), 0.10 * hlf) - abs(xa)) / min(max(2.5, 0.0 * H0), 0.45 * hlf), 0.0, 1.0);
+    float H = H0 * (0.86 + 0.22 * hv) * mix(0.0, 1.0, mix(e * (2.0 - e), e, 1.0));
     // las llamas: las crestas afiladas de un ruido estirado hacia arriba (cada cresta, una punta), en dos tamaños
     // (se mecen a los lados según suben: llamas curvas, no agujas)
     float xs = xa + 0.15 * y + 0.6 * mf_gnoise(vec3(xa * 0.33, y * 0.45 - tm * 0.7, 9.1) + so);
@@ -1409,7 +1413,7 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     mf_toonPal((VolStyle.y > 0.5) ? VolStyle.y : 3.0, cRim, cVein, cFill, cCore, cGlow, k, gk);
     // las orillas ondulan
     vec2 w = q + 0.10 * vec2(mf_gnoise(vec3(q * 2.2, tm * 1.3) + so), mf_gnoise(vec3(q * 2.2 + 7.3, tm * 1.3) + so.zxy));
-    float d = (length((w - vec2(0.0, 1.05)) / vec2(0.62, 1.15)) - 1.0) * 0.62;
+    float d = (length((w - vec2(0.0, 1.05)) / vec2(0.5, 1.15)) - 1.0) * 0.5;
     for (int i = 0; i < 16; i++) {
         float fi = float(i);
         vec3 h0 = mf_hash33(vec3(fi, 3.0, 11.0) + floor(so));
@@ -1422,14 +1426,14 @@ vec4 mf_auraDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         float low = (i < 3) ? 1.0 : 0.0;                    // dos nacen a los pies; los demás, del tronco y la cabeza
         vec2 b = vec2(sd * (0.08 + 0.22 * h.x), mix(0.55 + 1.35 * h.y, 0.05 + 0.25 * h.y, low) + 0.25 * u);
         float ph = sd * radians(mix(12.0 + 78.0 * h.z, 40.0 + 40.0 * h.z, low));
-        float len = (1.7 + 1.5 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
+        float len = (1.1 + 0.9 * g.x) * mix(1.0, 0.6, low) * (0.30 + 0.70 * smoothstep(0.0, 0.45, u));
         // (los que nacen altos, más cortos: ninguno se sale de la esfera que envuelve el aura)
         len *= mix(1.0, 0.7, smoothstep(1.2, 1.9, b.y));
         float curl = -sd * (1.6 + 1.4 * g.y) * (0.45 + 0.55 * u) * ((g.z < 0.3) ? -1.0 : 1.0);
         // (al apagarse se recoge hacia el cuerpo; si adelgazara, quedaría un hilo)
         float out_ = smoothstep(0.70, 1.0, u);
         len *= 1.0 - out_;
-        float w0 = (0.30 + 0.16 * g.z) * (1.0 - 0.4 * out_) * smoothstep(0.0, 0.10, u);
+        float w0 = (0.20 + 0.12 * g.z) * (1.0 - 0.4 * out_) * smoothstep(0.0, 0.10, u);
         if (len > 0.12) d = mf_smin(d, mf_armD(w, b, ph, len, curl, w0), 0.10);
     }
     // la orilla, en bultos redondos con el surco afilado entre uno y otro (como nubes), que suben
@@ -1485,14 +1489,14 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
     float v = clamp(w.x / Lj, 0.0, 1.0);
     // (se abre deprisa al salir de la mano y luego casi igual; el ancho ondula despacio a lo largo, como en el barrido)
     float ve = 1.0 - pow(1.0 - v, 2.2);
-    float hw = Re * (s0 + (1.0 - s0) * ve + 0.20 * smoothstep(0.6, 1.0, v)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, v) * mf_gnoise(vec3(w.x / Re * 0.35, tm * 0.5, 3.3) + so));
+    float hw = Re * (s0 + (1.0 - s0) * ve + 0.0 * smoothstep(0.6, 1.0, v)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, v) * mf_gnoise(vec3(w.x / Re * 0.35, tm * 0.5, 3.3) + so));
     float zc = max(w.x - 0.78 * Lj, 0.0) * hw / ((1.0 - 0.78) * Lj);
     // (en la mano no acaba cortado: redondo, y la mano lo tapa)
-    float d = length(vec2(w.y, zc + max(-w.x, 0.0) * 1.0)) - hw * (1.0 - 0.35);
+    float d = length(vec2(w.y, zc + max(-w.x, 0.0) * 1.0)) - hw * (1.0 - 0.2);
     // las olas de los cantos: bultos redondos en fila, con una muesca entre uno y otro que se riza como el hueco de
     // una ola; nacen cerca de la mano y corren hacia fuera creciendo
-    // (cuantas más largo, más olas: una cada 0.5 radios, entre 3 y 12 por canto)
-    float nW = clamp(floor(Lj / (0.5 * Re) + 0.5), 3.0, float(12));
+    // (cuantas más largo, más olas: una cada 0.9 radios, entre 3 y 12 por canto)
+    float nW = clamp(floor(Lj / (0.9 * Re) + 0.5), 3.0, float(12));
     for (int i = 0; i < 2 * 12; i++) {
         float fi = float(i);
         float sd = (i < 12) ? 1.0 : -1.0;
@@ -1501,15 +1505,15 @@ vec4 mf_bandDraw(vec3 ro, vec3 rd, float tNear, float tFar, vec4 prm, float time
         vec3 h = mf_hash33(vec3(fi, 7.0, 3.0) + floor(so));
         float x = fract((kw + 0.5 * (1.0 - sd) * 0.5 + 0.25 * h.x) / nW + tm * 0.45 * 3.2 / Lj);
         float xe = 1.0 - pow(1.0 - x, 2.2);
-        float hwi = Re * (s0 + (1.0 - s0) * xe + 0.20 * smoothstep(0.6, 1.0, x)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, x) * mf_gnoise(vec3(x * Lj / Re * 0.35, tm * 0.5, 3.3) + so));
+        float hwi = Re * (s0 + (1.0 - s0) * xe + 0.0 * smoothstep(0.6, 1.0, x)) * (1.0 + 0.18 * smoothstep(0.0, 0.3, x) * mf_gnoise(vec3(x * Lj / Re * 0.35, tm * 0.5, 3.3) + so));
         float grow = smoothstep(0.0, 0.22, x) * (1.0 - smoothstep(0.62, 1.0, x));
-        float rho = 0.55 * hwi * (1.0 - 0.5 * 0.8 + 0.8 * h.y) * grow;
+        float rho = 0.75 * hwi * (1.0 - 0.5 * 0.8 + 0.8 * h.y) * grow;
         if (rho < 0.03 * Re) continue;
-        vec2 ci = vec2(x * Lj, sd * hwi * (1.0 - 0.35) * 0.85);
+        vec2 ci = vec2(x * Lj, sd * hwi * (1.0 - 0.2) * 0.85);
         // cada ola es un brazo gordo que sale del canto inclinado hacia fuera de la mano y se riza hacia delante
-        float ph = (sd > 0.0) ? 0.55 : 3.14159265 - 0.55;
-        float curl = sd * 2.6 * (0.75 + 0.5 * h.z);
-        d = mf_smin(d, mf_armD(w, ci, ph, 2.2 * rho, curl, 0.42 * rho), 0.12 * rho);
+        float ph = (sd > 0.0) ? 0.8 : 3.14159265 - 0.8;
+        float curl = sd * 0.6 * (0.75 + 0.5 * h.z);
+        d = mf_smin(d, mf_armD(w, ci, ph, 1.0 * rho, curl, 1.0 * rho), 0.35 * rho);
     }
     // la orilla, en bultos pequeños
     float bn = abs(mf_gnoise(vec3(q / Re * 3.0, tm * 0.8) + so.yzx));
